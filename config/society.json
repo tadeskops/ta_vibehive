@@ -38,6 +38,17 @@
     "chairman": "chairman@the-address.example",
     "manager": "manager@the-address.example"
   },
+  "payment": {
+    "upi_vpa": "",
+    "upi_name": "",
+    "upi_note": "Show the ref / UTR of the UPI transaction on the contribute page.",
+    "bank": {
+      "holder": "",
+      "account": "",
+      "ifsc": "",
+      "branch": ""
+    }
+  },
   "social": {
     "label": "The Address community",
     "instagram": "",

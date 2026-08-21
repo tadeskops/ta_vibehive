@@ -196,6 +196,15 @@ async function renderSettings(user) {
     ['receipts.stamp_asset',     'Stamp asset',         'assets/images/TaStampBlue.png'],
     ['contact.chairman',         'Chairman email',      'chairman@example.org'],
     ['contact.manager',          'Manager email',       'manager@example.org'],
+    /* Payment channels used by the Contribute page. When any of these
+     * are set, residents see them on the "How to pay" panel and (for
+     * UPI) get a deep-link into their UPI app. See views/contribute.js. */
+    ['payment.upi_vpa',          'UPI VPA',             'society@bankupi'],
+    ['payment.upi_name',         'UPI payee name',      'The Address CHS Ltd'],
+    ['payment.bank.holder',      'Bank a/c holder',     'The Address CHS Ltd'],
+    ['payment.bank.account',     'Bank account no.',    '123456789012'],
+    ['payment.bank.ifsc',        'Bank IFSC',           'SBIN0001234'],
+    ['payment.bank.branch',      'Bank branch',         'Baner, Pune'],
   ];
 
   const inputs = {};

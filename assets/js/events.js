@@ -131,6 +131,12 @@ export function addContribution(payload, actor) {
     hide_amount: !!payload.hide_amount,
     ref: payload.ref || '',
     remarks: payload.remarks || '',
+    /* Payment proof (screenshot / PDF), stored as a data URL. Compressed
+     * client-side in the contribute view before it lands here so we
+     * don't blow the localStorage quota. Committee uses this to verify. */
+    proof_data_url: payload.proof_data_url || '',
+    proof_name: payload.proof_name || '',
+    proof_size: payload.proof_size || 0,
     status: 'pending',
     receipt: null,
     created_by: actor ? actor.id : payload.contributor,

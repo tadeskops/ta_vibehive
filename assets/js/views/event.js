@@ -204,21 +204,27 @@ async function renderManage(root, evt, user) {
       el('th', { text: 'Contributor' }),
       el('th', { text: 'Flat' }),
       el('th', { text: 'Method' }),
+      el('th', { text: 'Ref / proof' }),
       el('th', { class: 'num', text: 'Amount' }),
       el('th', { text: 'Status' }),
       el('th', { text: 'Actions' })
     )),
-    el('tbody', {}, ...(items.length ? items.map(c => contribRow(c, evt, user)) : [el('tr', {}, el('td', { colspan: 7, text: 'No contributions yet.', style: 'text-align:center;color:var(--muted)' }))]))
+    el('tbody', {}, ...(items.length ? items.map(c => contribRow(c, evt, user)) : [el('tr', {}, el('td', { colspan: 8, text: 'No contributions yet.', style: 'text-align:center;color:var(--muted)' }))]))
   );
   mount(root, head, el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' }, tbl));
 }
 
 function contribRow(c, evt, user) {
+  const proofCell = el('td', {},
+    c.ref ? el('div', { style: 'font-family:ui-monospace,monospace;font-size:12px', text: c.ref }) : el('span', { class: 'sub', text: '—' }),
+    c.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', style: 'margin-top:4px', on: { click: () => openProof(c) } }, '🖼 View proof') : null
+  );
   const tr = el('tr', {},
     el('td', { text: fmtDate(c.created_at) }),
     el('td', { text: c.anonymous ? 'Anonymous' : (c.contributor_name || '—') }),
     el('td', { text: c.anonymous ? '' : (c.flat || '') }),
     el('td', { text: c.method || '—' }),
+    proofCell,
     el('td', { class: 'num', text: fmtINR(c.amount) }),
     el('td', {}, el('span', { class: 'pill ' + (c.status === 'verified' ? 'pill-sage' : c.status === 'void' ? 'pill-muted' : ''), text: c.status })),
     el('td', {}, el('div', { class: 'row' },
@@ -248,4 +254,25 @@ function contribRow(c, evt, user) {
     ))
   );
   return tr;
+}
+
+/* Open a modal with the payment proof. Images render inline; PDFs
+ * offer a "Open in new tab" link because embedding data-URL PDFs in
+ * an iframe fails on most browsers by default (blocked mime handler). */
+function openProof(c) {
+  const isImg = /^data:image\//.test(c.proof_data_url);
+  const body = el('div', {},
+    el('div', { class: 'sub', style: 'margin-bottom:8px' },
+      c.proof_name ? c.proof_name + ' · ' : '',
+      c.proof_size ? '~' + Math.round(c.proof_size / 1024) + ' KB' : ''
+    ),
+    isImg
+      ? el('img', { src: c.proof_data_url, alt: 'payment proof', style: 'max-width:100%;max-height:60vh;border:1px solid var(--line);border-radius:6px' })
+      : el('a', { class: 'btn', href: c.proof_data_url, target: '_blank', rel: 'noopener' }, 'Open PDF in new tab')
+  );
+  modal({
+    title: 'Payment proof · ' + (c.contributor_name || '—'),
+    body,
+    actions: [{ label: 'Close', close: true }]
+  });
 }
