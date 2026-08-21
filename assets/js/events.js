@@ -119,6 +119,26 @@ export function verifiedCount(eventId) {
 
 export function addContribution(payload, actor) {
   const list = state.contribs();
+  /* Enforce the per-event "one contribution per flat" rule at storage
+   * time so a devtools-crafted POST can't sneak past the UI guard in
+   * the contribute view. Non-void prior submissions from the same flat
+   * (case-insensitive, trimmed) or from the same signed-in contributor
+   * id count as duplicates. Flat is empty for anonymous / unusual
+   * submissions, so we skip the flat-match branch in that case. */
+  const evt = state.events().find(e => e.id === payload.event);
+  if (evt && evt.one_per_flat) {
+    const flat = String(payload.flat || '').trim().toLowerCase();
+    const cid  = payload.contributor || null;
+    const dup = list.find(c => c.event === payload.event && c.status !== 'void' && (
+      (flat && String(c.flat || '').trim().toLowerCase() === flat) ||
+      (cid  && c.contributor === cid)
+    ));
+    if (dup) {
+      const err = new Error('This event accepts only ONE contribution per flat. A submission from this flat already exists.');
+      err.code = 'ONE_PER_FLAT';
+      throw err;
+    }
+  }
   const rec = {
     id: uid('c'),
     event: payload.event,
@@ -129,6 +149,10 @@ export function addContribution(payload, actor) {
      * having to look them up in the users list. When on_behalf is true
      * this is the BENEFICIARY's email, not the filler's. */
     contributor_email: payload.contributor_email || '',
+    /* Mobile number (10-digit, starting 6-9) captured on the form.
+     * Used ONLY by the committee for post-submit rectification (wrong
+     * name / flat on a receipt). Never rendered on the public board. */
+    contributor_mobile: payload.contributor_mobile || '',
     flat: payload.flat,
     amount: Number(payload.amount || 0),
     method: payload.method,

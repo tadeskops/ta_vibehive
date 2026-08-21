@@ -20,7 +20,7 @@
  */
 'use strict';
 import { el, mount, fmtINR, toast } from '../dom.js';
-import { findEvent, addContribution } from '../events.js';
+import { findEvent, addContribution, contribsFor } from '../events.js';
 import { isEventOn } from '../features.js';
 import { session } from '../auth.js';
 import { navigate } from '../router.js';
@@ -126,10 +126,12 @@ export async function render(root, { match }) {
      * signed-in user profile; editable so residents can correct a
      * missing flat or type-o. When on_behalf is true, these fields hold
      * the BENEFICIARY's info and the signed-in user's info is captured
-     * separately as `filled_by_*`. */
+     * separately as `filled_by_*`. Mobile is mandatory too so the
+     * committee can call the payer if a receipt needs rectification. */
     contributor_name: user.name || '',
     contributor_email: user.email || '',
     contributor_flat: user.flat || '',
+    contributor_mobile: user.mobile || '',
     on_behalf: false,
   };
 
@@ -180,24 +182,47 @@ export async function render(root, { match }) {
     el('div', { style: 'font-family:ui-monospace,monospace;font-size:14px', text: v })
   );
   const payHint = el('div', { class: 'callout', style: 'margin:14px 0;flex-direction:column;align-items:stretch;gap:10px' });
+  /* Event-level payment override: if the event creator set a per-event
+   * UPI VPA and/or a QR image, prefer those over the society-wide
+   * defaults. Rationale: some events (e.g. a specific sponsor drive)
+   * flow to a dedicated collection account rather than the main
+   * society VPA. Both are validated at event-save time; here we just
+   * fall back to society-level if the event fields are blank. */
+  const evtVpa = (evt.payment_upi_vpa || '').trim();
+  const evtVpaName = (evt.payment_upi_name || '').trim();
+  const evtQr = (evt.payment_qr_data_url || '').trim();
+  const effVpa  = evtVpa  || pay.upi_vpa || '';
+  const effVpaName = evtVpaName || pay.upi_name || soc.short_name;
   function refreshPayHint() {
     payHint.textContent = '';
     if (st.method === 'upi' && upiOn) {
-      if (!pay.upi_vpa) {
-        payHint.append(el('small', { text: 'The committee has not published a UPI ID yet. Please choose Bank or Cash, or ask an admin to add a UPI VPA in Society settings.' }));
+      if (!effVpa && !evtQr) {
+        payHint.append(el('small', { text: 'The committee has not published a UPI ID or QR for this event yet. Please choose Bank or Cash, or ask an admin to add UPI details in event settings.' }));
         return;
       }
-      const intent = upiIntentUrl({ vpa: pay.upi_vpa, name: pay.upi_name || soc.short_name, amount: st.amount, note: `Contribution: ${evt.title}` });
+      /* Build the UPI intent URL via URLSearchParams (see upiIntentUrl).
+       * The `href` scheme is hardcoded to `upi://pay?` so a malformed
+       * VPA cannot smuggle in a different protocol. The anchor uses
+       * `rel="noopener noreferrer"` even though upi:// hands off to the
+       * OS handler \u2014 defense in depth against any future rewrites. */
+      const intent = effVpa ? upiIntentUrl({ vpa: effVpa, name: effVpaName, amount: st.amount, note: `Contribution: ${evt.title}` }) : '';
       payHint.append(
         el('div', { class: 'lbl', text: 'Pay via UPI' }),
         el('div', { class: 'row', style: 'gap:16px;flex-wrap:wrap;align-items:center' },
-          el('div', {},
-            el('div', { style: 'font-weight:700', text: pay.upi_name || soc.short_name }),
-            el('div', { style: 'font-family:ui-monospace,monospace;font-size:14px', text: pay.upi_vpa })
-          ),
-          intent ? el('a', { class: 'btn btn-sm', href: intent }, '📱 Open UPI app') : null
+          effVpa ? el('div', {},
+            el('div', { style: 'font-weight:700', text: effVpaName }),
+            el('div', { style: 'font-family:ui-monospace,monospace;font-size:14px', text: effVpa })
+          ) : null,
+          intent ? el('a', { class: 'btn btn-sm', href: intent, rel: 'noopener noreferrer' }, '📱 Open UPI app') : null
         ),
-        el('small', { text: 'On desktop, use the VPA above in your bank app. On mobile, tap "Open UPI app" and confirm the amount inside the app.' })
+        evtQr ? el('div', { style: 'margin-top:10px' },
+          el('small', { class: 'sub', text: 'Or scan the QR code below with any UPI app:' }),
+          /* QR data URL is validated at event-save time (PNG/JPEG/WebP
+           * only, size-capped, SVG explicitly rejected). Safe to
+           * render as a data-URL <img>. */
+          el('img', { src: evtQr, alt: 'Scan to pay via UPI', style: 'display:block;max-width:220px;margin:8px auto 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px' })
+        ) : null,
+        el('small', { text: 'On desktop, use the VPA above in your bank app. On mobile, tap "Open UPI app" or scan the QR and confirm the amount inside the app.' })
       );
     } else if (st.method === 'bank' && bankOn) {
       if (!bank.account) {
@@ -222,23 +247,22 @@ export async function render(root, { match }) {
     }
   }
 
-  /* ---------- Payment proof upload ---------- */
+  /* ---------- Payment proof upload ----------
+   * Proof pairs with the UPI/UTR reference under a shared "Payment
+   * verification (any one)" group — either the reference OR the proof
+   * satisfies the requirement, so we do NOT mark the proof label with
+   * a standalone `*`. The `*` sits on the group heading so residents
+   * see "one of the two is required" without thinking both are. */
   const proofInp = el('input', { type: 'file', accept: 'image/*,application/pdf' });
-  const proofStatus = el('small', { class: 'sub', text: 'Optional but recommended: a screenshot or PDF of the payment confirmation. Speeds up verification.' });
+  const proofStatus = el('small', { class: 'sub', text: 'Attach a screenshot or PDF of the payment confirmation — used by the committee to verify.' });
   const proofPreview = el('div', {});
-  const proofLabel = el('label', {},
-    el('span', { text: 'Payment proof (screenshot / PDF)' }),
-    el('span', { class: 'req', 'aria-hidden': 'true', text: '*', hidden: true })
-  );
+  const proofLabel = el('label', { text: 'Payment proof (screenshot / PDF)' });
   function refreshProofLabel() {
-    const star = proofLabel.querySelector('.req');
-    if (!star) return;
-    star.hidden = !st.on_behalf;
-    proofStatus.textContent = st.on_behalf
-      ? 'Required when filling on behalf of someone else — attach a payment screenshot or PDF.'
-      : (st.proof_data_url
-          ? `Attached: ${st.proof_name} · ~${Math.round(st.proof_size / 1024)} KB`
-          : 'Optional but recommended: a screenshot or PDF of the payment confirmation. Speeds up verification.');
+    if (st.proof_data_url) {
+      proofStatus.textContent = `Attached: ${st.proof_name} · ~${Math.round(st.proof_size / 1024)} KB`;
+    } else {
+      proofStatus.textContent = 'Attach a screenshot or PDF of the payment confirmation — used by the committee to verify.';
+    }
   }
   proofInp.addEventListener('change', async () => {
     const f = proofInp.files && proofInp.files[0];
@@ -268,8 +292,10 @@ export async function render(root, { match }) {
    * Name / email / flat are mandatory. Prefilled from the signed-in
    * user profile. When "on behalf" is ticked, these fields become the
    * BENEFICIARY's info and a read-only "Filled by (you)" chip
-   * captures the signed-in user's identity. In that mode a payment
-   * proof is also required and both parties are notified on submit. */
+   * captures the signed-in user's identity. Both parties are notified
+   * on submit AND on committee verification. The payment-verification
+   * rule (UPI reference OR proof) is the SAME for self and on-behalf
+   * submissions — no separate stricter rule for on-behalf. */
   const reqLbl = (text) => el('label', {},
     el('span', { text }),
     el('span', { class: 'req', 'aria-hidden': 'true', text: '*' })
@@ -281,9 +307,23 @@ export async function render(root, { match }) {
     'aria-required': 'true', value: st.contributor_email });
   const flatInp  = el('input', { type: 'text',  autocomplete: 'address-line2', required: '',
     'aria-required': 'true', placeholder: 'e.g. A-1204', value: st.contributor_flat });
+  /* Mobile is a 10-digit Indian number (starting 6-9). Committee uses
+   * it only if a receipt needs rectification (wrong flat, wrong name,
+   * spelling). It is NEVER shown on the public board. `inputmode` +
+   * `pattern` help the mobile browser open the numeric keypad. */
+  const mobileInp = el('input', { type: 'tel', autocomplete: 'tel-national', required: '',
+    'aria-required': 'true', inputmode: 'numeric', maxlength: '10',
+    pattern: '[6-9][0-9]{9}', placeholder: '10-digit mobile number', value: st.contributor_mobile });
   nameInp .addEventListener('input', () => { st.contributor_name  = nameInp.value.trim(); });
   emailInp.addEventListener('input', () => { st.contributor_email = emailInp.value.trim(); });
   flatInp .addEventListener('input', () => { st.contributor_flat  = flatInp.value.trim(); });
+  mobileInp.addEventListener('input', () => {
+    /* Strip everything that isn't a digit so users can paste "+91 98
+     * 1234 5678" and the field still ends up with the plain 10 digits. */
+    const digits = (mobileInp.value || '').replace(/\D+/g, '').replace(/^91(?=\d{10}$)/, '');
+    if (digits !== mobileInp.value) mobileInp.value = digits;
+    st.contributor_mobile = digits;
+  });
 
   const identityHead = el('div', { class: 'lbl', style: 'font-weight:800;font-size:14px;margin:4px 0 10px', text: 'Contributor details' });
   const identitySub  = el('small', { class: 'sub', style: 'display:block;margin-bottom:10px', text: 'Prefilled from your profile — edit if anything is out of date.' });
@@ -300,6 +340,9 @@ export async function render(root, { match }) {
 
   const nameField  = el('div', { class: 'field' }, reqLbl('Name'),         nameInp);
   const emailField = el('div', { class: 'field' }, reqLbl('Email'),        emailInp);
+  const mobileField = el('div', { class: 'field' }, reqLbl('Mobile number'), mobileInp,
+    el('small', { class: 'sub', text: 'Used only if the committee needs to reach you to rectify a receipt. Not shown publicly.' })
+  );
   const flatField  = el('div', { class: 'field' }, reqLbl('Flat number'),  flatInp);
 
   function refreshIdentityLabels() {
@@ -307,6 +350,7 @@ export async function render(root, { match }) {
     filledByChip.hidden = !isBehalf;
     nameField.querySelector('label span:first-child').textContent  = isBehalf ? 'Beneficiary name'        : 'Name';
     emailField.querySelector('label span:first-child').textContent = isBehalf ? 'Beneficiary email'       : 'Email';
+    mobileField.querySelector('label span:first-child').textContent = isBehalf ? 'Beneficiary mobile number' : 'Mobile number';
     flatField.querySelector('label span:first-child').textContent  = isBehalf ? 'Beneficiary flat number' : 'Flat number';
     /* Reset autofilled values only when TOGGLING on/off with untouched
      * fields matching the previous mode's defaults, so residents don't
@@ -314,11 +358,13 @@ export async function render(root, { match }) {
     if (isBehalf) {
       if (nameInp.value  === (user.name  || '')) { nameInp.value  = ''; st.contributor_name  = ''; }
       if (emailInp.value === (user.email || '')) { emailInp.value = ''; st.contributor_email = ''; }
+      if (mobileInp.value === (user.mobile || '')) { mobileInp.value = ''; st.contributor_mobile = ''; }
       if (flatInp.value  === (user.flat  || '')) { flatInp.value  = ''; st.contributor_flat  = ''; }
     } else {
-      if (!nameInp.value)  { nameInp.value  = user.name  || ''; st.contributor_name  = user.name  || ''; }
-      if (!emailInp.value) { emailInp.value = user.email || ''; st.contributor_email = user.email || ''; }
-      if (!flatInp.value)  { flatInp.value  = user.flat  || ''; st.contributor_flat  = user.flat  || ''; }
+      if (!nameInp.value)   { nameInp.value  = user.name  || ''; st.contributor_name  = user.name  || ''; }
+      if (!emailInp.value)  { emailInp.value = user.email || ''; st.contributor_email = user.email || ''; }
+      if (!mobileInp.value) { mobileInp.value = user.mobile || ''; st.contributor_mobile = user.mobile || ''; }
+      if (!flatInp.value)   { flatInp.value  = user.flat  || ''; st.contributor_flat  = user.flat  || ''; }
     }
     refreshProofLabel();
   }
@@ -330,12 +376,35 @@ export async function render(root, { match }) {
     if (!st.contributor_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.contributor_email)) {
       return toast('Enter a valid email address', 'err');
     }
-    if (!st.contributor_flat)  return toast('Flat number is required', 'err');
-    if (st.on_behalf && !st.proof_data_url) {
-      return toast('Attach a payment proof — required when filling on behalf', 'err');
+    if (!/^[6-9]\d{9}$/.test(st.contributor_mobile || '')) {
+      return toast('Enter a valid 10-digit mobile number (starting 6-9)', 'err');
     }
-    if (!st.on_behalf && (st.method === 'upi' || st.method === 'bank') && !st.ref && !st.proof_data_url) {
-      return toast('Please enter the payment reference OR attach a screenshot so we can verify.', 'err');
+    if (!st.contributor_flat)  return toast('Flat number is required', 'err');
+    /* Enforce the event's "one contribution per flat" rule client-side
+     * with a friendly message. `addContribution` also enforces the
+     * same rule at storage time so a devtools-crafted submit can't
+     * bypass it (defense in depth). Match is case-insensitive on flat
+     * OR by signed-in contributor id (covers the case where a resident
+     * changes flat text between attempts). */
+    if (evt.one_per_flat) {
+      const flatKey = st.contributor_flat.trim().toLowerCase();
+      const cid = st.on_behalf ? null : user.id;
+      const dup = contribsFor(evt.id).find(c => c.status !== 'void' && (
+        (flatKey && String(c.flat || '').trim().toLowerCase() === flatKey) ||
+        (cid     && c.contributor === cid)
+      ));
+      if (dup) {
+        return toast('This event accepts only ONE contribution per flat. A submission from your flat already exists.', 'err');
+      }
+    }
+    /* Payment verification rule (same for self AND on-behalf):
+     *   UPI  → UPI reference (UTR)  OR  payment proof screenshot
+     *   Bank → NEFT/IMPS reference  OR  payment proof screenshot
+     *   Cash → cheque no. / cash memo goes in the ref field; proof
+     *          optional (kept flexible for events where the committee
+     *          collects at a desk and writes a memo). */
+    if ((st.method === 'upi' || st.method === 'bank') && !st.ref && !st.proof_data_url) {
+      return toast('Enter the payment reference OR attach a transaction receipt — one of the two is required.', 'err');
     }
     /* Contributor / beneficiary payload. When on_behalf is true the
      * `contributor` id is left blank (the beneficiary may not have an
@@ -346,6 +415,7 @@ export async function render(root, { match }) {
       contributor: st.on_behalf ? '' : user.id,
       contributor_name: st.contributor_name,
       contributor_email: st.contributor_email,
+      contributor_mobile: st.contributor_mobile,
       flat: st.contributor_flat,
       amount: st.amount, method: st.method,
       anonymous: st.anonymous, hide_amount: st.hide_amount,
@@ -358,7 +428,15 @@ export async function render(root, { match }) {
       filled_by_name:  st.on_behalf ? user.name  : null,
       filled_by_email: st.on_behalf ? user.email : null,
     };
-    const rec = addContribution(payload, user);
+    let rec;
+    try {
+      rec = addContribution(payload, user);
+    } catch (e) {
+      /* addContribution enforces the one-per-flat rule at storage
+       * time. Surface its message as a friendly toast rather than a
+       * console crash. */
+      return toast(e.message || 'Could not submit contribution', 'err');
+    }
     /* Notify both parties when on_behalf; otherwise notify just the
      * contributor. Best-effort — failures are silent so a submit never
      * blocks on a notify hiccup. */
@@ -386,6 +464,7 @@ export async function render(root, { match }) {
     identitySub,
     nameField,
     emailField,
+    mobileField,
     flatField,
     behalfRow,
     filledByChip,
@@ -400,12 +479,19 @@ export async function render(root, { match }) {
     ) : null,
     el('div', { class: 'field' }, el('label', { text: 'Payment method' }), methodSel),
     payHint,
-    el('div', { class: 'field' }, refLabel, refInp),
-    el('div', { class: 'field' },
-      proofLabel,
-      proofInp,
-      proofStatus,
-      proofPreview
+    /* Payment verification group. Rule: UPI/bank submissions need EITHER
+     * the reference (UTR / txn no.) OR the payment proof — not both.
+     * The `*` sits on the group heading, not the individual fields, so
+     * residents don't misread it as "both required". */
+    el('div', { class: 'field', style: 'padding:12px;border:1px dashed var(--line);border-radius:12px;background:#fbf6ea' },
+      el('label', { style: 'margin-bottom:2px' },
+        el('span', { text: 'Payment verification (any one of the two)' }),
+        el('span', { class: 'req', 'aria-hidden': 'true', text: '*' })
+      ),
+      el('small', { class: 'sub', style: 'display:block;margin-bottom:10px', text: 'Either paste the UPI / bank reference number OR attach a screenshot / PDF of the transaction. One of the two is enough for the committee to verify.' }),
+      el('div', {}, refLabel, refInp),
+      el('div', { style: 'text-align:center;color:var(--muted);font-weight:800;font-size:12px;letter-spacing:.12em;margin:10px 0', text: '— OR —' }),
+      el('div', {}, proofLabel, proofInp, proofStatus, proofPreview)
     ),
     allowAnon ? el('div', { class: 'callout', style: 'margin:14px 0' },
       el('div', {},

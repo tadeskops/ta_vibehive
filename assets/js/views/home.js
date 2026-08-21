@@ -5,6 +5,12 @@ import { publicEvents, totalFor, verifiedCount, STATUS } from '../events.js';
 import { session } from '../auth.js';
 import { navigate } from '../router.js';
 import { isEventOn } from '../features.js';
+import { getSociety, state } from '../store.js';
+import { can } from '../rbac.js';
+
+/* Options the dashboard "Latest contributions" widget offers when
+ * configuring how many rows to show. Change here to expand. */
+const RECENT_N_CHOICES = [5, 10, 20];
 
 export async function render(root) {
   const user = session();
@@ -51,7 +57,83 @@ export async function render(root) {
     stat('Committee', 'Cultural · Sports · Volunteers', null)
   );
 
-  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards);
+  const latest = await renderLatestContribsCard(user);
+
+  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, latest);
+}
+
+/* Latest contributions widget. Shows the top-N most recent
+ * non-void contributions across ALL events. `N` is a society-wide
+ * setting (`society.dashboard.recent_n`, default 5) so it stays
+ * consistent for every viewer of the dashboard. Any user with the
+ * `events.create` capability (admin / mgmt / committee) can flip it
+ * between the choices in `RECENT_N_CHOICES`. Anonymous / hide_amount
+ * flags are honoured — the widget never leaks a name/amount the
+ * contributor asked to keep private. */
+async function renderLatestContribsCard(user) {
+  const soc = await getSociety();
+  const rawN = Number((soc.dashboard && soc.dashboard.recent_n) || RECENT_N_CHOICES[0]);
+  const N = RECENT_N_CHOICES.includes(rawN) ? rawN : RECENT_N_CHOICES[0];
+  const canConfigure = user ? await can(user, 'events.create') : false;
+
+  const allEvents = state.events();
+  const eventById = new Map(allEvents.map(e => [e.id, e]));
+  const rows = state.contribs()
+    .filter(c => c.status !== 'void')
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+    .slice(0, N)
+    .map(c => {
+      const evt = eventById.get(c.event);
+      const nm  = c.anonymous ? 'Anonymous' : (c.contributor_name || '—');
+      const amt = c.hide_amount ? '—' : fmtINR(Number(c.amount || 0));
+      const stCls = c.status === 'verified' ? 'ok' : 'warn';
+      const dateShort = (c.created_at || '').slice(0, 10);
+      return el('div', { class: 'row row-between', style: 'gap:10px;padding:10px 0;border-top:1px solid var(--line)' },
+        el('div', { style: 'min-width:0;flex:1' },
+          el('div', { style: 'font-weight:700', text: `${nm}${c.flat ? ' · Flat ' + c.flat : ''}` }),
+          el('small', { class: 'sub', style: 'display:block', text: `${(evt && evt.title) || 'Event'} · ${fmtDate(dateShort) || dateShort}` })
+        ),
+        el('div', { style: 'text-align:right;flex-shrink:0' },
+          el('div', { style: 'font-weight:800', text: amt }),
+          el('small', { class: 'pill ' + stCls, text: c.status })
+        )
+      );
+    });
+
+  const chipCluster = canConfigure
+    ? el('div', { class: 'row', style: 'gap:6px;align-items:center;flex-wrap:wrap' },
+        el('small', { class: 'sub', text: 'Show top' }),
+        ...RECENT_N_CHOICES.map(n => {
+          const btn = el('button', {
+            type: 'button',
+            class: 'btn btn-sm' + (n === N ? '' : ' btn-ghost'),
+            'aria-pressed': n === N ? 'true' : 'false',
+            text: String(n)
+          });
+          btn.addEventListener('click', () => {
+            const over = state.societyOverrides() || {};
+            over.dashboard = { ...(over.dashboard || {}), recent_n: n };
+            state.saveSocietyOverrides(over);
+            state.audit({ actor: user ? user.id : null, action: 'dashboard.recent_n.set', value: n });
+            /* Re-render the dashboard in place instead of a hard
+             * reload so the resident's scroll position is preserved. */
+            const root = document.getElementById('main');
+            if (root) render(root); else location.reload();
+          });
+          return btn;
+        })
+      )
+    : el('small', { class: 'sub', text: `Latest ${N}` });
+
+  return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
+    el('div', { class: 'row row-between', style: 'align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px' },
+      el('h3', { style: 'margin:0', text: 'Latest contributions' }),
+      chipCluster
+    ),
+    rows.length
+      ? el('div', {}, ...rows)
+      : el('p', { class: 'sub', style: 'margin:8px 0 0', text: 'No contributions yet — be the first to help.' })
+  );
 }
 
 function stat(k, v, d) {

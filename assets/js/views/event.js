@@ -7,6 +7,54 @@ import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { navigate } from '../router.js';
 
+/* ---------- payment-input validation helpers ----------
+ * Both used ONLY inside the event editor (renderEdit). Kept module-
+ * private so residents' contribute view can't accidentally weaken them.
+ *
+ * VPA format: NPCI spec allows [a-zA-Z0-9._-] before @ and an alnum
+ * PSP handle after. We deliberately reject spaces, `://`, and any
+ * character outside the whitelist so a hostile string cannot break
+ * out of the `pa=` param of the upi:// intent URL.
+ *
+ * QR image whitelist: only PNG / JPEG / WebP (raster). SVG is
+ * EXPLICITLY rejected because <svg> can carry <script> that executes
+ * when rendered as a data URL. GIF is rejected too (animated QR
+ * codes are bogus). Size cap keeps localStorage bounded. */
+const VPA_RE = /^[A-Za-z0-9._-]{2,64}@[A-Za-z][A-Za-z0-9]{1,30}$/;
+const QR_ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const QR_MAX_BYTES = 350 * 1024;   // 350 KB post-shrink cap
+async function readQrDataUrl(file) {
+  if (!file) throw new Error('No file selected');
+  if (!QR_ALLOWED_MIME.has(file.type)) throw new Error('QR must be a PNG, JPEG, or WebP image (SVG not allowed)');
+  if (/\.svg$/i.test(file.name || '')) throw new Error('SVG QR codes are not allowed');
+  if (file.size > 4 * 1024 * 1024) throw new Error('QR image too large (>4 MB)');
+  const raw = await new Promise((ok, ko) => {
+    const r = new FileReader();
+    r.onload  = () => ok(String(r.result || ''));
+    r.onerror = () => ko(new Error('Could not read file'));
+    r.readAsDataURL(file);
+  });
+  /* Re-encode via canvas: strips EXIF, drops any embedded scripts,
+   * downscales to <= 600 px, and guarantees the output MIME is one
+   * of the allow-listed rasters. */
+  const img = new Image();
+  await new Promise((ok, ko) => { img.onload = ok; img.onerror = () => ko(new Error('Image decode failed')); img.src = raw; });
+  const MAX_DIM = 600;
+  const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(img, 0, 0, w, h);
+  for (const q of [0.9, 0.8, 0.7, 0.6]) {
+    const url = cv.toDataURL('image/png', q);
+    if (url.length * 0.75 <= QR_MAX_BYTES) return url;
+  }
+  const url = cv.toDataURL('image/jpeg', 0.7);
+  if (url.length * 0.75 > QR_MAX_BYTES) throw new Error('QR image too large after re-encoding');
+  return url;
+}
+
 export async function render(root, { match }) {
   const evt = findEvent(match.id);
   if (!evt) return mount(root, el('div', { class: 'card card-pad' }, el('h2', { text: 'Event not found.' })));
@@ -146,6 +194,84 @@ async function renderEdit(root, evt, user, caps) {
   const capI = field('cap', 'Capacity', el('input', { type: 'number', value: String(evt.capacity || 0), min: '0' }));
   const fixedI = field('fixed', 'Fixed amount (₹, if applicable)', el('input', { type: 'number', value: String(evt.fixed_amount || 0), min: '0' }));
 
+  /* ---------- payment / collection details (per-event) ----------
+   * The event creator must publish EITHER a UPI VPA OR a QR code (or
+   * both) so residents can pay directly from the contribute form.
+   * Falls back to society-wide payment settings if the creator leaves
+   * both blank. All input is validated & sanitized (VPA regex, image
+   * MIME whitelist, canvas re-encode) before persistence. */
+  const upiVpaInp = el('input', {
+    type: 'text', value: evt.payment_upi_vpa || '', placeholder: 'e.g. society@upi',
+    inputmode: 'email', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false',
+    'aria-describedby': 'evt-upi-help'
+  });
+  const upiVpaHelp = el('small', { id: 'evt-upi-help', class: 'sub',
+    text: 'Virtual Payment Address in the form name@bank (e.g. society@sbi). Residents will tap to open their UPI app pre-filled.' });
+  const upiNameInp = el('input', {
+    type: 'text', value: evt.payment_upi_name || '',
+    placeholder: 'Payee display name (optional)', maxlength: '60'
+  });
+  const upiVpaI = el('div', { class: 'field' },
+    el('label', { for: 'evt-upi-vpa', text: 'UPI VPA for this event' }), upiVpaInp, upiVpaHelp
+  );
+  const upiNameI = el('div', { class: 'field' },
+    el('label', { text: 'Payee display name (shown to residents)' }), upiNameInp
+  );
+
+  /* QR upload: hold the (sanitized) data-URL in state; render current
+   * preview if already saved. `remove` button clears it. */
+  let qrDataUrl = evt.payment_qr_data_url || '';
+  const qrPreview = el('img', {
+    src: qrDataUrl, alt: 'Current payment QR',
+    style: 'display:' + (qrDataUrl ? 'block' : 'none') + ';max-width:180px;margin:8px 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px'
+  });
+  const qrStatus = el('small', { class: 'sub',
+    text: qrDataUrl ? 'A QR is currently saved for this event.' : 'Optional: upload the payment QR code (PNG, JPEG, or WebP only; SVG not allowed).' });
+  const qrInp = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp' });
+  qrInp.addEventListener('change', async () => {
+    const f = qrInp.files && qrInp.files[0];
+    if (!f) return;
+    try {
+      qrDataUrl = await readQrDataUrl(f);
+      qrPreview.src = qrDataUrl;
+      qrPreview.style.display = 'block';
+      qrStatus.textContent = `Loaded ${f.name} · ~${Math.round((qrDataUrl.length * 0.75) / 1024)} KB (re-encoded).`;
+    } catch (e) {
+      qrInp.value = '';
+      qrStatus.textContent = e.message || 'Could not attach that file.';
+      toast(e.message || 'QR upload failed', 'err');
+    }
+  });
+  const qrRemoveBtn = el('button', { type: 'button', class: 'btn btn-ghost btn-sm', on: { click: () => {
+    qrDataUrl = ''; qrInp.value = '';
+    qrPreview.src = ''; qrPreview.style.display = 'none';
+    qrStatus.textContent = 'QR removed. Save to persist.';
+  } } }, 'Remove QR');
+  const qrI = el('div', { class: 'field' },
+    el('label', { text: 'Payment QR code (optional)' }),
+    qrInp, qrStatus, qrPreview,
+    el('div', {}, qrRemoveBtn)
+  );
+
+  /* ---------- one-contribution-per-flat toggle ----------
+   * When ticked, the contribute form rejects a second submission from
+   * the same flat (any status except void counts). Useful for events
+   * where each flat pays a fixed share (e.g. maintenance top-up,
+   * per-flat festival levy). Default OFF so donation-style drives
+   * still accept top-ups. Enforced client-side today; the same rule
+   * runs in `addContribution` guard so the check can't be bypassed
+   * by editing the form in devtools. */
+  const oncePerFlatChk = el('input', { type: 'checkbox', checked: !!evt.one_per_flat });
+  const oncePerFlatI = el('div', { class: 'field' },
+    el('label', { class: 'check-row' },
+      oncePerFlatChk,
+      el('span', {},
+        el('div', { class: 'name', text: 'One contribution per flat' }),
+        el('small', { class: 'sub', text: 'When ON, each flat can submit only once for this event. Leave OFF to allow multiple contributions from the same flat (donation drives, top-ups, etc.).' })
+      )
+    )
+  );
+
   const clusters = cat.clusters.filter(c => cat.features.some(f => f.cluster === c.id && f.scope === 'event'));
   const featureChecks = new Map();
   const featurePanel = el('section', { style: 'margin-top:14px' }, el('h3', { text: 'Feature configuration' }),
@@ -170,6 +296,16 @@ async function renderEdit(root, evt, user, caps) {
       el('span', { text: 'Status:' }),
       statusSel,
       el('button', { class: 'btn', on: { click: async () => {
+        /* Validate the UPI VPA if the creator entered one. Blank is
+         * fine (falls back to society-wide settings) but a non-blank
+         * VPA must match the strict NPCI-ish regex to prevent
+         * smuggling arbitrary characters into the `pa=` URL param. */
+        const vpaRaw = (upiVpaInp.value || '').trim();
+        if (vpaRaw && !VPA_RE.test(vpaRaw)) {
+          toast('UPI VPA looks invalid. Expected format: name@bank', 'err');
+          upiVpaInp.focus();
+          return;
+        }
         const updated = {
           ...evt,
           title: titleI.querySelector('input').value.trim() || evt.title,
@@ -179,6 +315,10 @@ async function renderEdit(root, evt, user, caps) {
           end_at: endI.querySelector('input').value || evt.end_at,
           capacity: Number(capI.querySelector('input').value || 0),
           fixed_amount: Number(fixedI.querySelector('input').value || 0),
+          payment_upi_vpa:  vpaRaw,
+          payment_upi_name: (upiNameInp.value || '').trim().slice(0, 60),
+          payment_qr_data_url: qrDataUrl,
+          one_per_flat: !!oncePerFlatChk.checked,
           features: Object.fromEntries(Array.from(featureChecks.entries()).map(([k, cb]) => [k, cb.checked])),
           status: statusSel.value,
         };
@@ -195,6 +335,13 @@ async function renderEdit(root, evt, user, caps) {
 
   form.append(el('h2', { text: 'Edit event' }),
     el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI),
+    el('section', { style: 'margin-top:14px' },
+      el('h3', { text: 'Payment / collection' }),
+      el('p', { class: 'sub', style: 'margin-bottom:10px', text: 'Publish a UPI VPA and/or a QR code so residents can pay. If both are blank, society-wide payment settings are used.' }),
+      el('div', { class: 'grid grid-2' }, upiVpaI, upiNameI),
+      qrI,
+      oncePerFlatI
+    ),
     featurePanel,
     actions
   );
