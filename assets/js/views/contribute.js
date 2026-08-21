@@ -25,6 +25,7 @@ import { isEventOn } from '../features.js';
 import { session } from '../auth.js';
 import { navigate } from '../router.js';
 import { getSociety } from '../store.js';
+import { emit as notifyEmit } from '../notify.js';
 
 /* Client-side image compression so payment screenshots don't blow the
  * ~5 MB localStorage quota. Non-images (PDFs) are passed through as
@@ -120,7 +121,16 @@ export async function render(root, { match }) {
   const st = {
     amount, method: upiOn ? 'upi' : bankOn ? 'bank' : 'other',
     anonymous: false, hide_amount: false, ref: '', remarks: '',
-    proof_data_url: '', proof_name: '', proof_size: 0
+    proof_data_url: '', proof_name: '', proof_size: 0,
+    /* Contributor details — required on every submit. Prefilled from the
+     * signed-in user profile; editable so residents can correct a
+     * missing flat or type-o. When on_behalf is true, these fields hold
+     * the BENEFICIARY's info and the signed-in user's info is captured
+     * separately as `filled_by_*`. */
+    contributor_name: user.name || '',
+    contributor_email: user.email || '',
+    contributor_flat: user.flat || '',
+    on_behalf: false,
   };
 
   const tierGrid = showTiers ? el('div', { class: 'tier-grid' },
@@ -216,16 +226,30 @@ export async function render(root, { match }) {
   const proofInp = el('input', { type: 'file', accept: 'image/*,application/pdf' });
   const proofStatus = el('small', { class: 'sub', text: 'Optional but recommended: a screenshot or PDF of the payment confirmation. Speeds up verification.' });
   const proofPreview = el('div', {});
+  const proofLabel = el('label', {},
+    el('span', { text: 'Payment proof (screenshot / PDF)' }),
+    el('span', { class: 'req', 'aria-hidden': 'true', text: '*', hidden: true })
+  );
+  function refreshProofLabel() {
+    const star = proofLabel.querySelector('.req');
+    if (!star) return;
+    star.hidden = !st.on_behalf;
+    proofStatus.textContent = st.on_behalf
+      ? 'Required when filling on behalf of someone else — attach a payment screenshot or PDF.'
+      : (st.proof_data_url
+          ? `Attached: ${st.proof_name} · ~${Math.round(st.proof_size / 1024)} KB`
+          : 'Optional but recommended: a screenshot or PDF of the payment confirmation. Speeds up verification.');
+  }
   proofInp.addEventListener('change', async () => {
     const f = proofInp.files && proofInp.files[0];
-    if (!f) { st.proof_data_url = ''; st.proof_name = ''; st.proof_size = 0; proofPreview.textContent = ''; proofStatus.textContent = 'No file attached.'; return; }
+    if (!f) { st.proof_data_url = ''; st.proof_name = ''; st.proof_size = 0; proofPreview.textContent = ''; refreshProofLabel(); return; }
     proofStatus.textContent = 'Compressing…';
     try {
       const url = await shrinkImageIfNeeded(f);
       st.proof_data_url = url;
       st.proof_name = f.name;
       st.proof_size = Math.round(url.length * 0.75);
-      proofStatus.textContent = `Attached: ${f.name} · ~${Math.round(st.proof_size / 1024)} KB`;
+      refreshProofLabel();
       proofPreview.textContent = '';
       if (/^data:image\//.test(url)) {
         proofPreview.append(el('img', { src: url, alt: 'payment proof', style: 'max-width:100%;max-height:220px;margin-top:8px;border:1px solid var(--line);border-radius:6px' }));
@@ -240,22 +264,115 @@ export async function render(root, { match }) {
     }
   });
 
+  /* ---------- Contributor identity block ----------
+   * Name / email / flat are mandatory. Prefilled from the signed-in
+   * user profile. When "on behalf" is ticked, these fields become the
+   * BENEFICIARY's info and a read-only "Filled by (you)" chip
+   * captures the signed-in user's identity. In that mode a payment
+   * proof is also required and both parties are notified on submit. */
+  const reqLbl = (text) => el('label', {},
+    el('span', { text }),
+    el('span', { class: 'req', 'aria-hidden': 'true', text: '*' })
+  );
+
+  const nameInp  = el('input', { type: 'text',  autocomplete: 'name',       required: '',
+    'aria-required': 'true', value: st.contributor_name });
+  const emailInp = el('input', { type: 'email', autocomplete: 'email',      required: '',
+    'aria-required': 'true', value: st.contributor_email });
+  const flatInp  = el('input', { type: 'text',  autocomplete: 'address-line2', required: '',
+    'aria-required': 'true', placeholder: 'e.g. A-1204', value: st.contributor_flat });
+  nameInp .addEventListener('input', () => { st.contributor_name  = nameInp.value.trim(); });
+  emailInp.addEventListener('input', () => { st.contributor_email = emailInp.value.trim(); });
+  flatInp .addEventListener('input', () => { st.contributor_flat  = flatInp.value.trim(); });
+
+  const identityHead = el('div', { class: 'lbl', style: 'font-weight:800;font-size:14px;margin:4px 0 10px', text: 'Contributor details' });
+  const identitySub  = el('small', { class: 'sub', style: 'display:block;margin-bottom:10px', text: 'Prefilled from your profile — edit if anything is out of date.' });
+
+  const behalfChk = el('input', { type: 'checkbox' });
+  const behalfRow = el('label', { class: 'check-row', style: 'margin-top:6px' },
+    behalfChk,
+    el('span', { text: 'I am filling this on behalf of someone else' })
+  );
+  const filledByChip = el('div', { class: 'callout callout-muted', style: 'margin:8px 0 12px;background:#efe4d0;color:var(--muted);border-color:#efe4d0;flex-direction:column;align-items:stretch;gap:2px', hidden: true },
+    el('div', { class: 'lbl', text: 'Filled by (you)' }),
+    el('small', { text: `${user.name || 'You'} · ${user.email || ''}${user.flat ? ' · Flat ' + user.flat : ''}` })
+  );
+
+  const nameField  = el('div', { class: 'field' }, reqLbl('Name'),         nameInp);
+  const emailField = el('div', { class: 'field' }, reqLbl('Email'),        emailInp);
+  const flatField  = el('div', { class: 'field' }, reqLbl('Flat number'),  flatInp);
+
+  function refreshIdentityLabels() {
+    const isBehalf = st.on_behalf;
+    filledByChip.hidden = !isBehalf;
+    nameField.querySelector('label span:first-child').textContent  = isBehalf ? 'Beneficiary name'        : 'Name';
+    emailField.querySelector('label span:first-child').textContent = isBehalf ? 'Beneficiary email'       : 'Email';
+    flatField.querySelector('label span:first-child').textContent  = isBehalf ? 'Beneficiary flat number' : 'Flat number';
+    /* Reset autofilled values only when TOGGLING on/off with untouched
+     * fields matching the previous mode's defaults, so residents don't
+     * lose typed data. */
+    if (isBehalf) {
+      if (nameInp.value  === (user.name  || '')) { nameInp.value  = ''; st.contributor_name  = ''; }
+      if (emailInp.value === (user.email || '')) { emailInp.value = ''; st.contributor_email = ''; }
+      if (flatInp.value  === (user.flat  || '')) { flatInp.value  = ''; st.contributor_flat  = ''; }
+    } else {
+      if (!nameInp.value)  { nameInp.value  = user.name  || ''; st.contributor_name  = user.name  || ''; }
+      if (!emailInp.value) { emailInp.value = user.email || ''; st.contributor_email = user.email || ''; }
+      if (!flatInp.value)  { flatInp.value  = user.flat  || ''; st.contributor_flat  = user.flat  || ''; }
+    }
+    refreshProofLabel();
+  }
+  behalfChk.addEventListener('change', () => { st.on_behalf = behalfChk.checked; refreshIdentityLabels(); });
+
   const submitBtn = el('button', { class: 'btn btn-block', on: { click: async () => {
     if (!st.amount || st.amount < 1) return toast('Enter a valid amount', 'err');
-    if ((st.method === 'upi' || st.method === 'bank') && !st.ref && !st.proof_data_url) {
+    if (!st.contributor_name)  return toast('Name is required', 'err');
+    if (!st.contributor_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.contributor_email)) {
+      return toast('Enter a valid email address', 'err');
+    }
+    if (!st.contributor_flat)  return toast('Flat number is required', 'err');
+    if (st.on_behalf && !st.proof_data_url) {
+      return toast('Attach a payment proof — required when filling on behalf', 'err');
+    }
+    if (!st.on_behalf && (st.method === 'upi' || st.method === 'bank') && !st.ref && !st.proof_data_url) {
       return toast('Please enter the payment reference OR attach a screenshot so we can verify.', 'err');
     }
+    /* Contributor / beneficiary payload. When on_behalf is true the
+     * `contributor` id is left blank (the beneficiary may not have an
+     * account yet) and their email is captured on `contributor_email`
+     * for downstream notifications and receipt delivery. */
     const payload = {
       event: evt.id,
-      contributor: user.id, contributor_name: user.name, flat: user.flat,
+      contributor: st.on_behalf ? '' : user.id,
+      contributor_name: st.contributor_name,
+      contributor_email: st.contributor_email,
+      flat: st.contributor_flat,
       amount: st.amount, method: st.method,
       anonymous: st.anonymous, hide_amount: st.hide_amount,
       ref: st.ref, remarks: st.remarks,
       proof_data_url: st.proof_data_url,
       proof_name: st.proof_name,
       proof_size: st.proof_size,
+      on_behalf: st.on_behalf,
+      filled_by_id:    st.on_behalf ? user.id    : null,
+      filled_by_name:  st.on_behalf ? user.name  : null,
+      filled_by_email: st.on_behalf ? user.email : null,
     };
-    addContribution(payload, user);
+    const rec = addContribution(payload, user);
+    /* Notify both parties when on_behalf; otherwise notify just the
+     * contributor. Best-effort — failures are silent so a submit never
+     * blocks on a notify hiccup. */
+    try {
+      const title = 'Contribution submitted · awaiting verification';
+      const body  = `${evt.title} · ₹${Number(st.amount).toLocaleString('en-IN')}. The committee will verify shortly.`;
+      const link  = `#/e/${evt.id}`;
+      if (st.on_behalf) {
+        notifyEmit({ audience: 'user', userEmail: user.email,             kind: 'contrib.submit', title: 'Submitted on behalf of ' + st.contributor_name, body, link });
+        notifyEmit({ audience: 'user', userEmail: st.contributor_email,   kind: 'contrib.submit', title, body: body + ' Filed on your behalf by ' + (user.name || user.email) + '.', link });
+      } else {
+        notifyEmit({ audience: 'user', userId: user.id, userEmail: user.email, kind: 'contrib.submit', title, body, link });
+      }
+    } catch (_e) { /* silent */ }
     toast('Submitted · awaiting committee verification', 'ok');
     navigate('/e/' + evt.id);
   } } }, 'Submit for verification');
@@ -263,13 +380,29 @@ export async function render(root, { match }) {
   const form = el('div', { class: 'card card-pad' },
     el('h2', { text: 'Contribute · ' + evt.title }),
     el('p', { class: 'sub', text: 'Every rupee goes to the committee. The receipt is minted and made available for download only after the Management Committee verifies your payment.' }),
-    showTiers ? el('div', { class: 'field' }, el('label', { text: 'Choose an amount' }), tierGrid) : null,
-    (showCustom || !showTiers) ? el('div', { class: 'field' }, el('label', { for: 'amt', text: 'Amount (₹)' }), amtInp) : null,
+    el('small', { class: 'sub', style: 'display:block;margin-bottom:14px', text: 'Fields marked with an asterisk (*) are required.' }),
+    /* Contributor identity section — first thing residents see. */
+    identityHead,
+    identitySub,
+    nameField,
+    emailField,
+    flatField,
+    behalfRow,
+    filledByChip,
+    /* Amount / payment section. */
+    showTiers ? el('div', { class: 'field' },
+      el('label', {}, el('span', { text: 'Choose an amount' }), el('span', { class: 'req', 'aria-hidden': 'true', text: '*' })),
+      tierGrid
+    ) : null,
+    (showCustom || !showTiers) ? el('div', { class: 'field' },
+      el('label', { for: 'amt' }, el('span', { text: 'Amount (₹)' }), el('span', { class: 'req', 'aria-hidden': 'true', text: '*' })),
+      amtInp
+    ) : null,
     el('div', { class: 'field' }, el('label', { text: 'Payment method' }), methodSel),
     payHint,
     el('div', { class: 'field' }, refLabel, refInp),
     el('div', { class: 'field' },
-      el('label', { text: 'Payment proof (screenshot / PDF)' }),
+      proofLabel,
       proofInp,
       proofStatus,
       proofPreview
@@ -294,5 +427,6 @@ export async function render(root, { match }) {
 
   refreshRefLabel();
   refreshPayHint();
+  refreshIdentityLabels();
   mount(root, form);
 }

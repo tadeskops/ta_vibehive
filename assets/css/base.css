@@ -225,6 +225,11 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.4s linear inf
 .pill-muted{background:#efe4d0;color:var(--muted)}
 
 label{display:block;font-weight:700;font-size:13px;margin-bottom:4px;color:var(--ink)}
+/* Red asterisk marker for mandatory form fields. Rendered as
+ * `<span class="req" aria-hidden="true">*</span>` after the label
+ * text; a11y hint lives in the label's own text (e.g. "Name (required)")
+ * or on the input via `required` / `aria-required`. */
+.req{color:var(--emerg);margin-left:3px;font-weight:800}
 .field{margin-bottom:14px}
 .field small{display:block;color:var(--muted);font-size:12px;margin-top:4px}
 input[type=text],input[type=email],input[type=number],input[type=date],input[type=datetime-local],input[type=password],input[type=search],input[type=tel],input[type=url],select,textarea{

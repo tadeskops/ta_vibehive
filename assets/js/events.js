@@ -124,6 +124,11 @@ export function addContribution(payload, actor) {
     event: payload.event,
     contributor: payload.contributor,
     contributor_name: payload.contributor_name,
+    /* Contributor email is captured on the form (mandatory) so we can
+     * notify the payer directly at submit and verify time without
+     * having to look them up in the users list. When on_behalf is true
+     * this is the BENEFICIARY's email, not the filler's. */
+    contributor_email: payload.contributor_email || '',
     flat: payload.flat,
     amount: Number(payload.amount || 0),
     method: payload.method,
@@ -133,10 +138,18 @@ export function addContribution(payload, actor) {
     remarks: payload.remarks || '',
     /* Payment proof (screenshot / PDF), stored as a data URL. Compressed
      * client-side in the contribute view before it lands here so we
-     * don't blow the localStorage quota. Committee uses this to verify. */
+     * don't blow the localStorage quota. Committee uses this to verify.
+     * Attach is MANDATORY when on_behalf is true. */
     proof_data_url: payload.proof_data_url || '',
     proof_name: payload.proof_name || '',
     proof_size: payload.proof_size || 0,
+    /* On-behalf-of trail. When true, the signed-in user (`filled_by_*`)
+     * paid or is registering the payment for someone else, and that
+     * someone else is the `contributor_name/email/flat` above. */
+    on_behalf: !!payload.on_behalf,
+    filled_by_id:    payload.filled_by_id    || null,
+    filled_by_name:  payload.filled_by_name  || null,
+    filled_by_email: payload.filled_by_email || null,
     status: 'pending',
     receipt: null,
     created_by: actor ? actor.id : payload.contributor,
@@ -146,7 +159,7 @@ export function addContribution(payload, actor) {
   };
   list.push(rec);
   state.saveContribs(list);
-  state.audit({ actor: rec.created_by, action: 'contrib.create', contrib: rec.id, event: rec.event, amount: rec.amount });
+  state.audit({ actor: rec.created_by, action: 'contrib.create', contrib: rec.id, event: rec.event, amount: rec.amount, on_behalf: rec.on_behalf });
   return rec;
 }
 
@@ -160,16 +173,27 @@ export function verifyContribution(contribId, actor) {
   state.saveContribs(list);
   state.audit({ actor: actor ? actor.id : null, action: 'contrib.verify', contrib: rec.id });
   /* Notify the contributor directly (best-effort — falls back to
-   * community-wide if we can't infer an email). */
+   * community-wide if we can't infer an email). When the contribution
+   * was filed on someone else's behalf, notify the beneficiary AND
+   * the filler so both know the receipt is ready. */
   try {
     const evt = state.events().find(e => e.id === rec.event);
     const title = 'Your contribution is verified';
     const body  = `${evt ? evt.title : 'Event'} · ₹${Number(rec.amount || 0).toLocaleString('en-IN')} received. Receipt ready.`;
     const link  = `#/e/${rec.event}`;
-    if (rec.contributor && String(rec.contributor).includes('@')) {
+    /* Beneficiary channel: prefer the on-form contributor_email; fall
+     * back to the id if it looks like an email; last resort user id. */
+    if (rec.contributor_email) {
+      notifyEmit({ audience: 'user', userEmail: rec.contributor_email, kind: 'receipt', title, body, link });
+    } else if (rec.contributor && String(rec.contributor).includes('@')) {
       notifyEmit({ audience: 'user', userEmail: rec.contributor, kind: 'receipt', title, body, link });
     } else if (rec.created_by) {
       notifyEmit({ audience: 'user', userId: rec.created_by, kind: 'receipt', title, body, link });
+    }
+    /* Filler-of-record for on-behalf submissions gets their own copy. */
+    if (rec.on_behalf && rec.filled_by_email && rec.filled_by_email !== rec.contributor_email) {
+      notifyEmit({ audience: 'user', userEmail: rec.filled_by_email, kind: 'receipt',
+        title: `Contribution verified · filed for ${rec.contributor_name || 'beneficiary'}`, body, link });
     }
   } catch (_e) { /* silent */ }
   return rec;
