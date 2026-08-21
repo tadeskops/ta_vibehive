@@ -70,6 +70,15 @@ foreach ($h in $htmls) {
     }
 }
 
+# 3b. Inline style= attributes (blocked by strict CSP style-src 'self').
+foreach ($h in $htmls) {
+    $body = Get-Content -Raw -LiteralPath $h.FullName
+    if ($body -match '\sstyle\s*=') {
+        Write-Host ("  [FAIL] {0}: inline style= attribute (blocked by CSP)" -f $h.Name) -ForegroundColor Red
+        $fail = 1
+    }
+}
+
 # 4. Dangerous DOM sinks in assets/js + lib.
 $sinkPatterns = 'innerHTML\s*=|outerHTML\s*=|document\.write|x-html\s*=|\beval\s*\(|new\s+Function\s*\('
 $sinkFiles = @()

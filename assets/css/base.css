@@ -194,6 +194,39 @@ a:focus-visible, button:focus-visible {
   width: 24px; height: 24px; border-radius: 6px;
   border: 1px solid rgba(0,0,0,0.08); display: inline-block;
 }
+.sw--bg    { background: var(--bg); }
+.sw--ink   { background: var(--ink); }
+.sw--terra { background: var(--terra); }
+.sw--sage  { background: var(--sage); }
+.sw--gold  { background: var(--gold); }
+
+/* -------- Contribute page (G1-02) -------- */
+.contrib-title { font-size: 1.75rem; letter-spacing: -0.02em; font-weight: 800; margin: 12px 0 6px; }
+.contrib-sub   { color: var(--muted); margin: 0 0 20px; font-size: 0.95rem; }
+.contrib-form  { display: flex; flex-direction: column; gap: 16px; }
+.contrib-fs    { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 20px; margin: 0; }
+.contrib-fs__legend { padding: 0 6px; font-weight: 800; font-size: 0.95rem; letter-spacing: -0.01em; }
+.contrib-tiers { display: grid; gap: 10px; grid-template-columns: repeat(2, 1fr); margin-top: 12px; }
+@media (min-width: 500px) { .contrib-tiers { grid-template-columns: repeat(4, 1fr); } }
+.contrib-tier { position: relative; display: block; background: var(--bg); border: 2px solid var(--line); border-radius: var(--radius); padding: 14px; cursor: pointer; text-align: center; }
+.contrib-tier input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.contrib-tier__amount { font-weight: 800; font-size: 1.05rem; color: var(--ink); }
+.contrib-tier:has(input:checked) { border-color: var(--terra); background: var(--terra-soft); }
+.contrib-tier--custom { background: var(--sage-soft); }
+.contrib-tier--custom:has(input:checked) { background: var(--terra-soft); }
+.contrib-custom { margin-top: 12px; }
+.contrib-label { display: block; font-weight: 700; font-size: 0.85rem; margin: 12px 0 4px; }
+.contrib-input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: 500 1rem var(--font-body); background: var(--bg); color: var(--ink); }
+.contrib-input:focus-visible { outline: 2px solid var(--terra); outline-offset: 1px; }
+.contrib-hint  { color: var(--muted); font-size: 0.8rem; margin: 6px 0 0; }
+.contrib-check { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 0; cursor: pointer; }
+.contrib-check input { margin-top: 2px; }
+.contrib-check span { font-size: 0.9rem; color: var(--ink); }
+.contrib-error { background: var(--terra-soft); color: var(--emerg); padding: 10px 14px; border-radius: 10px; margin: 0; font-weight: 600; }
+.contrib-actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 4px; }
+.btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 16px; font: 700 0.95rem var(--font-body); text-decoration: none; }
+.btn-ghost:hover, .btn-ghost:focus-visible { color: var(--ink); text-decoration: none; }
+.contrib-foot { color: var(--muted); font-size: 0.85rem; text-align: center; margin: 0; }
 
 /* -------- 404 page classes (kept from G0-01) -------- */
 .brand { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 40px; }

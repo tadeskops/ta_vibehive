@@ -3,7 +3,7 @@
 **Project:** ta_vibehive (TVH) — Society Event & Contribution Platform
 **Society scale:** ~220 flats, cooperative housing society
 **Status:** LIVE — tracked at repo root; updated after every slice per `/memories/repo/ta_vibehive.md §Requirements-first workflow`.
-**Last updated:** 2026-08-22 (G0-05 shipped, G1-01 shipped)
+**Last updated:** 2026-08-22 (G0-05 shipped, G1-01/G1-02 shipped)
 **Author role:** Senior team (PRA, BA, Society Domain Expert, Crowdfunding/Event Researcher, Financial Workflow Analyst, Mobile Strategist, Architect, Privacy Analyst, OSS Sustainability Analyst)
 
 > Companion file: `tvh_requirements_ui.md` (UI/UX — read only after this file is approved).
@@ -38,7 +38,7 @@ This section tracks which requirements have shipped. It is **prepended before Pa
 | Slice | Status | Ships | Covers requirements |
 |---|---|---|---|
 | G1-01 | ✅ shipped | Ganpati event page rendered from `config/ganpati_2026.json` at route `g/ganpati-2026/`; strict schema validator + INR (Indian grouping) + date formatters + cluster tint tokens; 18 event tests | F-EV01 (event definition), F-EV03 (goal), F-EV04 (dates), F-EV09 (hero) |
-| G1-02 | not started | Contribute page: tier picker + custom amount + anonymous toggle | F-CO01, F-CO03, F-CO07, F-CO12 |
+| G1-02 | ✅ shipped | Contribute form at `g/ganpati-2026/contribute/`: tier radios + custom amount + anonymous toggle + flat/name capture (seeded from G0-04 identity) + client-side amount validator (₹101–₹5L, whole rupees) + draft persistence (`tvh.contrib.draft`) + rate-limit bucket (6/hr per event) | F-CO01 (voluntary amount), F-CO03 (tiers), F-CO07 (anonymous), F-CO12 (min enforced) |
 | G1-03 | not started | UPI deep-link + QR + UTR capture + waiting state | F-PY01, F-PY02 |
 | G1-04 | not started | Committee verify screen + GitHub App device flow auth | F-PY03, F-PY10 (lite), F-ID05 (committee auth) |
 | G1-05 | not started | Confirmation email via Action + receipt-number allocation | F-NT03, F-RC01 (receipt id) |
@@ -51,6 +51,7 @@ This section tracks which requirements have shipped. It is **prepended before Pa
 
 - **G0-04 pivot 2026-08-22:** Original plan §1.4 row said "Email OTP + session cookies". Static Pages cannot host OTP. Revised to client-side identity capture + client-side rate-limit; real committee auth ships as GitHub App device flow in G1-04.
 - **G1-01 config format 2026-08-22:** Original plan §1.4 row said YAML. Switched to JSON to avoid shipping a YAML parser (saves LOC + shrinks attack surface + browser-native). YAML remains available for human-authored config in the data repo — the app just reads JSON.
+- **G1-02 CSP style-attr audit 2026-08-22:** During G1-02 build, discovered pre-existing `<i style="background:...">` swatches in index.html theme-fab were being blocked by strict CSP (`style-src 'self'` disallows inline style attributes without `'unsafe-inline'`). Replaced with `.sw--{token}` classes in base.css. Added `A05 · no inline style= attributes` assertion to `tests/owasp.test.js` and mirror in `scripts/check-sec.ps1` so this class of bug cannot regress.
 
 ---
 

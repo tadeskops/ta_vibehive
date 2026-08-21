@@ -99,6 +99,15 @@ test('A03 · no inline event handlers (onclick=, onload= ...)', () => {
   }
 });
 
+test('A05 · no inline style= attributes (blocked by strict CSP style-src)', () => {
+  // `style-src 'self'` without `'unsafe-inline'` blocks style attributes in
+  // modern browsers. Ship classes in base.css instead.
+  const styleAttr = /\sstyle\s*=/;
+  for (const h of htmls) {
+    assert.ok(!styleAttr.test(h.body), `${h.path} uses inline style= attribute (blocked by CSP)`);
+  }
+});
+
 test('A03 · no inline <script> body (must have src=)', () => {
   const inline = /<script(?![^>]*\bsrc=)[^>]*>\s*\S/i;
   for (const h of htmls) {
