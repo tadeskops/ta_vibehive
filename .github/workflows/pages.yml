@@ -36,6 +36,9 @@ jobs:
           cp index.html _site/
           cp 404.html _site/
           cp -R assets _site/
+          cp -R config _site/
+          # Event route folders (currently only ganpati-2026)
+          if [ -d g ]; then cp -R g _site/; fi
           if [ -f _headers ]; then cp _headers _site/; fi
           if [ -f robots.txt ]; then cp robots.txt _site/; fi
           echo "Deployed at $(date -u +%FT%TZ)" > _site/BUILD.txt

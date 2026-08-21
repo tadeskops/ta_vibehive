@@ -3,7 +3,7 @@
 **Project:** ta_vibehive (TVH) — Society Event & Contribution Platform
 **Companion file:** `tvh_requirements.md` (functional — MUST be read first every prompt)
 **Status:** LIVE — tracked at repo root; updated after every UI-touching slice.
-**Last updated:** 2026-08-22 (G0-05 shipped, G1-01 in progress)
+**Last updated:** 2026-08-22 (G0-05 shipped, G1-01 shipped)
 
 > **Master prompt §5 constraint:** No final screens, wireframes, colors, button placement, or visual designs are locked here. This file defines **UX principles, information architecture, interaction patterns, accessibility rules, and Gen-Z aesthetic direction** so that Phase-2 UI implementation is predictable and disciplined. Screen mockups come later.
 
@@ -25,7 +25,7 @@ Update after every UI-touching slice. Prepended before Section 1 intentionally �
 |---|---|---|---|
 | Home shell | G0-02 | `/` (index.html) | Topbar (brand + EN/MR/HI language nav) · hero-card ("Coming soon" pill, terracotta accent, gold glow) · 3-card info-grid · floating theme picker stub · footer |
 | Error page | G0-01 | `/404.html` | Same CSP posture · small brand tile · CTA back to home |
-| Ganpati event page | G1-01 (in progress) | `/g/ganpati-2026/` | Rendered from `config/ganpati_2026.json` via Alpine `x-text` bindings (never `x-html`); cluster A → `is-terra` tint |
+| Ganpati event page | G1-01 | `/g/ganpati-2026/` | Rendered from `config/ganpati_2026.json` via Alpine `x-text` bindings (never `x-html`); cluster A → `is-terra` tint; loading / error / content states; INR with Indian grouping; 4-tier grid + custom option |
 
 ### 0.3 Interaction rules verified in code
 

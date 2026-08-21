@@ -38,14 +38,15 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for f in index.html 404.html; do
+          htmls=$(find . -type f -name '*.html' \
+                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
+          for f in $htmls; do
             for header in 'Content-Security-Policy' 'X-Content-Type-Options' 'Referrer-Policy' 'Permissions-Policy'; do
               if ! grep -q "$header" "$f"; then
                 echo "::error file=$f::missing $header meta"
                 missing=1
               fi
             done
-            # Strict CSP: no unsafe-inline / unsafe-eval; must have default-src 'self' + frame-ancestors 'none'
             if grep -q "unsafe-inline\|unsafe-eval" "$f"; then
               echo "::error file=$f::CSP contains unsafe-inline or unsafe-eval"; missing=1
             fi
@@ -61,25 +62,32 @@ jobs:
       - name: G4 · no dangerous DOM sinks
         run: |
           set -euo pipefail
-          # innerHTML=, outerHTML=, document.write, x-html, eval(, new Function(
           patterns='innerHTML\s*=|outerHTML\s*=|document\.write|x-html\s*=|\beval\s*\(|new\s+Function\s*\('
-          if grep -RInE "$patterns" assets/ lib/ index.html 404.html 2>/dev/null | grep -v 'assets/vendor/'; then
+          if grep -RInE "$patterns" assets/ lib/ --include='*.js' --include='*.html' 2>/dev/null | grep -v 'assets/vendor/'; then
             echo "::error::forbidden DOM sink"
             exit 1
           fi
+          htmls=$(find . -type f -name '*.html' \
+                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
+          for f in $htmls; do
+            if grep -qE "$patterns" "$f"; then
+              echo "::error file=$f::forbidden DOM sink in html"; exit 1
+            fi
+          done
 
       - name: G4 · no inline JS / event handlers
         run: |
           set -euo pipefail
-          # Allow Alpine x-on: bindings; strip before checking.
-          for f in index.html 404.html; do
+          htmls=$(find . -type f -name '*.html' \
+                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
+          for f in $htmls; do
             stripped=$(sed -E 's/x-on:[a-z]+=/BLANK=/g; s/@[a-z]+=/BLANK=/g' "$f")
             if echo "$stripped" | grep -qE 'on(click|load|error|submit|change|input|mouseover|focus|blur|keydown|keyup)\s*='; then
               echo "::error file=$f::inline event handler"
               exit 1
             fi
           done
-          if grep -RInE '<script[^>]*>[^<]' --include='*.html' .; then
+          if grep -RInE '<script[^>]*>[^<]' --include='*.html' . 2>/dev/null | grep -v './temp/' | grep -v './docs/'; then
             echo "::error::inline <script> body detected"
             exit 1
           fi
@@ -87,36 +95,40 @@ jobs:
       - name: G4 · no LLM in request path (marker grep)
         run: |
           set -euo pipefail
-          if grep -RInE '(openai|anthropic|langchain|@ai-sdk)' assets lib index.html 404.html 2>/dev/null; then
+          if grep -RInE '(openai|anthropic|langchain|@ai-sdk)' assets lib --include='*.js' --include='*.css' --include='*.html' 2>/dev/null; then
             echo "::error::LLM SDK found in shipped/lib code"
             exit 1
           fi
+          htmls=$(find . -maxdepth 4 -type f -name '*.html' \
+                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
+          for f in $htmls; do
+            if grep -qE '(openai|anthropic|langchain|@ai-sdk)' "$f"; then
+              echo "::error file=$f::LLM SDK marker"; exit 1
+            fi
+          done
 
       - name: G3 · LOC + size budget
         shell: bash
         run: |
           set -euo pipefail
-          # LOC across shipped source (assets + top-level HTML + lib workflow-side).
-          # Vendored libs excluded (hash-pinned third-party).
           loc=$(find assets lib -type f \( -name '*.css' -o -name '*.js' \) \
                                 -not -path 'assets/vendor/*' -print0 2>/dev/null \
               | xargs -0 cat 2>/dev/null | wc -l || echo 0)
-          htmloc=$(cat index.html 404.html 2>/dev/null | wc -l)
+          htmls=$(find . -type f -name '*.html' \
+                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
+          htmloc=$(cat $htmls 2>/dev/null | wc -l)
           total=$((loc + htmloc))
           echo "LOC: code+lib=$loc html=$htmloc total=$total"
           if [ "$total" -gt 2500 ]; then
-            echo "::error::phase G-0 LOC budget exceeded ($total > 2500)"
+            echo "::error::G-0/G-1 LOC budget exceeded ($total > 2500)"
             exit 1
           fi
-          # First-paint payload (index.html + base.css + vendored Alpine), gzipped.
-          # Budget 150 KB gzipped from G0-02 onward.
           gz=$(cat index.html assets/css/base.css assets/vendor/alpine-*.min.js 2>/dev/null | gzip -c9 | wc -c)
           echo "First-paint gz=${gz}B"
           if [ "$gz" -gt 153600 ]; then
             echo "::error::first-paint > 150 KB gzipped"
             exit 1
           fi
-          # CSS-only budget: 10 KB gzipped.
           csgz=$(cat assets/css/base.css | gzip -c9 | wc -c)
           echo "CSS gz=${csgz}B"
           if [ "$csgz" -gt 10240 ]; then
@@ -136,11 +148,11 @@ jobs:
       - name: G4 · SRI attribute present on vendored scripts
         run: |
           set -euo pipefail
-          # Any vendored script referenced by HTML must carry an integrity= attribute.
           missing=0
-          for f in index.html 404.html; do
+          htmls=$(find . -type f -name '*.html' \
+                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
+          for f in $htmls; do
             for ref in $(grep -oE 'assets/vendor/[a-zA-Z0-9._-]+\.js' "$f" || true); do
-              if ! grep -q "$ref" "$f"; then continue; fi
               if ! grep -B1 -A2 "$ref" "$f" | grep -q 'integrity="sha384-'; then
                 echo "::error file=$f::vendored ref $ref lacks integrity=sha384-... attribute"
                 missing=1
@@ -152,6 +164,8 @@ jobs:
       - name: G1 · HTML validate (basic well-formed)
         run: |
           set -euo pipefail
-          npx --yes html-validate@8 index.html 404.html || {
-            echo "::warning::html-validate found issues (non-blocking for G0-02)"
+          htmls=$(find . -type f -name '*.html' \
+                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
+          npx --yes html-validate@8 $htmls || {
+            echo "::warning::html-validate found issues (non-blocking)"
           }

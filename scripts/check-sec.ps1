@@ -25,6 +25,9 @@ $fail = 0
 
 # 1. CSP + XCTO + Referrer-Policy + Permissions-Policy on every shipped HTML.
 $htmls = Get-ChildItem -Path . -Filter *.html -File
+if (Test-Path g) {
+    $htmls += Get-ChildItem -Path g -Recurse -Include *.html -File -ErrorAction SilentlyContinue
+}
 $requiredMeta = @('Content-Security-Policy','X-Content-Type-Options','Referrer-Policy','Permissions-Policy')
 foreach ($h in $htmls) {
     $body = Get-Content -Raw -LiteralPath $h.FullName

@@ -3,7 +3,7 @@
 **Project:** ta_vibehive (TVH) — Society Event & Contribution Platform
 **Society scale:** ~220 flats, cooperative housing society
 **Status:** LIVE — tracked at repo root; updated after every slice per `/memories/repo/ta_vibehive.md §Requirements-first workflow`.
-**Last updated:** 2026-08-22 (G0-05 shipped, G1-01 in progress)
+**Last updated:** 2026-08-22 (G0-05 shipped, G1-01 shipped)
 **Author role:** Senior team (PRA, BA, Society Domain Expert, Crowdfunding/Event Researcher, Financial Workflow Analyst, Mobile Strategist, Architect, Privacy Analyst, OSS Sustainability Analyst)
 
 > Companion file: `tvh_requirements_ui.md` (UI/UX — read only after this file is approved).
@@ -37,7 +37,7 @@ This section tracks which requirements have shipped. It is **prepended before Pa
 
 | Slice | Status | Ships | Covers requirements |
 |---|---|---|---|
-| G1-01 | in progress | Ganpati event page (title/purpose/goal/dates/tiers) rendered from `config/ganpati_2026.json` at route `g/ganpati-2026/`; validator + INR + date formatters | F-EV01 (event definition), F-EV03 (goal), F-EV04 (dates), F-EV09 (hero) |
+| G1-01 | ✅ shipped | Ganpati event page rendered from `config/ganpati_2026.json` at route `g/ganpati-2026/`; strict schema validator + INR (Indian grouping) + date formatters + cluster tint tokens; 18 event tests | F-EV01 (event definition), F-EV03 (goal), F-EV04 (dates), F-EV09 (hero) |
 | G1-02 | not started | Contribute page: tier picker + custom amount + anonymous toggle | F-CO01, F-CO03, F-CO07, F-CO12 |
 | G1-03 | not started | UPI deep-link + QR + UTR capture + waiting state | F-PY01, F-PY02 |
 | G1-04 | not started | Committee verify screen + GitHub App device flow auth | F-PY03, F-PY10 (lite), F-ID05 (committee auth) |

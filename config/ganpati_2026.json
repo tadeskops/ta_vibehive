@@ -1,0 +1,18 @@
+{
+  "id": "ganpati-2026",
+  "title": "Ganesh Chaturthi 2026",
+  "subtitle": "Ganpati Bappa Morya",
+  "purpose": "A community celebration for every family in Trinity Arcade — puja, prasad, aarti, and cultural evenings.",
+  "goal_inr": 250000,
+  "cluster": "A",
+  "dates": {
+    "start": "2026-09-14",
+    "end": "2026-09-24"
+  },
+  "tiers_inr": [1001, 2101, 5101],
+  "contact": {
+    "committee": "Trinity Arcade Committee",
+    "email": "committee@trinityarcade.example"
+  },
+  "closes_at": "2026-09-12T23:59:59+05:30"
+}

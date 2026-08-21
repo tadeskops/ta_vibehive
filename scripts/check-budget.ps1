@@ -23,12 +23,15 @@ Set-Location $root
 
 Write-Host "== G3 · sleek budget ==" -ForegroundColor Cyan
 
-# 1. LOC across shipped assets (css/js) + top-level HTML + lib/ (workflow-side).
+# 1. LOC across shipped assets (css/js) + top-level HTML + event route HTML + lib/ (workflow-side).
 #    Vendored libs excluded (third-party, hash-pinned).
 $assetFiles = Get-ChildItem -Path assets -Recurse -Include *.css, *.js -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch '\\assets\\vendor\\' }
 $libFiles = Get-ChildItem -Path lib -Recurse -Include *.js -ErrorAction SilentlyContinue
 $htmlFiles  = Get-ChildItem -Path . -Filter *.html -File
+if (Test-Path g) {
+    $htmlFiles += Get-ChildItem -Path g -Recurse -Include *.html -File -ErrorAction SilentlyContinue
+}
 
 $assetLoc = 0
 foreach ($f in $assetFiles) {
