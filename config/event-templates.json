@@ -1,0 +1,103 @@
+{
+  "templates": [
+    {
+      "id": "festival",
+      "label": "Festival / Cultural Celebration",
+      "cluster": "festival",
+      "glyph": "🪔",
+      "hero_class": "",
+      "examples": ["Ganesh Chaturthi", "Diwali", "Holi", "Navratri", "Christmas", "New Year"],
+      "features_on": [
+        "contribution.voluntary","contribution.suggested","contribution.custom",
+        "privacy.anonymous","privacy.public_board",
+        "reporting.progress","reporting.public_total",
+        "receipt.generate"
+      ],
+      "defaults": {
+        "tiers": [
+          { "amount": 1001, "label": "Shubh" },
+          { "amount": 2101, "label": "Popular", "highlight": true },
+          { "amount": 5101, "label": "Patron" }
+        ],
+        "goal_default": 500000
+      }
+    },
+    {
+      "id": "social",
+      "label": "Social / Community Gathering",
+      "cluster": "social",
+      "glyph": "🍛",
+      "hero_class": "sage",
+      "examples": ["Society picnic", "Community dinner", "Cultural night", "Children's program"],
+      "features_on": [
+        "registration.on","registration.family","registration.count","registration.food",
+        "registration.capacity","contribution.fixed",
+        "reporting.progress","receipt.generate"
+      ],
+      "defaults": {
+        "fixed_amount": 600,
+        "capacity": 250
+      }
+    },
+    {
+      "id": "sports",
+      "label": "Sports / Competition",
+      "cluster": "sports",
+      "glyph": "🏏",
+      "hero_class": "",
+      "examples": ["Cricket tournament", "Badminton doubles", "Chess", "Indoor games"],
+      "features_on": [
+        "registration.on","registration.team","registration.capacity","contribution.fixed",
+        "reporting.progress","receipt.generate"
+      ],
+      "defaults": {
+        "fixed_amount": 1500,
+        "capacity": 16
+      }
+    },
+    {
+      "id": "donation",
+      "label": "Voluntary Donation / Charity",
+      "cluster": "donation",
+      "glyph": "❤️",
+      "hero_class": "gold",
+      "examples": ["Charity drive", "Community welfare", "Medical support"],
+      "features_on": [
+        "contribution.voluntary","contribution.suggested","contribution.custom",
+        "privacy.anonymous","privacy.public_board","privacy.amount_hidden",
+        "reporting.progress","receipt.generate"
+      ],
+      "defaults": { "goal_default": 100000 }
+    },
+    {
+      "id": "emergency",
+      "label": "Emergency / Urgent Collection",
+      "cluster": "emergency",
+      "glyph": "🏚️",
+      "hero_class": "emerg",
+      "examples": ["Roof repair", "Water pump", "Disaster support"],
+      "features_on": [
+        "event.emergency",
+        "contribution.voluntary","contribution.custom",
+        "reporting.progress","reporting.public_total",
+        "notify.reminder","receipt.generate"
+      ],
+      "defaults": { "goal_default": 350000, "deadline_days": 7 }
+    },
+    {
+      "id": "infra",
+      "label": "Infrastructure / Improvement Project",
+      "cluster": "infra",
+      "glyph": "☀️",
+      "hero_class": "gold",
+      "examples": ["Solar rooftop", "Garden", "Security upgrade", "Water conservation"],
+      "features_on": [
+        "event.milestones",
+        "contribution.voluntary","contribution.custom",
+        "reporting.progress","reporting.public_total","reporting.expenses",
+        "receipt.generate"
+      ],
+      "defaults": { "goal_default": 3000000, "milestones": 3 }
+    }
+  ]
+}

@@ -1,113 +1,42 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#faf3ea">
-  <meta name="description" content="ta_vibehive — configurable event platform for The Address Co-operative Housing Society Ltd., Baner, Pune.">
-  <meta name="robots" content="index,follow">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests">
-  <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
-  <meta http-equiv="X-Content-Type-Options" content="nosniff">
-  <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
-  <title>ta_vibehive · The Address</title>
-  <link rel="icon" href="assets/images/TaLogo.png" type="image/png">
-  <link rel="apple-touch-icon" href="assets/images/TaLogo.png">
-  <link rel="stylesheet" href="assets/css/base.css">
-  <script defer type="module" src="assets/js/app.js"></script>
-  <script defer src="assets/vendor/alpine-3.14.1.min.js"
-          integrity="sha384-l8f0VcPi/M1iHPv8egOnY/15TDwqgbOR1anMIJWvU6nLRgZVLTLSaNqi/TOoT5Fh"
-          crossorigin="anonymous"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+<meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=()">
+<meta name="theme-color" content="#faf3ea">
+<meta name="description" content="ta_vibehive — configurable event and contribution platform for cooperative housing societies. Community Warmth theme.">
+<title>ta_vibehive · Community Warmth</title>
+<link rel="icon" type="image/png" href="assets/images/TaLogo.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="assets/css/base.css">
 </head>
-<body x-data="shell" x-init="init">
-
-  <a class="skip-link" href="#main">Skip to content</a>
-
-  <header class="topbar" role="banner">
-    <a class="brand-mark" href="/" aria-label="ta_vibehive home">
-      <span class="brand-tile brand-tile--sm" aria-hidden="true">
-        <img src="assets/images/TaLogo.png" alt="" width="40" height="40">
-      </span>
-      <span class="brand-wordmark">
-        <span class="brand-name-sm">ta<span class="brand-name-dot">·</span>vibehive</span>
-        <span class="brand-society">The Address</span>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar" id="topbar">
+  <div class="topbar-inner">
+    <a href="#/" class="brand" aria-label="ta_vibehive home">
+      <span class="brand-mark"><img src="assets/images/TaLogo.png" alt=""></span>
+      <span class="brand-text">
+        <b>The Address</b>
+        <em>Co-op Hsg · Baner</em>
       </span>
     </a>
-
-    <nav class="lang" role="group" aria-label="Language">
-      <button type="button" class="lang-btn" :class="{'is-active': lang === 'en'}"
-              x-on:click="setLang('en')" :aria-pressed="lang === 'en'">EN</button>
-      <button type="button" class="lang-btn" :class="{'is-active': lang === 'mr'}"
-              x-on:click="setLang('mr')" :aria-pressed="lang === 'mr'">मराठी</button>
-      <button type="button" class="lang-btn" :class="{'is-active': lang === 'hi'}"
-              x-on:click="setLang('hi')" :aria-pressed="lang === 'hi'">हिन्दी</button>
-    </nav>
-  </header>
-
-  <main id="main" class="shell" role="main">
-
-    <section class="hero-card" aria-labelledby="hero-title">
-      <div class="hero-card__glow" aria-hidden="true"></div>
-      <div class="hero-card__body">
-        <span class="pill pill--terra">Coming soon</span>
-        <h1 id="hero-title" class="hero-card__title">Ganesh Chaturthi <span class="hero-card__year">2026</span></h1>
-        <p class="hero-card__sub">
-          The Address's community platform is being built now.
-          First up: our Ganpati contribution page + live progress dashboard.
-        </p>
-        <p class="hero-card__meta">
-          Launching before <strong>September 14, 2026</strong>.
-        </p>
-      </div>
-    </section>
-
-    <section class="info-grid" aria-label="What ships first">
-      <article class="info-card">
-        <span class="info-card__ic" aria-hidden="true">&#128176;</span>
-        <h2 class="info-card__title">One-tap contribute</h2>
-        <p class="info-card__body">Pick a tier or type your own amount. Pay by any UPI app. Anonymous option respected.</p>
-      </article>
-      <article class="info-card">
-        <span class="info-card__ic" aria-hidden="true">&#128202;</span>
-        <h2 class="info-card__title">Live dashboard</h2>
-        <p class="info-card__body">Progress bar ticks up as the committee verifies. See who paid how much &mdash; or stay anonymous.</p>
-      </article>
-      <article class="info-card">
-        <span class="info-card__ic" aria-hidden="true">&#128196;</span>
-        <h2 class="info-card__title">Real receipt</h2>
-        <p class="info-card__body">Committee-verified. Society letterhead. Verifiable via QR at any time.</p>
-      </article>
-    </section>
-
-    <footer class="foot">
-      <p>
-        The Address Co-operative Housing Society Ltd. &middot; Baner, Pune
-        &middot; Reg PNA/PNA(2)/HSG/(TC)/29730/2025&#8209;2026
-      </p>
-      <p>
-        Slice G0-02 &middot; Phase G-0 Foundation &middot;
-        <a href="404.html">See error page</a>
-      </p>
-    </footer>
-  </main>
-
-  <div class="theme-fab" aria-label="Theme">
-    <button type="button" class="theme-fab__btn" x-on:click="themeOpen = !themeOpen"
-            :aria-expanded="themeOpen" aria-controls="theme-panel" aria-label="Theme options">
-      <span aria-hidden="true">&#127912;</span>
-    </button>
-    <div id="theme-panel" class="theme-fab__panel" x-show="themeOpen" x-cloak x-transition role="dialog" aria-label="Theme preview">
-      <p class="theme-fab__title">Community Warmth</p>
-      <p class="theme-fab__hint">Locked palette (see brand audit)</p>
-      <div class="theme-fab__swatch" aria-hidden="true">
-        <i class="sw sw--bg"></i>
-        <i class="sw sw--ink"></i>
-        <i class="sw sw--terra"></i>
-        <i class="sw sw--sage"></i>
-        <i class="sw sw--gold"></i>
-      </div>
-    </div>
+    <nav class="topnav" id="topnav" aria-label="Primary"></nav>
+    <div class="topbar-actions" id="whoami"></div>
   </div>
-
+</header>
+<main id="main" class="stage" aria-live="polite"></main>
+<footer class="footpad">
+  <div class="footpad-inner">
+    <span>© <span id="year"></span> The Address Co-op Hsg Ltd · Reg PNA/PNA(2)/HSG/(TC)/29730/2025-2026</span>
+    <span class="pill">Community Warmth · v0.1</span>
+  </div>
+</footer>
+<template id="tpl-toast"><div class="toast" role="status"></div></template>
+<script type="module" src="assets/js/app.js"></script>
 </body>
 </html>

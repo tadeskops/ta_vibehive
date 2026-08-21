@@ -1,3 +1,2 @@
 User-agent: *
 Allow: /
-Sitemap: https://tadeskops.github.io/ta_vibehive/sitemap.xml

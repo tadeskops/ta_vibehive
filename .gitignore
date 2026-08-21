@@ -150,3 +150,10 @@ temp/
 
 # Local Pages build artefact
 _site/
+
+# Local preview of generated event routes (produced by scripts/generate-routes.mjs)
+.local-preview/
+
+# Legacy per-event route folder — now generated from templates/, never committed
+g/
+

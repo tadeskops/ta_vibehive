@@ -1,0 +1,28 @@
+{
+  "id": "the-address-baner",
+  "legal_name": "The Address Sahakari Gruharachana Sanstha Maryadit",
+  "english_name": "The Address Co-operative Housing Society Ltd.",
+  "short_name": "The Address",
+  "reg_no": "PNA/PNA(2)/HSG/(TC)/29730/2025-2026",
+  "reg_date": "2025-12-24",
+  "location": "Baner, Pune 411045, Maharashtra, India",
+  "total_flats": 220,
+  "brand": {
+    "theme": "community-warmth",
+    "primary": "#a34328",
+    "secondary": "#6b8f5a",
+    "gold": "#c78f2a",
+    "ink": "#2a1a10",
+    "bg": "#faf3ea"
+  },
+  "receipts": {
+    "prefix": "TA",
+    "archive_repo": "tadeskops/ta_receipts_2026",
+    "watermark_asset": "assets/images/TaStampBlueOverlay.png",
+    "stamp_asset": "assets/images/TaStampBlue.png"
+  },
+  "contact": {
+    "chairman": "chairman@the-address.example",
+    "manager": "manager@the-address.example"
+  }
+}

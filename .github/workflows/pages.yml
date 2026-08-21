@@ -28,18 +28,15 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Assemble artifact
-        # Static shell — no build step. Only copy shippable paths;
-        # exclude temp/, scripts/, docs/, workflows, hooks, tests.
+        # Static SPA — no build step. Copy only shipped surfaces.
         run: |
           set -euo pipefail
           mkdir -p _site
           cp index.html _site/
           cp 404.html _site/
+          cp manifest.webmanifest _site/
           cp -R assets _site/
           cp -R config _site/
-          # Event route folders (currently only ganpati-2026)
-          if [ -d g ]; then cp -R g _site/; fi
-          if [ -f _headers ]; then cp _headers _site/; fi
           if [ -f robots.txt ]; then cp robots.txt _site/; fi
           echo "Deployed at $(date -u +%FT%TZ)" > _site/BUILD.txt
           ls -la _site

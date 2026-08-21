@@ -1,0 +1,31 @@
+{
+  "hierarchy": [
+    { "id": "admin",       "label": "Admin",                "rank": 100, "badge": "role-badge",     "description": "System owner. Configures features, roles, receipt archive, branding. Never touches day-to-day event ops." },
+    { "id": "mgmt",        "label": "Management Committee", "rank": 80,  "badge": "role-badge mc",   "description": "Elected committee. Approves budgets, verifies payments, publishes receipts." },
+    { "id": "committee",   "label": "Sub-Committee",        "rank": 60,  "badge": "role-badge cmt",  "description": "Cultural / Sports / Volunteer sub-committees. Creates events under their cluster, tracks contributions." },
+    { "id": "manager",     "label": "Society Manager",      "rank": 40,  "badge": "role-badge mgr",  "description": "On-site manager. Records offline (cash / cheque) payments, generates duplicate receipts, prints reports." },
+    { "id": "resident",    "label": "Resident",             "rank": 20,  "badge": "role-badge res",  "description": "Contributes, registers for events, downloads own receipts, sees permitted public boards." }
+  ],
+  "permissions": {
+    "society.brand.edit":        ["admin"],
+    "features.registry.edit":    ["admin"],
+    "roles.edit":                ["admin"],
+    "users.manage":              ["admin", "mgmt"],
+    "events.create":             ["admin", "mgmt", "committee"],
+    "events.publish":            ["admin", "mgmt"],
+    "events.edit.own":           ["admin", "mgmt", "committee"],
+    "events.close":              ["admin", "mgmt"],
+    "events.archive":            ["admin", "mgmt"],
+    "contributions.verify":      ["admin", "mgmt", "manager"],
+    "contributions.void":        ["admin", "mgmt"],
+    "contributions.record.cash": ["admin", "mgmt", "manager"],
+    "receipts.generate":         ["admin", "mgmt", "manager"],
+    "receipts.download":         ["admin", "mgmt", "committee", "manager", "resident"],
+    "receipts.archive":          ["admin", "mgmt"],
+    "reports.view":              ["admin", "mgmt", "committee", "manager"],
+    "reports.export":            ["admin", "mgmt"],
+    "residents.directory":       ["admin", "mgmt", "committee", "manager"],
+    "contribute":                ["admin", "mgmt", "committee", "manager", "resident"],
+    "events.register":           ["admin", "mgmt", "committee", "manager", "resident"]
+  }
+}

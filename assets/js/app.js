@@ -1,49 +1,74 @@
-/* ta_vibehive · app.js · Alpine.js entry (G0-02)
- *
- * Only two responsibilities in this slice:
- *   1. Provide the reactive shell store for the home page (language + theme).
- *   2. Register the Alpine components used by index.html.
- *
- * Language toggle is a stub for G0-02: it flips the html[lang] attribute and
- * writes the choice to localStorage. Actual translations arrive post-launch
- * (per tvh_plan.md §1.2 deferred list).
- *
- * Theme picker is a stub too: Community Warmth is the only theme available
- * pre-launch. The picker exists so brand exploration mode can be enabled
- * post-launch without a page rewrite.
- */
+/* SPA bootstrap — wire chrome, register routes, dispatch. */
+'use strict';
+import { $, el, clear } from './dom.js';
+import * as router from './router.js';
+import { session } from './auth.js';
+import { can } from './rbac.js';
 
-const LANGS = ['en', 'mr', 'hi'];
-const DEFAULT_LANG = 'en';
+/* View modules (lazy for first-paint gzip budget) */
+const views = {
+  home:       () => import('./views/home.js'),
+  events:     () => import('./views/events.js'),
+  event:      () => import('./views/event.js'),
+  contribute: () => import('./views/contribute.js'),
+  admin:      () => import('./views/admin.js'),
+  receipt:    () => import('./views/receipt.js'),
+  login:      () => import('./views/login.js'),
+};
 
-function readLang() {
-  try {
-    const v = localStorage.getItem('tvh.lang');
-    return LANGS.includes(v) ? v : DEFAULT_LANG;
-  } catch { return DEFAULT_LANG; }
+async function mountView(loader, ctx) {
+  const root = $('#main');
+  clear(root);
+  root.append(el('div', { class: 'sub', text: 'Loading…' }));
+  const mod = await loader();
+  await mod.render(root, ctx || {});
 }
 
-function writeLang(lang) {
-  try { localStorage.setItem('tvh.lang', lang); } catch { /* no-op */ }
+router.register('/',                          (ctx) => mountView(views.home, ctx));
+router.register('/events',                    (ctx) => mountView(views.events, ctx));
+router.register('/e/:id',                     (ctx) => mountView(views.event, ctx));
+router.register('/e/:id/edit',                (ctx) => mountView(views.event, { ...ctx, match: { ...ctx.match, mode: 'edit' } }));
+router.register('/e/:id/manage',              (ctx) => mountView(views.event, { ...ctx, match: { ...ctx.match, mode: 'manage' } }));
+router.register('/e/:id/contribute',          (ctx) => mountView(views.contribute, ctx));
+router.register('/e/:id/register',            (ctx) => mountView(views.contribute, ctx));
+router.register('/admin',                     (ctx) => mountView(views.admin, { ...ctx, match: { tab: 'features' } }));
+router.register('/admin/:tab',                (ctx) => mountView(views.admin, ctx));
+router.register('/receipt/:id',               (ctx) => mountView(views.receipt, ctx));
+router.register('/login',                     (ctx) => mountView(views.login, ctx));
+router.fallback(                              (ctx) => mountView(views.home, ctx));
+
+async function renderChrome() {
+  const nav = $('#topnav');
+  const whoami = $('#whoami');
+  clear(nav); clear(whoami);
+  const user = session();
+
+  const links = [
+    { href: '#/', text: 'Home' },
+    { href: '#/events', text: 'Events' },
+  ];
+  if (user && await can(user, 'features.registry.edit')) links.push({ href: '#/admin', text: 'Admin' });
+  const hash = location.hash || '#/';
+  for (const l of links) {
+    const a = el('a', { href: l.href, text: l.text });
+    if (hash === l.href || (l.href !== '#/' && hash.startsWith(l.href))) a.classList.add('active');
+    nav.append(a);
+  }
+
+  if (user) {
+    whoami.append(el('span', { class: 'whoami' },
+      el('span', { class: 'avatar', text: (user.name || '?').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase() }),
+      el('span', { text: user.name.split(' ')[0] }),
+      el('span', { class: 'role-badge ' + ({ admin: '', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[user.role], text: user.role })
+    ));
+    whoami.append(el('a', { class: 'btn btn-sm btn-ghost', href: '#/login' }, 'Switch'));
+  } else {
+    whoami.append(el('a', { class: 'btn btn-sm', href: '#/login' }, 'Sign in'));
+  }
 }
 
-function shell() {
-  return {
-    lang: readLang(),
-    themeOpen: false,
-    setLang(next) {
-      if (!LANGS.includes(next)) return;
-      this.lang = next;
-      document.documentElement.setAttribute('lang', next);
-      writeLang(next);
-    },
-    init() {
-      document.documentElement.setAttribute('lang', this.lang);
-    },
-  };
-}
-
-document.addEventListener('alpine:init', () => {
-  // eslint-disable-next-line no-undef
-  Alpine.data('shell', shell);
+router.start(() => renderChrome());
+window.addEventListener('DOMContentLoaded', () => {
+  $('#year').textContent = String(new Date().getFullYear());
+  renderChrome();
 });
