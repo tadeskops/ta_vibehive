@@ -43,20 +43,25 @@
       </span>
     </span>
     <nav class="topnav" id="topnav" aria-label="Primary"></nav>
-    <!-- Mobile-only Instagram shortcut. On phones the whole .footpad
-         (which holds the desktop @-handle link) is hidden by mobile.css,
-         so this compact icon sits at the top-right corner alongside the
-         persona pill / notify bell. Hidden above 640 px via the
-         [data-tvh-mobile-only] hard-hide rule. Hydrated from
-         society.social.instagram at DOMContentLoaded — kept hidden when
-         no handle is configured. -->
-    <a class="tvh-header-ig" id="tvhHeaderIg" data-tvh-mobile-only
-       href="#" target="_blank" rel="noopener noreferrer" hidden
-       aria-label="Follow society on Instagram"
-       title="Follow society on Instagram">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
-    </a>
-    <div class="topbar-actions" id="whoami"></div>
+    <!-- Right cluster. Desktop: single row [IG · whoami]. Mobile: two
+         stacked rows so the icons stop crowding the brand text.
+         See mobile.css `.topbar-right` block. -->
+    <div class="topbar-right" id="topbarRight">
+      <!-- Mobile-only Instagram shortcut. On phones the whole .footpad
+           (which holds the desktop @-handle link) is hidden by
+           mobile.css, so this compact icon sits at the top-right
+           corner alongside the persona pill / notify bell. Hidden
+           above 640 px via the [data-tvh-mobile-only] hard-hide rule.
+           Hydrated from society.social.instagram at DOMContentLoaded —
+           kept hidden when no handle is configured. -->
+      <a class="tvh-header-ig" id="tvhHeaderIg" data-tvh-mobile-only
+         href="#" target="_blank" rel="noopener noreferrer" hidden
+         aria-label="Follow society on Instagram"
+         title="Follow society on Instagram">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
+      </a>
+      <div class="topbar-actions" id="whoami"></div>
+    </div>
   </div>
 </header>
 <main id="main" class="stage" aria-live="polite"></main>

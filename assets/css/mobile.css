@@ -32,11 +32,22 @@
 
   [data-tvh-desktop-only] { display: none !important; }
 
-  /* --- Header: hide the horizontal nav, compact the brand ---- */
+  /* --- Header: hide the horizontal nav, compact the brand ----
+   * Layout on mobile mirrors the user-approved sketch:
+   *   [ brand-wrap ]      [ IG    ]
+   *                       [ 👤    ]
+   * i.e. LEFT column holds the brand (mark + text as before);
+   * RIGHT column holds the two action tiles STACKED vertically so
+   * they no longer sit inline with the brand text on 360 px screens.
+   * `.topbar-right` is a flex column here; `margin-left:auto` pushes
+   * it to the far right and `align-items:flex-end` right-aligns each
+   * tile. `.topnav` is hidden, so `.topbar-inner` shrinks to just
+   * `.brand-wrap` + `.topbar-right`. */
   .topbar-inner {
     padding: 8px 12px;
     gap: 8px;
     flex-wrap: nowrap;
+    align-items: center;
   }
   .topnav { display: none !important; }
   .brand-mark img { height: 30px; width: 30px; }
@@ -48,13 +59,28 @@
   .whoami .role-badge { display: none; }
   .whoami > span:nth-child(2) { max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  /* Right cluster: stacked vertically so IG icon and whoami pill each
+   * get their own row, right-aligned. Gives both tiles a comfortable
+   * tap target without competing with the brand text. */
+  .topbar-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
   /* --- Top-right Instagram shortcut (mobile only) ------------
      Ported from ta-society-helpdesk: on phones the .footpad is
      hidden so the desktop @-handle link is unreachable. This
-     compact icon lives at the top-right of the header, sits to
-     the LEFT of the whoami pill so tap targets don't crowd the
-     Switch button, and stays hidden when society.social has no
-     URL configured (revealed by app.js#hydrate). */
+     compact icon lives at the top-right of the header, INSIDE
+     the `.topbar-right` vertical stack — it sits ABOVE the
+     whoami pill on mobile so both get a full-width tap target
+     without crowding the brand text. Stays hidden when
+     society.social has no URL configured (revealed by
+     app.js#hydrate). */
   .tvh-header-ig {
     display: inline-flex; align-items: center; justify-content: center;
     width: 34px; height: 34px;

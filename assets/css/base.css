@@ -98,6 +98,12 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.4s linear inf
 .topnav a.active{background:var(--terra-soft);color:var(--terra);text-decoration:none}
 .topnav a:hover{color:var(--ink);text-decoration:none}
 .topbar-actions{display:flex;align-items:center;gap:10px}
+/* Wrapper around the right-side cluster (IG shortcut + whoami pill).
+ * Desktop: single flex row — visually indistinguishable from the pre-wrap
+ * layout because `.topnav` (flex:1) still pushes it to the far right.
+ * Mobile: mobile.css re-declares this as a right-aligned vertical stack
+ * so the icons stop crowding the brand text. */
+.topbar-right{display:inline-flex;align-items:center;gap:10px}
 .whoami{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:var(--terra-soft);color:var(--terra);font-weight:700;font-size:13px}
 .whoami .avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--terra),var(--gold));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800}
 
@@ -323,7 +329,7 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 /* Print / receipt */
 @media print{
   body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .topbar,.footpad,.topnav,.topbar-actions,.print-hide{display:none!important}
+  .topbar,.footpad,.topnav,.topbar-actions,.topbar-right,.print-hide{display:none!important}
   .receipt{border:none;box-shadow:none;page-break-inside:avoid}
   .receipt::before,.receipt-stamp img{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .stage{padding:0}
