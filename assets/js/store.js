@@ -32,6 +32,7 @@ export const cfg = {
   roles:    () => loadJSON('config/roles.json'),
   features: () => loadJSON('config/features.json'),
   templates:() => loadJSON('config/event-templates.json'),
+  auth:     () => loadJSON('config/auth.json'),
 };
 
 /* Effective society config = shipped defaults ⊕ admin overrides (localStorage).

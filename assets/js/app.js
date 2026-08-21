@@ -4,6 +4,17 @@ import { $, el, clear } from './dom.js';
 import * as router from './router.js';
 import { session } from './auth.js';
 import { can } from './rbac.js';
+import { isCallbackHit } from './auth-oauth.js';
+
+/* If the browser landed on the OAuth redirect_uri (root + ?code=&state=),
+ * hand off to the callback view. Rewrites the URL into a hash route so the
+ * router picks it up in the normal dispatch. */
+if (isCallbackHit()) {
+  const q = new URLSearchParams(location.search);
+  const preserved = new URLSearchParams({ code: q.get('code'), state: q.get('state') });
+  history.replaceState({}, '', location.pathname);
+  location.hash = '#/auth/callback?' + preserved.toString();
+}
 
 /* View modules (lazy for first-paint gzip budget) */
 const views = {
@@ -15,6 +26,7 @@ const views = {
   receipt:    () => import('./views/receipt.js'),
   verify:     () => import('./views/verify.js'),
   login:      () => import('./views/login.js'),
+  authcb:     () => import('./views/auth-callback.js'),
 };
 
 async function mountView(loader, ctx) {
@@ -38,6 +50,7 @@ router.register('/receipt/:id',               (ctx) => mountView(views.receipt, 
 router.register('/verify',                    (ctx) => mountView(views.verify, ctx));
 router.register('/verify/:id',                (ctx) => mountView(views.verify, ctx));
 router.register('/login',                     (ctx) => mountView(views.login, ctx));
+router.register('/auth/callback',             (ctx) => mountView(views.authcb, ctx));
 router.fallback(                              (ctx) => mountView(views.home, ctx));
 
 async function renderChrome() {
