@@ -37,5 +37,10 @@
   "contact": {
     "chairman": "chairman@the-address.example",
     "manager": "manager@the-address.example"
+  },
+  "social": {
+    "label": "The Address community",
+    "instagram": "",
+    "whatsapp": ""
   }
 }

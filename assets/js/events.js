@@ -71,9 +71,20 @@ export function findEvent(id) {
 }
 
 export function publicEvents() {
-  return state.events()
-    .filter(e => e.status === STATUS.PUBLISHED || e.status === STATUS.CLOSED)
-    .sort((a, b) => (a.end_at || '').localeCompare(b.end_at || ''));
+  /* Dedupe by (slug || title-lowercase) and keep the most-recently
+   * updated instance. This prevents an admin who re-created an event
+   * from another draft (or a stale localStorage carryover) from
+   * showing the same tile twice on the home dashboard. */
+  const filtered = state.events()
+    .filter(e => e.status === STATUS.PUBLISHED || e.status === STATUS.CLOSED);
+  const byKey = new Map();
+  const keyOf = e => (e.slug || (e.title || '').toLowerCase().trim() || e.id);
+  for (const e of filtered) {
+    const k = keyOf(e);
+    const prev = byKey.get(k);
+    if (!prev || (e.updated_at || '') > (prev.updated_at || '')) byKey.set(k, e);
+  }
+  return [...byKey.values()].sort((a, b) => (a.end_at || '').localeCompare(b.end_at || ''));
 }
 
 export function contribsFor(eventId) {

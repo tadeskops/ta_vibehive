@@ -112,5 +112,23 @@ window.addEventListener('DOMContentLoaded', async () => {
       const where = (soc.location || '').split(',')[0].trim();
       sub.textContent = where ? `${soc.short_name} · ${where}` : soc.short_name;
     }
+    /* Footer legal-name hydration (short-form English name so the row
+     * doesn't wrap). Falls back to the shipped literal on failure. */
+    const legal = document.querySelector('[data-brand-society-full]');
+    if (legal && soc && (soc.english_name || soc.short_name)) {
+      legal.textContent = soc.english_name || soc.short_name;
+    }
+    /* Footer social pill hydration. Reads society.social.instagram (or
+     * whatsapp) — reveals the pill only when a URL is configured, so a
+     * fresh install doesn't show a dead link. */
+    const socialLink = document.getElementById('footpad-social');
+    const socialCfg = (soc && soc.social) || {};
+    const url = socialCfg.instagram || socialCfg.whatsapp || '';
+    if (socialLink && url) {
+      socialLink.href = url;
+      const label = socialLink.querySelector('[data-footpad-social-label]');
+      if (label && socialCfg.label) label.textContent = socialCfg.label;
+      socialLink.hidden = false;
+    }
   } catch (_e) { /* keep shipped fallback */ }
 });

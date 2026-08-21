@@ -11,7 +11,11 @@ export async function render(root) {
   const events = publicEvents();
 
   const emerg = events.find(e => e.template === 'emergency' && e.status === STATUS.PUBLISHED);
-  const rest  = events.filter(e => e !== emerg);
+  /* Belt-and-braces dedupe: publicEvents() already unique-by-id, but home
+   * pulls a single emergency card into its own callout and renders the
+   * rest as a grid — this filter guarantees an event never appears in
+   * both the emergency callout and the grid. */
+  const rest  = events.filter(e => e !== emerg && !(emerg && e.id === emerg.id));
 
   const hero = el('section', { class: 'hero' },
     el('div', { class: 'row row-between' },
