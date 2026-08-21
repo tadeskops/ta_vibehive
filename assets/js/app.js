@@ -6,6 +6,12 @@ import { session } from './auth.js';
 import { can } from './rbac.js';
 import { isCallbackHit } from './auth-oauth.js';
 import { getSociety } from './store.js';
+import { installFetchWrapper } from './busy.js';
+
+/* Global background-activity tracker: wraps window.fetch so every network
+ * call (OAuth, GitHub archive push, config load, …) automatically drives
+ * the topbar's golden shimmer stripe. Idempotent — safe to call once. */
+installFetchWrapper();
 
 /* If the browser landed on the OAuth redirect_uri (root + ?code=&state=),
  * hand off to the callback view. Rewrites the URL into a hash route so the
@@ -57,7 +63,6 @@ router.fallback(                              (ctx) => mountView(views.home, ctx
 async function renderChrome() {
   const nav = $('#topnav');
   const whoami = $('#whoami');
-  clear(nav); clear(whoami);
   const user = session();
 
   const links = [
@@ -65,7 +70,16 @@ async function renderChrome() {
     { href: '#/events', text: 'Events' },
     { href: '#/verify', text: 'Verify receipt' },
   ];
-  if (user && await can(user, 'features.registry.edit')) links.push({ href: '#/admin', text: 'Admin' });
+  /* IMPORTANT: this call is async → concurrent invocations of renderChrome
+   * (router.start + DOMContentLoaded + first hashchange) can otherwise
+   * race and each append after the await, tripling the visible nav.
+   * We tag the invocation with a version and clear+repopulate only if
+   * we're still the latest caller when can() resolves. */
+  const version = (renderChrome.__v = (renderChrome.__v || 0) + 1);
+  const showAdmin = user && await can(user, 'features.registry.edit');
+  if (version !== renderChrome.__v) return;
+  if (showAdmin) links.push({ href: '#/admin', text: 'Admin' });
+  clear(nav); clear(whoami);
   const hash = location.hash || '#/';
   for (const l of links) {
     const a = el('a', { href: l.href, text: l.text });

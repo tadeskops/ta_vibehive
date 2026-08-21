@@ -33,6 +33,19 @@ hr{border:none;border-top:1px solid var(--line);margin:20px 0}
 
 /* Top bar */
 .topbar{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20;padding-top:env(safe-area-inset-top)}
+/* Golden shimmer on the topbar's bottom edge whenever background work is
+ * inflight (see busy.js). Ref-counted so nested awaits stack cleanly. The
+ * shimmer is a 2px stripe with a soft gold gradient sliding left→right;
+ * off-state hides it entirely so the topbar keeps its calm 1px border. */
+.topbar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,transparent 0%,transparent 20%,rgba(199,143,42,.85) 50%,transparent 80%,transparent 100%);background-size:220% 100%;background-position:200% 0;opacity:0;pointer-events:none;transition:opacity .18s ease}
+body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.4s linear infinite}
+@keyframes tvh-topbar-shine{
+  0%{background-position:200% 0}
+  100%{background-position:-100% 0}
+}
+@media (prefers-reduced-motion:reduce){
+  body.is-busy .topbar::after{animation:none;background:linear-gradient(90deg,transparent 0%,rgba(199,143,42,.55) 50%,transparent 100%);background-size:100% 100%;background-position:0 0}
+}
 .topbar-inner{max-width:1200px;margin:0 auto;padding:12px max(20px,env(safe-area-inset-right)) 12px max(20px,env(safe-area-inset-left));display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:12px;color:var(--ink)}
 .brand:hover{text-decoration:none}
@@ -171,7 +184,14 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 
 /* Receipt */
 .receipt{background:#fff;color:var(--ink);max-width:640px;margin:0 auto;padding:36px 40px;border:1px solid var(--line);border-radius:var(--radius);position:relative;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.receipt::before{content:"";position:absolute;inset:0;background-image:url(../images/TaStampBlueOverlay.png);background-repeat:no-repeat;background-position:center 60%;background-size:280px;opacity:.08;pointer-events:none;z-index:0}
+.receipt::before{content:"";position:absolute;inset:0;background-image:url(../images/TaStampBlueOverlay.png);background-repeat:no-repeat;background-position:center 60%;background-size:280px;opacity:.07;pointer-events:none;z-index:0}
+/* Forensic layer: diagonal SVG-text pattern injected by receipt.js. Text
+ * repeats the receipt ID + verify hash so every receipt's watermark is
+ * unique and impossible to copy from another document. */
+.receipt-textmark{position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.11;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.receipt-textmark .wm-a{font:800 12px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;fill:#3E5A9E;letter-spacing:.15em}
+.receipt-textmark .wm-b{font:700 11px "SFMono-Regular",Consolas,"Liberation Mono",monospace;fill:#a34328}
+.receipt-textmark .wm-c{font:700 11px "SFMono-Regular",Consolas,"Liberation Mono",monospace;fill:#6b8f5a}
 .receipt>*{position:relative;z-index:1}
 .receipt-head{border-bottom:2px solid #3E5A9E;padding-bottom:12px;margin-bottom:16px;display:flex;gap:14px;align-items:center}
 .receipt-head img{width:60px;height:60px;object-fit:contain}
@@ -179,10 +199,19 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 .receipt-head small{font-size:11px;color:var(--muted);letter-spacing:.03em}
 .receipt-meta{font-size:13px;color:var(--muted);display:grid;grid-template-columns:repeat(2,1fr);gap:6px 20px;margin-bottom:18px}
 .receipt-meta b{color:var(--ink)}
-.receipt-total{font-size:22px;font-weight:800;color:var(--terra);text-align:right;margin:12px 0}
-.receipt-stamp{margin-top:20px;display:flex;justify-content:space-between;align-items:flex-end}
+.receipt-amount-wrap{position:relative;margin:12px 0}
+.receipt-total{font-size:22px;font-weight:800;color:var(--terra);text-align:right}
+/* Wet-stamp overlay: seal rotates over the amount block so any tampered
+ * digit visibly clashes with the rubber-stamp texture. Prints exact. */
+.receipt-stamp-overlay{position:absolute;right:-6px;top:-40px;width:170px;height:170px;background-image:url(../images/TaStampBlue.png);background-repeat:no-repeat;background-size:contain;background-position:center;opacity:.44;transform:rotate(-14deg);z-index:3;pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.receipt-stamp{margin-top:20px;display:flex;justify-content:space-between;align-items:flex-end;gap:14px}
 .receipt-stamp img{width:110px;opacity:.9}
+.receipt-hashgrid{width:64px;height:64px;flex:0 0 64px;border:1px solid var(--line);border-radius:6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .receipt-verify{margin-top:14px;font-size:11px;color:var(--muted);border-top:1px dashed var(--line);padding-top:10px;word-break:break-all}
+.receipt-verify b{color:var(--ink)}
+/* Microtext strip: repeats ID + hash at 5.5px along the footer.
+ * Reproducing this on a photocopied fake without smudging is very hard. */
+.receipt-microtext{margin-top:10px;font:600 5.5px "SFMono-Regular",Consolas,"Liberation Mono",monospace;color:#7d6858;line-height:1.05;letter-spacing:.02em;word-break:break-all;text-align:center;overflow:hidden;opacity:.85}
 
 /* Admin panels */
 .panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px}
