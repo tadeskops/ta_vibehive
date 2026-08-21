@@ -93,7 +93,10 @@ export function eventCard(evt) {
           el('span', { text: `${fmtINR(totalFor(evt.id))} of ${fmtINR(evt.goal)}` }),
           el('span', { text: `${verifiedCount(evt.id)} contributors` })
         )
-      ) : null,
+      ) : el('div', { class: 'progress-meta', style: 'margin-top:8px' },
+        el('span', { text: `${fmtINR(totalFor(evt.id))} collected` }),
+        el('span', { text: `${verifiedCount(evt.id)} contributors` })
+      ),
       el('div', { class: 'row row-between', style: 'margin-top:12px;flex-wrap:wrap;gap:8px' },
         el('span', { class: 'card-sub', style: 'margin:0', text: dl != null ? (dl > 0 ? `${dl} day${dl === 1 ? '' : 's'} left` : 'Closes today') : (evt.start_at ? 'Starts ' + fmtDate(evt.start_at) : '') }),
         el('div', { class: 'row', style: 'gap:6px' },
