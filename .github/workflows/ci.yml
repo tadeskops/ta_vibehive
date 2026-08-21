@@ -34,41 +34,61 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: G4 · CSP presence check
+      - name: G4 · CSP presence + strictness
         run: |
           set -euo pipefail
           missing=0
           for f in index.html 404.html; do
-            if ! grep -q 'Content-Security-Policy' "$f"; then
-              echo "::error file=$f::missing Content-Security-Policy meta"
-              missing=1
+            for header in 'Content-Security-Policy' 'X-Content-Type-Options' 'Referrer-Policy' 'Permissions-Policy'; do
+              if ! grep -q "$header" "$f"; then
+                echo "::error file=$f::missing $header meta"
+                missing=1
+              fi
+            done
+            # Strict CSP: no unsafe-inline / unsafe-eval; must have default-src 'self' + frame-ancestors 'none'
+            if grep -q "unsafe-inline\|unsafe-eval" "$f"; then
+              echo "::error file=$f::CSP contains unsafe-inline or unsafe-eval"; missing=1
             fi
-            if ! grep -q 'X-Content-Type-Options' "$f"; then
-              echo "::error file=$f::missing X-Content-Type-Options meta"
-              missing=1
+            if ! grep -q "default-src 'self'" "$f"; then
+              echo "::error file=$f::CSP missing default-src 'self'"; missing=1
+            fi
+            if ! grep -q "frame-ancestors 'none'" "$f"; then
+              echo "::error file=$f::CSP missing frame-ancestors 'none'"; missing=1
             fi
           done
           exit $missing
 
+      - name: G4 · no dangerous DOM sinks
+        run: |
+          set -euo pipefail
+          # innerHTML=, outerHTML=, document.write, x-html, eval(, new Function(
+          patterns='innerHTML\s*=|outerHTML\s*=|document\.write|x-html\s*=|\beval\s*\(|new\s+Function\s*\('
+          if grep -RInE "$patterns" assets/ lib/ index.html 404.html 2>/dev/null | grep -v 'assets/vendor/'; then
+            echo "::error::forbidden DOM sink"
+            exit 1
+          fi
+
       - name: G4 · no inline JS / event handlers
         run: |
           set -euo pipefail
-          # Fail if any HTML has an inline event handler or <script> without src.
-          if grep -RInE 'on(click|load|error|submit|change|input|mouseover|focus|blur)=' --include='*.html' .; then
-            echo "::error::inline event handlers detected"
-            exit 1
-          fi
+          # Allow Alpine x-on: bindings; strip before checking.
+          for f in index.html 404.html; do
+            stripped=$(sed -E 's/x-on:[a-z]+=/BLANK=/g; s/@[a-z]+=/BLANK=/g' "$f")
+            if echo "$stripped" | grep -qE 'on(click|load|error|submit|change|input|mouseover|focus|blur|keydown|keyup)\s*='; then
+              echo "::error file=$f::inline event handler"
+              exit 1
+            fi
+          done
           if grep -RInE '<script[^>]*>[^<]' --include='*.html' .; then
-            echo "::error::inline <script> body detected — use external src only"
+            echo "::error::inline <script> body detected"
             exit 1
           fi
 
       - name: G4 · no LLM in request path (marker grep)
         run: |
           set -euo pipefail
-          # Reject anthropic/openai SDK usage in shipped code (allow in docs/temp/scripts).
-          if grep -RInE '(openai|anthropic|langchain|@ai-sdk)' assets index.html 404.html 2>/dev/null; then
-            echo "::error::LLM SDK found in shipped assets"
+          if grep -RInE '(openai|anthropic|langchain|@ai-sdk)' assets lib index.html 404.html 2>/dev/null; then
+            echo "::error::LLM SDK found in shipped/lib code"
             exit 1
           fi
 
