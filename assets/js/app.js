@@ -191,11 +191,38 @@ function mountSheet() {
   window.addEventListener('hashchange', () => { if (!sheet.hidden) close(); });
 }
 
+/* Floating "Back to top" button — visible once the user has scrolled
+ * past ~320 px, smooth-scrolls to the top (or jumps directly if
+ * prefers-reduced-motion is on). Rendered once per session; scoped to
+ * both desktop and mobile via CSS. Same pattern shipped in tsh's
+ * ui.js#bindHeader so the two apps behave identically. */
+function mountBackToTop() {
+  if (document.querySelector('.tvh-backtotop')) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tvh-backtotop';
+  btn.setAttribute('aria-label', 'Back to top');
+  btn.setAttribute('title', 'Back to top');
+  btn.textContent = '↑';
+  btn.addEventListener('click', () => {
+    const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
+  });
+  document.body.appendChild(btn);
+  const onScroll = () => {
+    const y = window.scrollY || window.pageYOffset || 0;
+    btn.classList.toggle('is-visible', y > 320);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}
+
 router.start(() => renderChrome());
 window.addEventListener('DOMContentLoaded', async () => {
   $('#year').textContent = String(new Date().getFullYear());
   renderChrome();
   mountSheet();
+  mountBackToTop();
   /* Society sub-line under the VibeHive wordmark. Reads through
    * getSociety() so admin overrides show up immediately. */
   try {
