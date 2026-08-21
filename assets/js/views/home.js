@@ -75,6 +75,10 @@ export function eventCard(evt) {
   const pct = evt.goal ? Math.min(100, Math.round((totalFor(evt.id) / evt.goal) * 100)) : 0;
   const dl = daysLeft(evt.end_at);
   const heroCls = 'card-hero ' + (evt.hero_class || '');
+  /* Contribute is offered inline on the tile so residents don't need
+   * to open the event just to give. Only shown for PUBLISHED events
+   * (closed / archived events accept no more contributions). */
+  const canContribute = evt.status === STATUS.PUBLISHED;
   return el('article', { class: 'card' },
     el('div', { class: heroCls.trim() },
       el('span', { class: 'badge', text: evt.glyph + ' ' + (evt.template || 'event') }),
@@ -90,9 +94,12 @@ export function eventCard(evt) {
           el('span', { text: `${verifiedCount(evt.id)} contributors` })
         )
       ) : null,
-      el('div', { class: 'row row-between', style: 'margin-top:12px' },
+      el('div', { class: 'row row-between', style: 'margin-top:12px;flex-wrap:wrap;gap:8px' },
         el('span', { class: 'card-sub', style: 'margin:0', text: dl != null ? (dl > 0 ? `${dl} day${dl === 1 ? '' : 's'} left` : 'Closes today') : (evt.start_at ? 'Starts ' + fmtDate(evt.start_at) : '') }),
-        el('a', { class: 'btn btn-sm', href: `#/e/${evt.id}` }, 'View')
+        el('div', { class: 'row', style: 'gap:6px' },
+          el('a', { class: 'btn btn-sm btn-ghost', href: `#/e/${evt.id}` }, 'View'),
+          canContribute ? el('a', { class: 'btn btn-sm', href: `#/e/${evt.id}/contribute` }, '＋ Contribute') : null
+        )
       )
     )
   );
