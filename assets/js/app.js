@@ -5,7 +5,7 @@ import * as router from './router.js';
 import { session } from './auth.js';
 import { can } from './rbac.js';
 import { isCallbackHit } from './auth-oauth.js';
-import { getSociety } from './store.js';
+import { getSociety, state } from './store.js';
 import { installFetchWrapper } from './busy.js';
 import { mountBell as mountNotifyBell } from './notify.js';
 
@@ -93,10 +93,34 @@ async function renderChrome() {
      * unread badge is the first thing a signed-in resident's eye lands
      * on when a new event is published or a receipt is issued. */
     mountNotifyBell(whoami);
+    /* Admin export report — same `.tvh-icon-btn` skin as the bell so
+     * the header cluster reads as ONE uniform toolbar. Gated on
+     * `reports.export` (admin / mgmt). Downloads a client-side CSV of
+     * every contribution across every event — no data leaves the
+     * browser, no external service is contacted. */
+    if (await can(user, 'reports.export')) {
+      if (version !== renderChrome.__v) return;
+      const btn = el('button', {
+        type: 'button',
+        class: 'tvh-icon-btn',
+        'aria-label': 'Export contributions report (CSV)',
+        title: 'Export contributions report (CSV)'
+      });
+      /* Download-arrow SVG — matches the IG / bell stroke weight so
+       * every icon in the cluster has the same visual weight. */
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>';
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        try { downloadContribsCsv(user); }
+        catch (e) { console.error('[export] failed', e); }
+      });
+      whoami.append(btn);
+    }
+    const roleLabel = ({ admin: 'Admin', mgmt: 'MC', committee: 'Committee', manager: 'Manager', resident: 'Resident' })[user.role] || user.role;
     whoami.append(el('span', { class: 'whoami' },
       el('span', { class: 'avatar', text: (user.name || '?').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase() }),
-      el('span', { text: user.name.split(' ')[0] }),
-      el('span', { class: 'role-badge ' + ({ admin: '', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[user.role], text: user.role })
+      el('span', { class: 'whoami-name', text: user.name.split(' ')[0] }),
+      el('span', { class: 'role-badge ' + ({ admin: '', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[user.role], text: roleLabel })
     ));
     whoami.append(el('a', { class: 'btn btn-sm btn-ghost', href: '#/login' }, 'Switch'));
   } else {
@@ -261,3 +285,56 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   } catch (_e) { /* keep shipped fallback */ }
 });
+
+/* ---------- Contributions CSV export ----------
+ * Client-side download of a spreadsheet-friendly report. Gated on
+ * `reports.export` (admin / mgmt) at the call-site — the function
+ * itself does no auth check because the header button never appears
+ * for other roles. All data comes from localStorage; nothing leaves
+ * the browser. Fields are RFC 4180 escaped (double quotes doubled;
+ * every cell wrapped in quotes) so commas / newlines / quotes in a
+ * remark or name never desync the columns. */
+function downloadContribsCsv(user) {
+  const events = state.events();
+  const eventById = new Map(events.map(e => [e.id, e]));
+  const contribs = state.contribs();
+  const columns = [
+    'contribution_id', 'created_at', 'verified_at', 'status',
+    'event_id', 'event_title', 'event_status',
+    'contributor_name', 'contributor_email', 'contributor_mobile',
+    'flat', 'amount', 'method', 'ref',
+    'anonymous', 'hide_amount',
+    'on_behalf', 'filled_by_name', 'filled_by_email',
+    'proof_attached', 'remarks',
+  ];
+  const esc = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return '"' + s.replace(/"/g, '""') + '"';
+  };
+  const rows = [columns.map(esc).join(',')];
+  for (const c of contribs) {
+    const evt = eventById.get(c.event) || {};
+    rows.push([
+      c.id, c.created_at || '', c.verified_at || '', c.status || '',
+      c.event || '', evt.title || '', evt.status || '',
+      c.contributor_name || '', c.contributor_email || '', c.contributor_mobile || '',
+      c.flat || '', c.amount || 0, c.method || '', c.ref || '',
+      c.anonymous ? 'yes' : 'no', c.hide_amount ? 'yes' : 'no',
+      c.on_behalf ? 'yes' : 'no', c.filled_by_name || '', c.filled_by_email || '',
+      c.proof_data_url ? 'yes' : 'no', c.remarks || '',
+    ].map(esc).join(','));
+  }
+  /* BOM lets Excel auto-detect UTF-8 so ₹ symbols and Devanagari
+   * names in remarks render correctly without a manual reimport. */
+  const blob = new Blob(['\ufeff' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `vibehive-contributions-${stamp}.csv`;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  try { state.audit({ actor: user ? user.id : null, action: 'report.export', rows: contribs.length }); }
+  catch (_e) { /* audit failure never blocks the download */ }
+}

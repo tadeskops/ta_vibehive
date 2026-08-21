@@ -97,24 +97,41 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.4s linear inf
 .topnav a{padding:8px 12px;border-radius:10px;color:var(--muted);font-weight:600;font-size:14px}
 .topnav a.active{background:var(--terra-soft);color:var(--terra);text-decoration:none}
 .topnav a:hover{color:var(--ink);text-decoration:none}
-.topbar-actions{display:flex;align-items:center;gap:10px}
-/* Wrapper around the right-side cluster (IG shortcut + whoami pill).
+.topbar-actions{display:flex;align-items:center;gap:8px}
+/* Wrapper around the right-side cluster (icon buttons + whoami pill).
  * Desktop: single flex row — visually indistinguishable from the pre-wrap
  * layout because `.topnav` (flex:1) still pushes it to the far right.
- * Mobile: mobile.css re-declares this as a right-aligned vertical stack
- * so the icons stop crowding the brand text. */
-.topbar-right{display:inline-flex;align-items:center;gap:10px}
-.whoami{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:var(--terra-soft);color:var(--terra);font-weight:700;font-size:13px}
-.whoami .avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--terra),var(--gold));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800}
+ * Mobile: mobile.css keeps the same row, but allows the cluster to wrap
+ * when the viewport is very narrow so nothing overflows off-screen. */
+.topbar-right{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.whoami{display:inline-flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;border-radius:999px;background:var(--terra-soft);color:var(--terra);font-weight:700;font-size:13px;line-height:1;white-space:nowrap}
+.whoami .avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--terra),var(--gold));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0}
+.whoami .whoami-name{max-width:110px;overflow:hidden;text-overflow:ellipsis}
 
-/* Notifications bell (header) + dropdown. Mirrors ta-society-helpdesk's
- * `notify.js` behaviour but restyled in the Community Warmth palette. */
+/* ---------- Unified header icon buttons ----------
+ * `.tvh-icon-btn` is the shared shape for every square icon in the
+ * top-right cluster (Instagram, notifications bell, admin export).
+ * Same 36×36 footprint, 1 px border, ghost background, terra-tinted
+ * hover, gold focus ring — so residents scan them as ONE toolbar
+ * instead of a random collection of icons. Icon glyphs (SVG) live
+ * inside at 18 px, `currentColor` so hover flips the fill too. */
+.tvh-icon-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;text-decoration:none;flex-shrink:0;transition:background .14s ease,border-color .14s ease,color .14s ease;-webkit-tap-highlight-color:transparent}
+.tvh-icon-btn:hover{background:var(--terra-soft);border-color:var(--terra);color:var(--terra);text-decoration:none}
+.tvh-icon-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.tvh-icon-btn svg{display:block;width:18px;height:18px}
+/* Alias — bell + IG shortcut inherit the shared skin so all three icons
+ * look identical. Legacy class names retained for JS selectors. */
 .tvh-bell-wrap{display:inline-flex;align-items:center}
 .tvh-bell{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;transition:background .14s ease,border-color .14s ease,color .14s ease}
 .tvh-bell:hover{background:var(--terra-soft);border-color:var(--terra);color:var(--terra)}
 .tvh-bell:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .tvh-bell-ico{display:block}
 .tvh-bell-badge{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--terra);color:#fff;font-size:10px;line-height:18px;font-weight:800;text-align:center;box-shadow:0 0 0 2px var(--card)}
+/* IG shortcut is now a default `.tvh-icon-btn`. The old mobile-only
+ * `.tvh-header-ig` block in mobile.css is superseded — kept as a
+ * no-op alias in case other code targets it. */
+.tvh-header-ig{width:36px;height:36px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;color:var(--terra)}
+.tvh-header-ig:hover,.tvh-header-ig:focus-visible{background:linear-gradient(135deg,var(--terra),var(--gold));color:#fff;border-color:var(--terra)}
 .tvh-notify-drop{position:fixed;z-index:1200;display:none;width:min(360px,calc(100vw - 24px));max-height:60vh;overflow:auto;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 34px rgba(42,26,16,.18),0 2px 6px rgba(42,26,16,.06)}
 .tvh-notify-drop.is-open{display:block}
 .tvh-notify-head{position:sticky;top:0;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);font-weight:800;color:var(--ink);font-size:13px;background:var(--card);z-index:1}
@@ -326,6 +343,16 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 .role-badge.cmt{background:#f7dfad;color:#7a5410}
 .role-badge.mgr{background:#efe4d0;color:var(--muted)}
 .role-badge.res{background:#e8dcc7;color:var(--muted)}
+/* Inside the whoami pill the badge was invisible because it shared
+ * the pill's own terra-soft background. Give it a contrasting skin
+ * so the resident's role (Admin / MC / Committee / Resident) always
+ * reads at a glance. Kept variant colours so `mc/cmt/mgr/res` still
+ * differentiate; only the default (admin) needed a lift. */
+.whoami .role-badge{background:var(--terra);color:#fff;border:1px solid transparent;padding:3px 8px;font-size:10px;letter-spacing:.08em}
+.whoami .role-badge.mc{background:#3f5c34;color:#fff}
+.whoami .role-badge.cmt{background:#7a5410;color:#fff}
+.whoami .role-badge.mgr{background:var(--muted);color:#fff}
+.whoami .role-badge.res{background:#fff;color:var(--terra);border-color:var(--line)}
 
 /* Auth gate */
 .gate{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px;max-width:420px;margin:40px auto}
