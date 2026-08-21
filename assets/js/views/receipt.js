@@ -55,11 +55,12 @@ export async function render(root, { match }) {
       metaRow('Payment method', rec.method || '—'),
       metaRow('Payment reference', rec.ref || '—')
     ),
-    /* amount + wet-stamp overlay — stamp visually crosses the number so
-     * any tampered digit clashes with the rubber-stamp texture. */
+    /* Single stamp policy: the amount stays clean; the ONE seal is the
+     * blue society stamp inside the .receipt-stamp block below. Keeping
+     * a second wet-stamp overlay here looked "duplicated" on the page,
+     * so it has been removed. */
     el('div', { class: 'receipt-amount-wrap' },
-      el('div', { class: 'receipt-total', text: 'Amount received · ' + fmtINR(r.amount) }),
-      el('div', { class: 'receipt-stamp-overlay', 'aria-hidden': 'true' })
+      el('div', { class: 'receipt-total', text: 'Amount received · ' + fmtINR(r.amount) })
     ),
     el('p', { style: 'font-size:12px;color:var(--muted)', text: 'Received with thanks. This receipt is issued for records only. No goods or services have been supplied in exchange.' }),
     el('div', { class: 'receipt-stamp' },
@@ -72,8 +73,7 @@ export async function render(root, { match }) {
     ),
     el('div', { class: 'receipt-verify' },
       el('div', {}, el('b', { text: 'Verify hash: ' }), el('span', { text: r.verify_hash })),
-      el('div', {}, el('b', { text: 'Verify online: ' }), el('span', { text: verifyUrl(r.id) })),
-      el('div', { style: 'margin-top:6px', text: 'Anti-forgery: unique diagonal watermark (ID+hash) · wet-stamp overlay on amount · SVG hash-fingerprint · repeated microtext strip · public verify portal.' })
+      el('div', {}, el('b', { text: 'Verify online: ' }), el('span', { text: verifyUrl(r.id) }))
     ),
     /* microtext repeats the receipt ID + hash at 5.5px along the bottom;
      * cannot be reproduced by hand-editing / photocopying without smudging. */
