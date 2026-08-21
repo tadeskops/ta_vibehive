@@ -40,7 +40,14 @@ export async function setSystemOverride(id, value, actor) {
   state.audit({ actor: actor ? actor.id : null, action: 'features.override', feature: id, value: !!value });
 }
 
-/** Validate dependencies before allowing a config to be saved. */
+/** Validate dependencies before allowing a config to be saved.
+ *  A dep is satisfied when either:
+ *    - it appears (true) in the per-event featuresMap being saved, OR
+ *    - it is a SYSTEM-scope flag currently on (system flags are edited
+ *      in Admin → Feature registry, not on the event editor).
+ *  Without this, event-scope flags whose deps live at system scope
+ *  (e.g. `receipt.generate` → `payment.verify`) can never save because
+ *  the map only holds event-scope keys. */
 export async function validateEventFeatures(featuresMap) {
   const cat = await catalog();
   const errors = [];
@@ -49,7 +56,10 @@ export async function validateEventFeatures(featuresMap) {
     const f = cat.features.find(x => x.id === id);
     if (!f) continue;
     for (const dep of (f.depends_on || [])) {
-      if (!featuresMap[dep]) errors.push({ id, missing: dep });
+      if (featuresMap[dep]) continue;                    // satisfied at event scope
+      const depFeat = cat.features.find(x => x.id === dep);
+      if (depFeat && depFeat.scope === 'system' && await isSystemOn(dep)) continue; // satisfied at system scope
+      errors.push({ id, missing: dep });
     }
   }
   return errors;
