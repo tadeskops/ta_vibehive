@@ -9,13 +9,16 @@ reproducibility.
 
 ## Runtime (shipped to the browser)
 
-_None yet in slice G0-01 — the shell is static HTML + CSS only._
+| Dep | Version | Purpose | Slice landed | Ship weight (gzipped) | SRI |
+|---|---|---|---|---|---|
+| Alpine.js | 3.14.1 | Client-side reactivity for language toggle + theme picker + future form islands | G0-02 | ~15 KB | `sha384-l8f0VcPi/M1iHPv8egOnY/15TDwqgbOR1anMIJWvU6nLRgZVLTLSaNqi/TOoT5Fh` |
 
-## Planned runtime (arriving G0-02+)
+Direct-dep count: **1 / 30**.
+
+## Planned runtime (arriving later)
 
 | Dep | Version | Purpose | Slice | Ship weight (gzipped) |
 |---|---|---|---|---|
-| Alpine.js | 3.14.x | Client-side reactivity for HTMX-style islands | G0-02 | ~15 KB |
 | qrcode-generator | 1.4.x | Client-side QR for UPI deep-link | G1-03 | ~4 KB |
 
 Every planned dep must:

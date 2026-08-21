@@ -12,8 +12,9 @@
 #>
 [CmdletBinding()]
 param(
-    [int]$SliceBudget = 1500,
-    [int]$FirstPaintBudgetKB = 200
+    [int]$SliceBudget = 2500,
+    [int]$FirstPaintBudgetKB = 150,
+    [int]$CssBudgetKB = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,8 +23,9 @@ Set-Location $root
 
 Write-Host "== G3 · sleek budget ==" -ForegroundColor Cyan
 
-# 1. LOC across shipped assets (css/js) + top-level HTML.
-$assetFiles = Get-ChildItem -Path assets -Recurse -Include *.css, *.js -ErrorAction SilentlyContinue
+# 1. LOC across shipped assets (css/js) + top-level HTML. Vendored libs excluded.
+$assetFiles = Get-ChildItem -Path assets -Recurse -Include *.css, *.js -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -notmatch '\\assets\\vendor\\' }
 $htmlFiles  = Get-ChildItem -Path . -Filter *.html -File
 
 $assetLoc = 0
@@ -43,12 +45,15 @@ if ($totalLoc -gt $SliceBudget) {
     exit 1
 }
 
-# 2. First-paint payload: index.html + base.css combined, gzipped.
-$paintFiles = @('index.html', 'assets/css/base.css') | Where-Object { Test-Path $_ }
+# 2. First-paint payload: index.html + base.css + vendored Alpine, gzipped.
+$paintFiles = @('index.html', 'assets/css/base.css')
+$paintFiles += (Get-ChildItem -Path 'assets/vendor' -Filter 'alpine-*.min.js' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+$paintFiles = $paintFiles | Where-Object { Test-Path $_ }
+
 $rawBytes = 0
 $buf = New-Object System.IO.MemoryStream
 foreach ($p in $paintFiles) {
-    $bytes = [System.IO.File]::ReadAllBytes($p)
+    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $p))
     $buf.Write($bytes, 0, $bytes.Length)
     $rawBytes += $bytes.Length
 }
@@ -71,7 +76,28 @@ if ($gzBytes -gt ($FirstPaintBudgetKB * 1024)) {
     exit 1
 }
 
-# 3. Direct-dependency count (package.json if present).
+# 3. CSS-only budget (own CSS only, 10 KB gzipped).
+if (Test-Path 'assets/css/base.css') {
+    $cssBytes = [System.IO.File]::ReadAllBytes((Resolve-Path 'assets/css/base.css'))
+    $cssBuf = New-Object System.IO.MemoryStream
+    $cssGzBuf = New-Object System.IO.MemoryStream
+    $cssBuf.Write($cssBytes, 0, $cssBytes.Length)
+    $cssBuf.Position = 0
+    $cssGz = New-Object System.IO.Compression.GZipStream($cssGzBuf, [System.IO.Compression.CompressionLevel]::Optimal, $true)
+    $cssBuf.CopyTo($cssGz)
+    $cssGz.Dispose()
+    $cssGzBytes = $cssGzBuf.Length
+    $cssGzBuf.Dispose()
+    $cssBuf.Dispose()
+    $cssKB = [math]::Round($cssGzBytes / 1024.0, 2)
+    Write-Host ("  css gz={0} KB  budget={1} KB" -f $cssKB, $CssBudgetKB)
+    if ($cssGzBytes -gt ($CssBudgetKB * 1024)) {
+        Write-Host ("  [FAIL] CSS > {0} KB gzipped" -f $CssBudgetKB) -ForegroundColor Red
+        exit 1
+    }
+}
+
+# 4. Direct-dependency count (package.json if present).
 if (Test-Path package.json) {
     $pkg = Get-Content package.json -Raw | ConvertFrom-Json
     $depCount = 0

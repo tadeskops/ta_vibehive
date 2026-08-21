@@ -13,9 +13,9 @@ default:
 verify: test ui budget sec
     Write-Host "✓ all gates passed" -ForegroundColor Green
 
-# G1 · functional tests (Node-based unit tests land in G0-02+)
+# G1 · functional tests (Node's built-in test runner; no framework needed)
 test:
-    Write-Host "G1 · functional tests — no tests yet in G0-01" -ForegroundColor Yellow
+    node --test tests/
 
 # G2 · UI walkthrough (Playwright + Storybook land in G0-02+)
 ui:

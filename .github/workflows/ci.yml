@@ -76,28 +76,61 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # LOC across shipped source (assets + top-level HTML). Budget: 1500 for slice G0-01.
-          loc=$(find assets -type f \( -name '*.css' -o -name '*.js' \) -print0 2>/dev/null \
+          # LOC across shipped source (assets + top-level HTML). Vendored libs excluded.
+          loc=$(find assets -type f \( -name '*.css' -o -name '*.js' \) \
+                            -not -path 'assets/vendor/*' -print0 2>/dev/null \
               | xargs -0 cat 2>/dev/null | wc -l || echo 0)
           htmloc=$(cat index.html 404.html 2>/dev/null | wc -l)
           total=$((loc + htmloc))
           echo "LOC: assets=$loc html=$htmloc total=$total"
-          if [ "$total" -gt 1500 ]; then
-            echo "::error::G0-01 LOC budget exceeded ($total > 1500)"
+          if [ "$total" -gt 2500 ]; then
+            echo "::error::phase G-0 LOC budget exceeded ($total > 2500)"
             exit 1
           fi
-          # First-paint payload (raw bytes, gzipped estimate). Budget 200 KB gzipped.
-          bytes=$(cat index.html assets/css/base.css 2>/dev/null | wc -c)
-          gz=$(cat index.html assets/css/base.css 2>/dev/null | gzip -c9 | wc -c)
-          echo "First-paint raw=${bytes}B gz=${gz}B"
-          if [ "$gz" -gt 204800 ]; then
-            echo "::error::first-paint > 200 KB gzipped"
+          # First-paint payload (index.html + base.css + vendored Alpine), gzipped.
+          # Budget 150 KB gzipped from G0-02 onward.
+          gz=$(cat index.html assets/css/base.css assets/vendor/alpine-*.min.js 2>/dev/null | gzip -c9 | wc -c)
+          echo "First-paint gz=${gz}B"
+          if [ "$gz" -gt 153600 ]; then
+            echo "::error::first-paint > 150 KB gzipped"
             exit 1
           fi
+          # CSS-only budget: 10 KB gzipped.
+          csgz=$(cat assets/css/base.css | gzip -c9 | wc -c)
+          echo "CSS gz=${csgz}B"
+          if [ "$csgz" -gt 10240 ]; then
+            echo "::error::CSS > 10 KB gzipped"
+            exit 1
+          fi
+
+      - name: G1 · unit tests (Node built-in runner)
+        run: |
+          set -euo pipefail
+          if [ -d tests ]; then
+            node --test tests/
+          else
+            echo "no tests/ dir yet — skipping"
+          fi
+
+      - name: G4 · SRI attribute present on vendored scripts
+        run: |
+          set -euo pipefail
+          # Any vendored script referenced by HTML must carry an integrity= attribute.
+          missing=0
+          for f in index.html 404.html; do
+            for ref in $(grep -oE 'assets/vendor/[a-zA-Z0-9._-]+\.js' "$f" || true); do
+              if ! grep -q "$ref" "$f"; then continue; fi
+              if ! grep -B1 -A2 "$ref" "$f" | grep -q 'integrity="sha384-'; then
+                echo "::error file=$f::vendored ref $ref lacks integrity=sha384-... attribute"
+                missing=1
+              fi
+            done
+          done
+          exit $missing
 
       - name: G1 · HTML validate (basic well-formed)
         run: |
           set -euo pipefail
           npx --yes html-validate@8 index.html 404.html || {
-            echo "::warning::html-validate found issues (non-blocking for G0-01)"
+            echo "::warning::html-validate found issues (non-blocking for G0-02)"
           }
