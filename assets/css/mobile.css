@@ -48,6 +48,34 @@
   .whoami .role-badge { display: none; }
   .whoami > span:nth-child(2) { max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  /* --- Top-right Instagram shortcut (mobile only) ------------
+     Ported from ta-society-helpdesk: on phones the .footpad is
+     hidden so the desktop @-handle link is unreachable. This
+     compact icon lives at the top-right of the header, sits to
+     the LEFT of the whoami pill so tap targets don't crowd the
+     Switch button, and stays hidden when society.social has no
+     URL configured (revealed by app.js#hydrate). */
+  .tvh-header-ig {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    color: var(--terra);
+    background: var(--terra-soft);
+    border: 1px solid var(--line);
+    text-decoration: none;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .tvh-header-ig:hover,
+  .tvh-header-ig:focus-visible {
+    background: linear-gradient(135deg, var(--terra), var(--gold));
+    color: #fff;
+    outline: none;
+  }
+  .tvh-header-ig:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .tvh-header-ig svg { display: block; }
+
   /* --- Stage: room for the fixed tab-bar --------------------- */
   .stage {
     padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;

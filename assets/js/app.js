@@ -250,5 +250,14 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (label && socialCfg.label) label.textContent = socialCfg.label;
       socialLink.hidden = false;
     }
+    /* Mobile-only Instagram shortcut in the header. Same source of
+     * truth as the footer pill; kept hidden when no handle is set so
+     * a fresh install doesn't ship a dead link at the top-right. */
+    const headerIg = document.getElementById('tvhHeaderIg');
+    if (headerIg && url) {
+      headerIg.href = url;
+      if (socialCfg.label) headerIg.setAttribute('aria-label', 'Follow ' + socialCfg.label + ' on Instagram');
+      headerIg.hidden = false;
+    }
   } catch (_e) { /* keep shipped fallback */ }
 });
