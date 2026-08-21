@@ -1,0 +1,192 @@
+/* ta_vibehive · base.css · Community Warmth palette (LOCKED via tvh_brand_audit.md §6)
+   Slice G0-01 — foundation only. Component styles land in G0-02. */
+
+:root {
+  /* Palette — Community Warmth */
+  --bg:        #faf3ea;
+  --ink:       #2a1a10;
+  --muted:     #7d6858;
+  --line:      #e8dcc7;
+  --terra:     #a34328;
+  --terra-soft:#f2d8ca;
+  --sage:      #6b8f5a;
+  --sage-soft: #dbeacc;
+  --gold:      #c78f2a;
+  --emerg:     #8f2318;
+  --card:      #ffffff;
+
+  /* Type + rhythm */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --step-0: 1rem;
+  --step-1: 1.125rem;
+  --step-2: 1.5rem;
+  --step-3: 2rem;
+  --step-4: 2.75rem;
+  --radius: 14px;
+  --radius-lg: 20px;
+
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+img { max-width: 100%; height: auto; display: block; }
+
+a { color: var(--terra); text-decoration: none; }
+a:hover, a:focus-visible { text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--terra); outline-offset: 2px; border-radius: 3px; }
+
+.shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+
+.shell--narrow {
+  max-width: 520px;
+  text-align: center;
+}
+
+/* Brand block */
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.brand-tile {
+  width: 96px;
+  height: 96px;
+  background: var(--ink);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 32px -12px rgba(42, 26, 16, 0.35);
+}
+
+.brand-tile--sm {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 20px;
+}
+
+.brand-name {
+  margin: 0;
+  font-size: var(--step-3);
+  letter-spacing: -0.02em;
+  font-weight: 800;
+}
+
+.brand-name-dot {
+  color: var(--terra);
+  padding: 0 2px;
+}
+
+.brand-tag {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--step-1);
+}
+
+/* Hero */
+.hero {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  margin-bottom: 32px;
+  box-shadow: 0 20px 40px -30px rgba(42, 26, 16, 0.25);
+}
+
+.hero h2 {
+  margin: 0 0 12px;
+  font-size: var(--step-2);
+  letter-spacing: -0.01em;
+  font-weight: 800;
+}
+
+.hero-sub {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: var(--step-1);
+  line-height: 1.55;
+}
+
+.hero-meta {
+  margin: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Footer */
+.foot {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.foot a { color: var(--muted); text-decoration: underline; }
+
+/* 404 page */
+.err-code {
+  margin: 0;
+  font-size: var(--step-4);
+  letter-spacing: -0.03em;
+  color: var(--terra);
+  font-weight: 800;
+}
+
+.err-title {
+  margin: 4px 0 12px;
+  font-size: var(--step-2);
+  letter-spacing: -0.01em;
+  font-weight: 800;
+}
+
+.err-body {
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: var(--step-1);
+}
+
+.err-cta { margin: 0; }
+
+/* Buttons */
+.btn {
+  display: inline-block;
+  background: var(--terra);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px 20px;
+  font: 700 var(--step-0) var(--font-body);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:hover, .btn:focus-visible {
+  background: #8e3a22;
+  text-decoration: none;
+  color: var(--bg);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

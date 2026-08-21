@@ -40,6 +40,53 @@ Only Relevant Features Visible
 
 The platform should allow administrators to enable, disable, and configure features based on the requirements of each event.
 
+## 🚀 Current status — Phase G-0 Foundation (slice G0-01)
+
+**Priority Zero:** Ship Ganesh Chaturthi 2026 contribute + live dashboard **before Sept 14, 2026**.
+
+- Stack: **static SPA on GitHub Pages + GitHub Actions + private data repos.** No Python, no server, no VPS. See [AGENTS.md](AGENTS.md) and `temp/tvh_plan.md §0.6` for lock rationale.
+- What ships today (G0-01): app shell + 404, Community Warmth palette, Pages deploy, CI verify (gitleaks, CSP, LOC/size budget, no inline JS, no LLM SDK), `just` harness.
+
+### Quickstart (maintainer workstation)
+
+```powershell
+# From ta_vibehive/ root:
+just verify        # runs G1..G4 gates locally
+just budget        # G3 · LOC + first-paint budget
+just sec           # G4 · CSP, XCTO, no inline JS, gitleaks (if installed)
+just serve         # local preview at http://localhost:4173
+```
+
+Install prerequisites once:
+
+```powershell
+winget install --id Casey.Just     # task harness (or: scoop install just)
+winget install --id Gitleaks.Gitleaks   # optional but recommended for local G4
+```
+
+### Repo layout (G0-01)
+
+```
+index.html               # home shell
+404.html                 # friendly not-found
+assets/
+  css/base.css           # Community Warmth palette
+  images/*.png|jpg       # brand assets (logo, seals, letterhead)
+.github/workflows/
+  pages.yml              # Pages deploy on push to main
+  ci.yml                 # G1..G4 verify on PR + push
+scripts/
+  check-budget.ps1       # G3 gate (LOC + first-paint size)
+  check-sec.ps1          # G4 gate (CSP, XCTO, inline-JS, LLM SDK, gitleaks)
+docs/
+  deps.md                # shipped-dep justification log (budget 30)
+  threats/G0-01.md       # per-slice threat model
+temp/                    # gitignored — Copilot drafts, plan, requirements
+AGENTS.md                # working rules that apply to every prompt
+justfile                 # task harness
+.gitleaks.toml           # secret scan config
+```
+
 ## 🏗️ Project Approach
 
 Development will follow this sequence:

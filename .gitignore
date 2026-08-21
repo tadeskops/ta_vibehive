@@ -145,3 +145,8 @@ vite.config.ts.timestamp-*
 # Local scratch / Copilot chat intermediate files - never push
 temp/
 
+# Editable source files for brand art (not shipped)
+*.drawio
+
+# Local Pages build artefact
+_site/

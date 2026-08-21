@@ -1,0 +1,103 @@
+name: CI · verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: G1..G4 gates
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node (for HTML checks)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: G4 · gitleaks (secret scan)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: G4 · CSP presence check
+        run: |
+          set -euo pipefail
+          missing=0
+          for f in index.html 404.html; do
+            if ! grep -q 'Content-Security-Policy' "$f"; then
+              echo "::error file=$f::missing Content-Security-Policy meta"
+              missing=1
+            fi
+            if ! grep -q 'X-Content-Type-Options' "$f"; then
+              echo "::error file=$f::missing X-Content-Type-Options meta"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: G4 · no inline JS / event handlers
+        run: |
+          set -euo pipefail
+          # Fail if any HTML has an inline event handler or <script> without src.
+          if grep -RInE 'on(click|load|error|submit|change|input|mouseover|focus|blur)=' --include='*.html' .; then
+            echo "::error::inline event handlers detected"
+            exit 1
+          fi
+          if grep -RInE '<script[^>]*>[^<]' --include='*.html' .; then
+            echo "::error::inline <script> body detected — use external src only"
+            exit 1
+          fi
+
+      - name: G4 · no LLM in request path (marker grep)
+        run: |
+          set -euo pipefail
+          # Reject anthropic/openai SDK usage in shipped code (allow in docs/temp/scripts).
+          if grep -RInE '(openai|anthropic|langchain|@ai-sdk)' assets index.html 404.html 2>/dev/null; then
+            echo "::error::LLM SDK found in shipped assets"
+            exit 1
+          fi
+
+      - name: G3 · LOC + size budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          # LOC across shipped source (assets + top-level HTML). Budget: 1500 for slice G0-01.
+          loc=$(find assets -type f \( -name '*.css' -o -name '*.js' \) -print0 2>/dev/null \
+              | xargs -0 cat 2>/dev/null | wc -l || echo 0)
+          htmloc=$(cat index.html 404.html 2>/dev/null | wc -l)
+          total=$((loc + htmloc))
+          echo "LOC: assets=$loc html=$htmloc total=$total"
+          if [ "$total" -gt 1500 ]; then
+            echo "::error::G0-01 LOC budget exceeded ($total > 1500)"
+            exit 1
+          fi
+          # First-paint payload (raw bytes, gzipped estimate). Budget 200 KB gzipped.
+          bytes=$(cat index.html assets/css/base.css 2>/dev/null | wc -c)
+          gz=$(cat index.html assets/css/base.css 2>/dev/null | gzip -c9 | wc -c)
+          echo "First-paint raw=${bytes}B gz=${gz}B"
+          if [ "$gz" -gt 204800 ]; then
+            echo "::error::first-paint > 200 KB gzipped"
+            exit 1
+          fi
+
+      - name: G1 · HTML validate (basic well-formed)
+        run: |
+          set -euo pipefail
+          npx --yes html-validate@8 index.html 404.html || {
+            echo "::warning::html-validate found issues (non-blocking for G0-01)"
+          }
