@@ -36,7 +36,7 @@ export async function attachReceipt(contribution) {
   const evt = state.events().find(e => e.id === contribution.event);
   const code = (evt ? evt.template : 'gen').slice(0, 4).toUpperCase();
   const receiptId = await mintReceiptId(contribution, code);
-  const verifyHash = (await sha256(receiptId + '|' + contribution.amount + '|' + contribution.contributor)).slice(0, 32);
+  const verifyHash = await computeVerifyHash(receiptId, contribution.amount, contribution.contributor);
   const receipt = {
     id: receiptId,
     contribution: contribution.id,
@@ -53,4 +53,17 @@ export async function attachReceipt(contribution) {
   if (rec) { rec.receipt = receipt; state.saveContribs(list); }
   state.audit({ actor: null, action: 'receipt.mint', receipt: receipt.id });
   return receipt;
+}
+
+/** Verify-hash algorithm — the ONE source of truth. Change ⇒ every past receipt
+ *  invalidates, so this signature is intentionally frozen. */
+export async function computeVerifyHash(receiptId, amount, contributor) {
+  return (await sha256(receiptId + '|' + amount + '|' + contributor)).slice(0, 32);
+}
+
+/** Look up a contribution by receipt id.
+ *  v0.2 tier: reads local state only. v0.3 will fall back to a fetch()
+ *  against the private archive repo. Same signature. */
+export function findByReceiptId(receiptId) {
+  return state.contribs().find(c => c.receipt && c.receipt.id === receiptId) || null;
 }

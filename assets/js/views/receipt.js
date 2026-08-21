@@ -31,6 +31,7 @@ export async function render(root, { match }) {
 
   const actions = el('div', { class: 'row row-end print-hide', style: 'margin-bottom:16px' },
     el('a', { class: 'btn btn-ghost', href: `#/e/${rec.event}` }, '← Event'),
+    el('a', { class: 'btn btn-ghost', href: `#/verify/${encodeURIComponent(r ? r.id : '')}` }, '🔎 Verify online'),
     el('button', { class: 'btn', on: { click: () => window.print() } }, '🖨 Download PDF / Print')
   );
 
@@ -64,6 +65,7 @@ export async function render(root, { match }) {
     ),
     el('div', { class: 'receipt-verify' },
       el('div', { text: 'Verify hash: ' + r.verify_hash }),
+      el('div', { text: 'Verify online: ' + verifyUrl(r.id) }),
       el('div', { text: 'Anti-forgery: warm cream base · gold border · seal watermark · verify hash · immutable audit log' })
     )
   );
@@ -71,3 +73,7 @@ export async function render(root, { match }) {
   mount(root, actions, receipt);
 }
 function metaRow(k, v) { return el('div', {}, el('small', { text: k }), el('div', {}, el('b', { text: v }))); }
+function verifyUrl(id) {
+  const base = location.origin + location.pathname.replace(/index\.html$/, '');
+  return base + '#/verify/' + encodeURIComponent(id);
+}

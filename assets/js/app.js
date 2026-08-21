@@ -13,6 +13,7 @@ const views = {
   contribute: () => import('./views/contribute.js'),
   admin:      () => import('./views/admin.js'),
   receipt:    () => import('./views/receipt.js'),
+  verify:     () => import('./views/verify.js'),
   login:      () => import('./views/login.js'),
 };
 
@@ -34,6 +35,8 @@ router.register('/e/:id/register',            (ctx) => mountView(views.contribut
 router.register('/admin',                     (ctx) => mountView(views.admin, { ...ctx, match: { tab: 'features' } }));
 router.register('/admin/:tab',                (ctx) => mountView(views.admin, ctx));
 router.register('/receipt/:id',               (ctx) => mountView(views.receipt, ctx));
+router.register('/verify',                    (ctx) => mountView(views.verify, ctx));
+router.register('/verify/:id',                (ctx) => mountView(views.verify, ctx));
 router.register('/login',                     (ctx) => mountView(views.login, ctx));
 router.fallback(                              (ctx) => mountView(views.home, ctx));
 
@@ -46,6 +49,7 @@ async function renderChrome() {
   const links = [
     { href: '#/', text: 'Home' },
     { href: '#/events', text: 'Events' },
+    { href: '#/verify', text: 'Verify receipt' },
   ];
   if (user && await can(user, 'features.registry.edit')) links.push({ href: '#/admin', text: 'Admin' });
   const hash = location.hash || '#/';
