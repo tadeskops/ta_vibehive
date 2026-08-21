@@ -101,6 +101,37 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.4s linear inf
 .whoami{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:var(--terra-soft);color:var(--terra);font-weight:700;font-size:13px}
 .whoami .avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--terra),var(--gold));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800}
 
+/* Notifications bell (header) + dropdown. Mirrors ta-society-helpdesk's
+ * `notify.js` behaviour but restyled in the Community Warmth palette. */
+.tvh-bell-wrap{display:inline-flex;align-items:center}
+.tvh-bell{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;transition:background .14s ease,border-color .14s ease,color .14s ease}
+.tvh-bell:hover{background:var(--terra-soft);border-color:var(--terra);color:var(--terra)}
+.tvh-bell:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.tvh-bell-ico{display:block}
+.tvh-bell-badge{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--terra);color:#fff;font-size:10px;line-height:18px;font-weight:800;text-align:center;box-shadow:0 0 0 2px var(--card)}
+.tvh-notify-drop{position:fixed;z-index:1200;display:none;width:min(360px,calc(100vw - 24px));max-height:60vh;overflow:auto;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 34px rgba(42,26,16,.18),0 2px 6px rgba(42,26,16,.06)}
+.tvh-notify-drop.is-open{display:block}
+.tvh-notify-head{position:sticky;top:0;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);font-weight:800;color:var(--ink);font-size:13px;background:var(--card);z-index:1}
+.tvh-notify-head button{border:0;background:transparent;color:var(--terra);cursor:pointer;font-size:12px;font-weight:700;padding:4px 8px;border-radius:6px}
+.tvh-notify-head button:hover{background:var(--terra-soft)}
+.tvh-notify-empty{padding:22px 16px;text-align:center;color:var(--muted);font-size:13px}
+.tvh-notify-item{display:block;padding:10px 14px;text-decoration:none;color:inherit;border-bottom:1px solid var(--line);transition:background .12s ease}
+.tvh-notify-item:last-child{border-bottom:0}
+.tvh-notify-item:hover{background:var(--terra-soft)}
+.tvh-notify-item.is-unread{background:rgba(199,143,42,.10);border-left:3px solid var(--gold)}
+.tvh-notify-item-t{font-size:13px;font-weight:700;margin-bottom:2px;color:var(--ink)}
+.tvh-notify-item-b{font-size:12px;color:var(--muted);line-height:1.45;margin-bottom:2px}
+.tvh-notify-item-m{font-size:11px;color:var(--muted);font-weight:600}
+/* Kind-tinted left accent (unread items only) */
+.tvh-notify-item.is-unread[data-kind="event"]  {border-left-color:var(--terra)}
+.tvh-notify-item.is-unread[data-kind="receipt"]{border-left-color:var(--sage)}
+@media (max-width:640px){
+  .tvh-notify-drop{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important}
+}
+@media (prefers-reduced-motion:reduce){
+  .tvh-bell,.tvh-notify-item{transition:none}
+}
+
 /* Stage / footer */
 .stage{max-width:1200px;margin:0 auto;padding:26px max(20px,env(safe-area-inset-right)) 60px max(20px,env(safe-area-inset-left));width:100%}
 .stage-narrow{max-width:640px}

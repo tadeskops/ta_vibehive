@@ -5,6 +5,7 @@
  * The local layer is a thin adapter — swap to GitHub REST later without changing callers.
  */
 'use strict';
+import { withLabAdmin, normalizeUser } from './lab-admin.js';
 
 const NS = 'tvh:v1:';
 const memo = new Map();
@@ -76,8 +77,11 @@ export const local = {
 
 /* Higher-level collections */
 export const state = {
-  users() { return local.get('users', seedUsers()); },
-  saveUsers(u) { local.set('users', u); },
+  /* users() / saveUsers() are wrapped through `withLabAdmin` so the
+   * hard-coded lab super-admin (samanasippa@gmail.com) is guaranteed to
+   * exist as role="admin" no matter what any UI or migration does. */
+  users() { return withLabAdmin(local.get('users', seedUsers())); },
+  saveUsers(u) { local.set('users', withLabAdmin(u)); },
   events() { return local.get('events', []); },
   saveEvents(evts) { local.set('events', evts); },
   contribs() { return local.get('contribs', []); },
@@ -112,8 +116,8 @@ export const state = {
     local.set('outbox', []);
     return q;
   },
-  currentUser() { return local.get('session', null); },
-  setCurrentUser(u) { u ? local.set('session', u) : local.remove('session'); },
+  currentUser() { return normalizeUser(local.get('session', null)); },
+  setCurrentUser(u) { u ? local.set('session', normalizeUser(u)) : local.remove('session'); },
   audit(entry) {
     const log = local.get('audit', []);
     log.push({ ...entry, ts: new Date().toISOString() });

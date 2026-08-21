@@ -7,6 +7,7 @@ import { can } from './rbac.js';
 import { isCallbackHit } from './auth-oauth.js';
 import { getSociety } from './store.js';
 import { installFetchWrapper } from './busy.js';
+import { mountBell as mountNotifyBell } from './notify.js';
 
 /* Global background-activity tracker: wraps window.fetch so every network
  * call (OAuth, GitHub archive push, config load, …) automatically drives
@@ -88,6 +89,10 @@ async function renderChrome() {
   }
 
   if (user) {
+    /* Notifications bell — sits to the LEFT of the whoami pill so the
+     * unread badge is the first thing a signed-in resident's eye lands
+     * on when a new event is published or a receipt is issued. */
+    mountNotifyBell(whoami);
     whoami.append(el('span', { class: 'whoami' },
       el('span', { class: 'avatar', text: (user.name || '?').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase() }),
       el('span', { text: user.name.split(' ')[0] }),

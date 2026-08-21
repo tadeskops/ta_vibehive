@@ -117,13 +117,19 @@ function renderUsers() {
     el('table', { class: 'table' },
       el('thead', {}, el('tr', {}, el('th', { text: 'Name' }), el('th', { text: 'Email' }), el('th', { text: 'Flat' }), el('th', { text: 'Role' }))),
       el('tbody', {}, ...users.map(u => el('tr', {},
-        el('td', { text: u.name }),
+        el('td', {},
+          el('span', { text: u.name || '—' }),
+          /* Lab identity is baked into the code and cannot be demoted
+           * from this list. Show a small lock pill so admins understand
+           * why. */
+          u.locked ? el('span', { class: 'pill', style: 'margin-left:8px;background:var(--gold);color:#fff', text: '🔒 Lab' }) : null
+        ),
         el('td', { text: u.email }),
         el('td', { text: u.flat }),
         el('td', {}, el('span', { class: 'role-badge ' + roleBadgeCls(u.role), text: u.role }))
       )))
     ),
-    el('p', { class: 'sub', style: 'margin-top:10px', text: 'Seeded demo users. Real user CRUD lands with the Cloudflare Worker OTP tier — same shape, same API.' })
+    el('p', { class: 'sub', style: 'margin-top:10px', text: 'Seeded demo users. Real user CRUD lands with the Cloudflare Worker OTP tier — same shape, same API. Rows marked 🔒 Lab are baked into the code and cannot be demoted or deleted.' })
   );
 }
 function roleBadgeCls(r) { return ({ admin: '', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[r] || ''; }

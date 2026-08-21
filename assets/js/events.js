@@ -2,6 +2,7 @@
 'use strict';
 import { cfg, state } from './store.js';
 import { catalog } from './features.js';
+import { emit as notifyEmit } from './notify.js';
 
 export const STATUS = Object.freeze({
   DRAFT: 'draft', REVIEW: 'review', PUBLISHED: 'published',
@@ -58,11 +59,26 @@ export async function newEventFromTemplate(templateId, actor) {
 
 export function saveEvent(evt, actor) {
   const evts = state.events();
+  const priorStatus = (evts.find(e => e.id === evt.id) || {}).status || null;
   evt.updated_at = new Date().toISOString();
   const i = evts.findIndex(e => e.id === evt.id);
   if (i >= 0) evts[i] = evt; else evts.push(evt);
   state.saveEvents(evts);
   state.audit({ actor: actor ? actor.id : null, action: 'event.save', event: evt.id, status: evt.status });
+  /* Broadcast a community-wide notification only on the transition
+   * INTO PUBLISHED. Draft → draft or edits within Published never
+   * spam the bell. */
+  if (evt.status === STATUS.PUBLISHED && priorStatus !== STATUS.PUBLISHED) {
+    try {
+      notifyEmit({
+        audience: 'all',
+        kind: 'event',
+        title: `New event: ${evt.title || 'Untitled'}`,
+        body: evt.purpose || 'Tap to view details and contribute.',
+        link: `#/e/${evt.id}`,
+      });
+    } catch (_e) { /* notification failures never block save */ }
+  }
   return evt;
 }
 
@@ -137,6 +153,19 @@ export function verifyContribution(contribId, actor) {
   rec.verified_at = new Date().toISOString();
   state.saveContribs(list);
   state.audit({ actor: actor ? actor.id : null, action: 'contrib.verify', contrib: rec.id });
+  /* Notify the contributor directly (best-effort — falls back to
+   * community-wide if we can't infer an email). */
+  try {
+    const evt = state.events().find(e => e.id === rec.event);
+    const title = 'Your contribution is verified';
+    const body  = `${evt ? evt.title : 'Event'} · ₹${Number(rec.amount || 0).toLocaleString('en-IN')} received. Receipt ready.`;
+    const link  = `#/e/${rec.event}`;
+    if (rec.contributor && String(rec.contributor).includes('@')) {
+      notifyEmit({ audience: 'user', userEmail: rec.contributor, kind: 'receipt', title, body, link });
+    } else if (rec.created_by) {
+      notifyEmit({ audience: 'user', userId: rec.created_by, kind: 'receipt', title, body, link });
+    }
+  } catch (_e) { /* silent */ }
   return rec;
 }
 
