@@ -34,12 +34,14 @@ hr{border:none;border-top:1px solid var(--line);margin:20px 0}
 /* Top bar */
 .topbar{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20;padding-top:env(safe-area-inset-top)}
 .topbar-inner{max-width:1200px;margin:0 auto;padding:12px max(20px,env(safe-area-inset-right)) 12px max(20px,env(safe-area-inset-left));display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:10px;color:var(--ink)}
+.brand{display:flex;align-items:center;gap:12px;color:var(--ink)}
 .brand:hover{text-decoration:none}
-.brand-mark{width:40px;height:40px;background:var(--ink);border-radius:10px;padding:6px;display:flex;align-items:center;justify-content:center}
-.brand-mark img{width:100%;height:100%;object-fit:contain}
-.brand-text b{display:block;font-size:15px;line-height:1.1}
-.brand-text em{display:block;font-size:10px;font-style:normal;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+.brand-mark{width:42px;height:42px;background:var(--ink);border-radius:11px;padding:6px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.brand-mark::after{content:"";position:absolute;inset:0;background:radial-gradient(120% 100% at 0% 0%,rgba(199,143,42,.35) 0%,transparent 55%);pointer-events:none}
+.brand-mark img{width:100%;height:100%;object-fit:contain;position:relative;z-index:1}
+.brand-text b.wordmark{display:block;font-size:20px;line-height:1;letter-spacing:-.02em;font-weight:800;background:linear-gradient(120deg,var(--terra) 0%,var(--gold) 55%,var(--sage) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.brand-text b{display:block;font-size:20px;line-height:1;letter-spacing:-.02em;font-weight:800;color:var(--ink)}
+.brand-text em{display:block;font-size:10px;font-style:normal;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-top:3px;font-weight:700}
 .topnav{display:flex;gap:2px;flex-wrap:wrap;margin-left:12px;flex:1}
 .topnav a{padding:8px 12px;border-radius:10px;color:var(--muted);font-weight:600;font-size:14px}
 .topnav a.active{background:var(--terra-soft);color:var(--terra);text-decoration:none}

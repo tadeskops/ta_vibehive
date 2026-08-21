@@ -147,36 +147,108 @@ function renderAudit() {
 /* ---------- society settings ---------- */
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
+/* Read the current draft-cache-merged effective value at a dotted path. */
+function pick(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+function setAt(obj, path, val) {
+  const parts = path.split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const k = parts[i];
+    if (cur[k] == null || typeof cur[k] !== 'object') cur[k] = {};
+    cur = cur[k];
+  }
+  cur[parts[parts.length - 1]] = val;
+}
+function pruneEmpty(o) {
+  for (const k of Object.keys(o)) {
+    if (o[k] && typeof o[k] === 'object' && !Array.isArray(o[k])) {
+      pruneEmpty(o[k]);
+      if (!Object.keys(o[k]).length) delete o[k];
+    } else if (o[k] === '' || o[k] == null) {
+      delete o[k];
+    }
+  }
+  return o;
+}
+
 async function renderSettings(user) {
   const shipped = await cfg.society();
   const overrides = state.societyOverrides();
   const effective = await getSociety();
+  /* Draft-cache overlay: every keystroke writes here so a half-typed
+   * archive_repo doesn't leak into live overrides, and the "Save all"
+   * button flushes draft → overrides + (later) private-repo commit
+   * in ONE cycle. */
+  let draft = structuredClone(state.settingsDraft() || {});
+  const container = el('div', {});
 
-  const inputs = {
-    'receipts.archive_repo':    textInput(effective.receipts && effective.receipts.archive_repo, 'owner/private-repo'),
-    'receipts.watermark_asset': textInput(effective.receipts && effective.receipts.watermark_asset, 'assets/images/TaStampBlueOverlay.png'),
-    'receipts.stamp_asset':     textInput(effective.receipts && effective.receipts.stamp_asset, 'assets/images/TaStampBlue.png'),
-    'contact.chairman':         textInput(effective.contact && effective.contact.chairman, 'chairman@example.org'),
-    'contact.manager':          textInput(effective.contact && effective.contact.manager, 'manager@example.org'),
-  };
+  const paths = [
+    ['receipts.archive_repo',    'Archive repo',        'owner/private-repo'],
+    ['receipts.watermark_asset', 'Watermark asset',     'assets/images/TaStampBlueOverlay.png'],
+    ['receipts.stamp_asset',     'Stamp asset',         'assets/images/TaStampBlue.png'],
+    ['contact.chairman',         'Chairman email',      'chairman@example.org'],
+    ['contact.manager',          'Manager email',       'manager@example.org'],
+  ];
+
+  const inputs = {};
+  for (const [p, label, ph] of paths) {
+    const draftVal = pick(draft, p);
+    const shownVal = draftVal != null ? draftVal : (pick(effective, p) || '');
+    const inp = textInput(shownVal, ph);
+    inp.addEventListener('input', () => {
+      const v = inp.value.trim();
+      if (v) setAt(draft, p, v);
+      else {
+        const parts = p.split('.');
+        const parent = parts.slice(0, -1).reduce((o, k) => (o && o[k]), draft);
+        if (parent) delete parent[parts[parts.length - 1]];
+      }
+      pruneEmpty(draft);
+      state.saveSettingsDraft(draft);
+      refreshMeta();
+    });
+    inputs[p] = { input: inp, label, path: p };
+  }
+
+  const dirtyPill = el('span', { class: 'pill pill-muted', text: '' });
+  const draftCount = el('span', { class: 'pill pill-gold', text: '' });
+  const outboxCount = el('span', { class: 'pill pill-sage', text: '' });
+
+  function refreshMeta() {
+    const draftKeys = flatKeys(draft);
+    const overKeys  = flatKeys(overrides);
+    dirtyPill.textContent = overKeys.length ? `${overKeys.length} override${overKeys.length === 1 ? '' : 's'} live` : 'shipped defaults';
+    dirtyPill.className   = 'pill ' + (overKeys.length ? 'pill-gold' : 'pill-muted');
+    draftCount.textContent = draftKeys.length ? `${draftKeys.length} unsaved` : 'no unsaved edits';
+    draftCount.className   = 'pill ' + (draftKeys.length ? 'pill-gold' : 'pill-muted');
+    const q = state.outboxSize();
+    outboxCount.textContent = q ? `Archive queue · ${q}` : 'Archive queue · empty';
+    outboxCount.className   = 'pill ' + (q ? 'pill-sage' : 'pill-muted');
+  }
 
   const saveBtn = el('button', { class: 'btn', on: { click: () => {
-    const next = { receipts: {}, contact: {} };
-    for (const [path, input] of Object.entries(inputs)) {
-      const [g, k] = path.split('.');
-      const v = input.value.trim();
-      if (v) next[g][k] = v;
+    if (draft.receipts && draft.receipts.archive_repo && !REPO_RE.test(draft.receipts.archive_repo)) {
+      toast('Archive repo must be owner/name', 'err'); return;
     }
-    if (next.receipts.archive_repo && !REPO_RE.test(next.receipts.archive_repo)) {
-      toast('Archive repo must be owner/name', 'err');
-      return;
-    }
-    for (const g of Object.keys(next)) if (!Object.keys(next[g]).length) delete next[g];
+    /* Merge draft on top of current overrides so partial edits accumulate. */
+    const next = mergeDeep(structuredClone(overrides || {}), draft);
+    pruneEmpty(next);
     state.saveSocietyOverrides(next);
-    state.audit({ actor: user.id, action: 'society.settings.save', detail: Object.keys(next).join(',') || 'cleared' });
-    toast('Settings saved', 'ok');
+    state.clearSettingsDraft();
+    draft = {};
+    state.audit({ actor: user.id, action: 'society.settings.save', detail: flatKeys(next).join(',') || 'cleared' });
+    toast('Settings saved · one atomic write', 'ok');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
-  } } }, 'Save settings');
+  } } }, 'Save all');
+
+  const discardBtn = el('button', { class: 'btn btn-ghost', on: { click: () => {
+    if (!flatKeys(draft).length) { toast('No draft to discard'); return; }
+    state.clearSettingsDraft();
+    toast('Draft discarded', 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  } } }, 'Discard draft');
 
   const resetBtn = el('button', { class: 'btn btn-ghost', on: { click: () => {
     if (!Object.keys(overrides).length) { toast('Nothing to reset'); return; }
@@ -186,9 +258,29 @@ async function renderSettings(user) {
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   } } }, 'Reset to shipped defaults');
 
-  const dirty = Object.keys(overrides).length > 0;
+  /* Outbox: batched receipt-archive queue. Flushing today just clears
+   * the queue and marks receipts archived locally — the real GitHub
+   * Trees + Commits push lands in the private-repo slice. This UI
+   * ships so residents/committee see the pending count and the
+   * transactional pattern is visible from day one. */
+  const flushBtn = el('button', { class: 'btn btn-sage', on: { click: async () => {
+    const q = state.outbox();
+    if (!q.length) { toast('Nothing to flush'); return; }
+    const drained = state.drainOutbox();
+    const list = state.contribs();
+    for (const entry of drained) {
+      const rec = list.find(c => c.receipt && c.receipt.id === entry.receiptId);
+      if (rec) rec.receipt.archived = true;
+    }
+    state.saveContribs(list);
+    state.audit({ actor: user.id, action: 'archive.flush', detail: `${drained.length} entries` });
+    toast(`Flushed ${drained.length} receipt${drained.length === 1 ? '' : 's'} · one commit (offline stub)`, 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  } } }, 'Flush archive queue');
 
-  return el('div', {},
+  refreshMeta();
+
+  return mount(container,
     el('div', { class: 'panel' },
       el('h3', { text: 'Society identity (read-only)' }),
       kv('Legal name', shipped.legal_name),
@@ -196,24 +288,51 @@ async function renderSettings(user) {
       kv('Registration', shipped.reg_no + ' · ' + fmtDate(shipped.reg_date)),
       kv('Location', shipped.location),
       kv('Total flats', String(shipped.total_flats)),
-      el('p', { class: 'sub', style: 'margin-top:8px', text: 'Identity fields ship in config/society.json. Changes are git-tracked so the change record is auditable.' })
+      el('p', { class: 'sub', style: 'margin-top:8px', text: 'Identity fields ship in config/society.json. Changes there are git-tracked so the change record is auditable.' })
     ),
     el('div', { class: 'panel' },
       el('h3', { text: 'Receipts archive · Admin only' }),
       el('p', { class: 'sub', text: 'Where verified receipts get pushed for long-term storage. Must be a private GitHub repo owned by the society. Format: owner/name.' }),
-      labeledField('Archive repo', inputs['receipts.archive_repo'], `Effective: ${effective.receipts.archive_repo || '(not set)'} · ${overrides.receipts && overrides.receipts.archive_repo ? 'overridden by admin' : 'from shipped defaults'}`),
-      labeledField('Watermark asset', inputs['receipts.watermark_asset'], 'Rendered behind receipt text.'),
-      labeledField('Stamp asset',     inputs['receipts.stamp_asset'],     'Corner stamp on the receipt.'),
+      labeledField(inputs['receipts.archive_repo'].label, inputs['receipts.archive_repo'].input, `Effective: ${effective.receipts && effective.receipts.archive_repo || '(not set)'} · ${overrides.receipts && overrides.receipts.archive_repo ? 'overridden by admin' : 'from shipped defaults'}`),
+      labeledField(inputs['receipts.watermark_asset'].label, inputs['receipts.watermark_asset'].input, 'Rendered behind receipt text.'),
+      labeledField(inputs['receipts.stamp_asset'].label,     inputs['receipts.stamp_asset'].input,     'Corner stamp on the receipt.'),
     ),
     el('div', { class: 'panel' },
       el('h3', { text: 'Contact addresses' }),
-      labeledField('Chairman email', inputs['contact.chairman'], 'Used on receipts and notifications.'),
-      labeledField('Manager email',  inputs['contact.manager'],  'On-site manager reply-to.'),
+      labeledField(inputs['contact.chairman'].label, inputs['contact.chairman'].input, 'Used on receipts and notifications.'),
+      labeledField(inputs['contact.manager'].label,  inputs['contact.manager'].input,  'On-site manager reply-to.'),
     ),
-    el('div', { class: 'row', style: 'gap:10px' }, saveBtn, resetBtn,
-      el('span', { class: 'pill ' + (dirty ? 'pill-gold' : 'pill-muted'), text: dirty ? 'overrides active' : 'shipped defaults' })
+    el('div', { class: 'panel' },
+      el('h3', { text: 'Draft & archive queue' }),
+      el('p', { class: 'sub', text: 'Every keystroke above is cached as a draft. "Save all" writes overrides + audit in one atomic step. Verified receipts are enqueued to the archive queue and pushed together as ONE commit when you flush.' }),
+      el('div', { class: 'row', style: 'gap:8px;margin-top:6px' }, draftCount, dirtyPill, outboxCount)
+    ),
+    el('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap' },
+      saveBtn, discardBtn, flushBtn, resetBtn
     )
   );
+}
+
+function flatKeys(obj, prefix = '') {
+  const out = [];
+  if (!obj || typeof obj !== 'object') return out;
+  for (const [k, v] of Object.entries(obj)) {
+    const p = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === 'object' && !Array.isArray(v)) out.push(...flatKeys(v, p));
+    else if (v != null && v !== '') out.push(p);
+  }
+  return out;
+}
+function mergeDeep(target, src) {
+  if (!src || typeof src !== 'object') return target;
+  for (const [k, v] of Object.entries(src)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      target[k] = mergeDeep(target[k] && typeof target[k] === 'object' ? { ...target[k] } : {}, v);
+    } else if (v !== undefined) {
+      target[k] = v;
+    }
+  }
+  return target;
 }
 
 function textInput(value, placeholder) {

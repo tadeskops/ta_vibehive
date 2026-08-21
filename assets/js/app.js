@@ -5,6 +5,7 @@ import * as router from './router.js';
 import { session } from './auth.js';
 import { can } from './rbac.js';
 import { isCallbackHit } from './auth-oauth.js';
+import { getSociety } from './store.js';
 
 /* If the browser landed on the OAuth redirect_uri (root + ?code=&state=),
  * hand off to the callback view. Rewrites the URL into a hash route so the
@@ -85,7 +86,17 @@ async function renderChrome() {
 }
 
 router.start(() => renderChrome());
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   $('#year').textContent = String(new Date().getFullYear());
   renderChrome();
+  /* Society sub-line under the VibeHive wordmark. Reads through
+   * getSociety() so admin overrides show up immediately. */
+  try {
+    const soc = await getSociety();
+    const sub = document.querySelector('[data-brand-society]');
+    if (sub && soc && soc.short_name) {
+      const where = (soc.location || '').split(',')[0].trim();
+      sub.textContent = where ? `${soc.short_name} · ${where}` : soc.short_name;
+    }
+  } catch (_e) { /* keep shipped fallback */ }
 });

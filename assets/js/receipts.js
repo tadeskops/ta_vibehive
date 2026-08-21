@@ -6,6 +6,7 @@
  */
 'use strict';
 import { state, getSociety } from './store.js';
+import { archivePathFor, DEFAULT_ARCHIVE } from './paths.js';
 
 export const RECEIPT_PREFIX = 'TA';
 
@@ -52,6 +53,23 @@ export async function attachReceipt(contribution) {
   const rec = list.find(c => c.id === contribution.id);
   if (rec) { rec.receipt = receipt; state.saveContribs(list); }
   state.audit({ actor: null, action: 'receipt.mint', receipt: receipt.id });
+  /* Enqueue archive write. The batched flush (Admin → Settings →
+   * "Flush archive queue") pushes ALL pending entries as ONE commit
+   * via the GitHub Trees + Commits REST API so we don't spend a
+   * commit per receipt. Wrapped in try so a queue hiccup never blocks
+   * the receipt itself. */
+  try {
+    const archiveCfg = (soc.receipts && soc.receipts.archive) || DEFAULT_ARCHIVE;
+    if (archiveCfg.enabled) {
+      const path = archivePathFor(rec || contribution, evt, archiveCfg);
+      const content = JSON.stringify({
+        receipt,
+        contribution: { id: contribution.id, event: contribution.event, amount: contribution.amount, contributor: contribution.contributor, flat: contribution.flat, verified_at: contribution.verified_at },
+        society: { id: soc.id, short_name: soc.short_name },
+      }, null, 2);
+      state.enqueueArchive({ path, content, receiptId: receipt.id, contribId: contribution.id });
+    }
+  } catch (_e) { /* archive is best-effort */ }
   return receipt;
 }
 

@@ -78,7 +78,7 @@ are validated on save — e.g. `contribution.per_head` requires
 - Downloadable as PDF via the browser print engine — **no third-party
   PDF library**, so no supply-chain surface.
 - Verify hash printed on every receipt for tamper detection.
-- Archive target (private repo, e.g. `tadeskops/ta_receipts_2026`)
+- Archive target (private repo, e.g. `tadeskops/tvh_record`)
   is a config field, not a code path.
 
 ---

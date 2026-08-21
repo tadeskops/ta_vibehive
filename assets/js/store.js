@@ -86,6 +86,32 @@ export const state = {
   saveFeatureOverrides(o) { local.set('featureOverrides', o); },
   societyOverrides() { return local.get('societyOverrides', {}); },
   saveSocietyOverrides(o) { local.set('societyOverrides', o || {}); },
+  /* Draft cache — settings edits are staged here until the admin
+   * presses "Save all". Kept separate from societyOverrides so a
+   * half-typed archive_repo never breaks the live receipts flow. */
+  settingsDraft() { return local.get('settingsDraft', {}); },
+  saveSettingsDraft(o) { local.set('settingsDraft', o || {}); },
+  clearSettingsDraft() { local.remove('settingsDraft'); },
+  /* Outbox — pending archive writes that will later be flushed to the
+   * private receipts repo as ONE commit via the GitHub Trees + Commits
+   * API. Each entry is { path, content, receiptId, contribId, at }.
+   * `enqueueArchive` de-dupes on path so re-verifying a contribution
+   * does not double-commit. */
+  outbox() { return local.get('outbox', []); },
+  enqueueArchive(entry) {
+    const q = local.get('outbox', []);
+    const idx = q.findIndex(e => e.path === entry.path);
+    const row = { ...entry, at: new Date().toISOString() };
+    if (idx >= 0) q[idx] = row; else q.push(row);
+    local.set('outbox', q.slice(-500));
+    return q.length;
+  },
+  outboxSize() { return (local.get('outbox', []) || []).length; },
+  drainOutbox() {
+    const q = local.get('outbox', []);
+    local.set('outbox', []);
+    return q;
+  },
   currentUser() { return local.get('session', null); },
   setCurrentUser(u) { u ? local.set('session', u) : local.remove('session'); },
   audit(entry) {

@@ -17,7 +17,7 @@
   },
   "receipts": {
     "prefix": "TA",
-    "archive_repo": "tadeskops/ta_receipts_2026",
+    "archive_repo": "tadeskops/tvh_record",
     "watermark_asset": "assets/images/TaStampBlueOverlay.png",
     "stamp_asset": "assets/images/TaStampBlue.png",
     "archive": {
