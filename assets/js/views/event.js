@@ -20,6 +20,20 @@ export async function render(root, { match }) {
   if (mode === 'edit' && canEdit) return renderEdit(root, evt, user, { canPublish, canClose });
   if (mode === 'manage' && canVerify) return renderManage(root, evt, user);
 
+  /* View mode: residents (and anonymous) only see the event once it
+   * is PUBLISHED (or CLOSED, so past events remain browsable).
+   * Draft / review / archived stay hidden from the public. Committee
+   * members with edit or verify access always see the full page so
+   * they can preview a draft before publishing. */
+  const canPreview = canEdit || canVerify;
+  if (!canPreview && evt.status !== STATUS.PUBLISHED && evt.status !== STATUS.CLOSED) {
+    return mount(root, el('div', { class: 'card card-pad' },
+      el('h2', { text: 'Not published yet' }),
+      el('p', { class: 'sub', text: 'This event is being prepared by the committee. It will appear here once it is published.' }),
+      el('a', { class: 'btn', href: '#/events', style: 'margin-top:8px' }, 'Browse events')
+    ));
+  }
+
   const hero = el('section', { class: 'hero', style: heroBg(evt) },
     el('div', { class: 'row row-between' },
       el('div', {},

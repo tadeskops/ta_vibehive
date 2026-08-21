@@ -11,8 +11,15 @@ import { eventCard } from './home.js';
 
 export async function render(root) {
   const user = session();
-  const events = state.events().slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
   const canCreate = await can(user, 'events.create');
+  const canVerify = await can(user, 'contributions.verify');
+  /* Draft / Review / Archived are back-of-house. Residents only see
+   * PUBLISHED (accepting contributions) and CLOSED (past events -
+   * they can still see the outcome). Anyone with create-or-verify
+   * access sees everything so the pipeline is discoverable. */
+  const canSeeAll = canCreate || canVerify;
+  const all = state.events().slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+  const events = canSeeAll ? all : all.filter(e => e.status === STATUS.PUBLISHED || e.status === STATUS.CLOSED);
 
   const head = el('div', { class: 'row row-between', style: 'margin-bottom:18px' },
     el('div', {},
@@ -24,7 +31,9 @@ export async function render(root) {
 
   const grouped = groupBy(events, e => e.status);
   const sections = [];
-  const order = [STATUS.PUBLISHED, STATUS.REVIEW, STATUS.DRAFT, STATUS.CLOSED, STATUS.ARCHIVED];
+  const order = canSeeAll
+    ? [STATUS.PUBLISHED, STATUS.REVIEW, STATUS.DRAFT, STATUS.CLOSED, STATUS.ARCHIVED]
+    : [STATUS.PUBLISHED, STATUS.CLOSED];
   for (const st of order) {
     const list = grouped.get(st) || [];
     if (!list.length) continue;

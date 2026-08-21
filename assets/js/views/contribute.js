@@ -83,6 +83,28 @@ export async function render(root, { match }) {
   if (!evt) return mount(root, el('div', { class: 'card card-pad' }, el('h2', { text: 'Event not found.' })));
   const user = session();
   if (!user) { navigate('/login?next=' + encodeURIComponent(location.hash)); return; }
+  /* Contributions can only be added while the event is PUBLISHED.
+   * Draft / review = not visible to the public yet; closed / archived
+   * = no longer accepting money. Committee members hitting this URL
+   * on a draft get a clear "not yet" card instead of a broken form. */
+  if (evt.status !== 'published') {
+    const msgByStatus = {
+      draft:    'This event is still a draft. It will accept contributions once the committee publishes it.',
+      review:   'This event is in review. It will accept contributions once it is published.',
+      closed:   'This event is closed. Contributions are no longer being accepted.',
+      archived: 'This event has been archived.',
+    };
+    return mount(root,
+      el('div', { class: 'card card-pad' },
+        el('h2', { text: 'Not accepting contributions yet' }),
+        el('p', { class: 'sub', text: msgByStatus[evt.status] || 'Contributions are not enabled for this event.' }),
+        el('div', { class: 'row', style: 'gap:8px;margin-top:12px' },
+          el('a', { class: 'btn btn-ghost', href: `#/e/${evt.id}` }, 'Back to event'),
+          el('a', { class: 'btn', href: '#/events' }, 'Browse events')
+        )
+      )
+    );
+  }
 
   const showTiers    = await isEventOn('contribution.suggested', evt);
   const showCustom   = await isEventOn('contribution.custom', evt);
