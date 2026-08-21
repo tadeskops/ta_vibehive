@@ -19,7 +19,20 @@
     "prefix": "TA",
     "archive_repo": "tadeskops/ta_receipts_2026",
     "watermark_asset": "assets/images/TaStampBlueOverlay.png",
-    "stamp_asset": "assets/images/TaStampBlue.png"
+    "stamp_asset": "assets/images/TaStampBlue.png",
+    "archive": {
+      "enabled": true,
+      "perReceiptPath": "{eventCodeLower}/{yearMonth}/{flat}_{receiptId}.json",
+      "rollup": {
+        "enabled": true,
+        "period": "monthly",
+        "path": "{eventCodeLower}/bckp/{period}/{periodKey}.json"
+      }
+    },
+    "template": {
+      "url": "",
+      "path": ""
+    }
   },
   "contact": {
     "chairman": "chairman@the-address.example",

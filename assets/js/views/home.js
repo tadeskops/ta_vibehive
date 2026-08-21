@@ -20,7 +20,7 @@ export async function render(root) {
         el('h1', { text: user ? `Namaste, ${user.name.split(' ')[0]} 🙏` : 'Welcome to VibeHive' }),
         el('p', { class: 'sub', text: `${events.length} live event${events.length === 1 ? '' : 's'} · ${totalPublicSum(events)} raised across the community.` })
       ),
-      user ? el('a', { class: 'btn btn-ghost', href: '#/events' }, '＋ Browse events') : el('a', { class: 'btn', href: '#/login' }, 'Sign in')
+      user ? el('a', { class: 'btn btn-ghost', href: '#/events' }, '＋ Browse events') : null
     )
   );
 
