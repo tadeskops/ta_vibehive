@@ -26,6 +26,7 @@ import { session } from '../auth.js';
 import { navigate } from '../router.js';
 import { getSociety } from '../store.js';
 import { emit as notifyEmit } from '../notify.js';
+import { parseFlat, validateMobile, flatRuleText } from '../validators.js';
 
 /* Client-side image compression so payment screenshots don't blow the
  * ~5 MB localStorage quota. Non-images (PDFs) are passed through as
@@ -204,25 +205,75 @@ export async function render(root, { match }) {
        * The `href` scheme is hardcoded to `upi://pay?` so a malformed
        * VPA cannot smuggle in a different protocol. The anchor uses
        * `rel="noopener noreferrer"` even though upi:// hands off to the
-       * OS handler \u2014 defense in depth against any future rewrites. */
+       * OS handler — defense in depth against any future rewrites.
+       *
+       * ** UPI safety notes ** — We deliberately DO NOT use app-specific
+       * schemes (`tez://`, `phonepe://pay`, `paytmmp://pay`) because:
+       *   1. Those schemes are undocumented and change silently between
+       *      app versions — a broken deep-link silently fails and the
+       *      resident thinks WE lost their payment.
+       *   2. Probing them from JS leaks which UPI apps the user has
+       *      installed, a fingerprinting vector.
+       *   3. The generic `upi://pay?...` intent is the NPCI-standard
+       *      hand-off; Android's Intent chooser natively lists every
+       *      installed UPI app (GPay, PhonePe, Paytm, BHIM, Amazon Pay,
+       *      WhatsApp Pay, Cred, bank-branded UPI apps, …) and the
+       *      resident picks the one they trust. */
       const intent = effVpa ? upiIntentUrl({ vpa: effVpa, name: effVpaName, amount: st.amount, note: `Contribution: ${evt.title}` }) : '';
+      const copyBtn = el('button', { type: 'button', class: 'btn btn-sm btn-ghost', title: 'Copy UPI ID' }, '📋 Copy UPI ID');
+      copyBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(effVpa);
+          toast('UPI ID copied — paste it in your bank / UPI app', 'ok');
+        } catch (_e) {
+          /* Older browsers / insecure contexts: fall back to
+           * selecting a hidden textarea so the resident can still
+           * copy manually. */
+          const ta = document.createElement('textarea');
+          ta.value = effVpa; ta.style.position = 'fixed'; ta.style.top = '-100px';
+          document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); toast('UPI ID copied', 'ok'); }
+          catch (_e2) { toast('Copy failed — long-press the UPI ID above to copy it', 'err'); }
+          ta.remove();
+        }
+      });
       payHint.append(
-        el('div', { class: 'lbl', text: 'Pay via UPI' }),
-        el('div', { class: 'row', style: 'gap:16px;flex-wrap:wrap;align-items:center' },
-          effVpa ? el('div', {},
-            el('div', { style: 'font-weight:700', text: effVpaName }),
-            el('div', { style: 'font-family:ui-monospace,monospace;font-size:14px', text: effVpa })
+        ...[
+          el('div', { class: 'lbl', text: 'Pay via UPI' }),
+          effVpa ? el('div', { class: 'tvh-upi-payee' },
+            el('div', { class: 'tvh-upi-payee-name', text: effVpaName }),
+            el('div', { class: 'tvh-upi-payee-vpa', text: effVpa }),
           ) : null,
-          intent ? el('a', { class: 'btn btn-sm', href: intent, rel: 'noopener noreferrer' }, '📱 Open UPI app') : null
-        ),
-        evtQr ? el('div', { style: 'margin-top:10px' },
-          el('small', { class: 'sub', text: 'Or scan the QR code below with any UPI app:' }),
-          /* QR data URL is validated at event-save time (PNG/JPEG/WebP
-           * only, size-capped, SVG explicitly rejected). Safe to
-           * render as a data-URL <img>. */
-          el('img', { src: evtQr, alt: 'Scan to pay via UPI', style: 'display:block;max-width:220px;margin:8px auto 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px' })
-        ) : null,
-        el('small', { text: 'On desktop, use the VPA above in your bank app. On mobile, tap "Open UPI app" or scan the QR and confirm the amount inside the app.' })
+          intent ? el('a', {
+            class: 'btn btn-block tvh-upi-cta',
+            href: intent,
+            rel: 'noopener noreferrer',
+            'aria-label': `Pay ${fmtINR(st.amount)} via UPI`,
+          },
+            el('span', { class: 'tvh-upi-cta-ico', text: '📱' }),
+            el('span', { class: 'tvh-upi-cta-txt' },
+              el('span', { class: 'tvh-upi-cta-lead', text: `Pay ${fmtINR(st.amount)}` }),
+              el('span', { class: 'tvh-upi-cta-sub', text: 'via any UPI app' }),
+            ),
+            el('span', { class: 'tvh-upi-cta-caret', 'aria-hidden': 'true', text: '›' })
+          ) : null,
+          effVpa ? el('div', { class: 'row tvh-upi-actions', style: 'gap:8px;flex-wrap:wrap;margin-top:8px' }, copyBtn) : null,
+          /* Compatibility strip: reassures residents that the single
+           * "Pay via UPI" button will work with whichever app they
+           * prefer. Purely informational — no app-specific hooks. */
+          el('div', { class: 'tvh-upi-apps' },
+            el('span', { class: 'tvh-upi-apps-lbl', text: 'Opens any installed UPI app:' }),
+            el('span', { class: 'tvh-upi-apps-list', text: 'GPay · PhonePe · Paytm · BHIM · Amazon Pay · WhatsApp Pay · CRED · bank UPI apps' })
+          ),
+          evtQr ? el('div', { class: 'tvh-upi-qr' },
+            el('small', { class: 'sub', text: 'Or scan the QR code below with any UPI app:' }),
+            /* QR data URL is validated at event-save time (PNG/JPEG/WebP
+             * only, size-capped, SVG explicitly rejected). Safe to
+             * render as a data-URL <img>. */
+            el('img', { src: evtQr, alt: 'Scan to pay via UPI', style: 'display:block;max-width:220px;margin:8px auto 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px' })
+          ) : null,
+          el('small', { style: 'display:block;margin-top:8px', text: 'On desktop, use the UPI ID above in your bank app. On mobile, tap "Pay" or scan the QR and confirm the amount inside the app.' })
+        ].filter(Boolean)
       );
     } else if (st.method === 'bank' && bankOn) {
       if (!bank.account) {
@@ -305,8 +356,18 @@ export async function render(root, { match }) {
     'aria-required': 'true', value: st.contributor_name });
   const emailInp = el('input', { type: 'email', autocomplete: 'email',      required: '',
     'aria-required': 'true', value: st.contributor_email });
+  /* Flat number follows the society's tower/floor/slot scheme
+   * (see validators.js#parseFlat). Pattern hint helps mobile Safari
+   * show the alphanumeric keyboard while `pattern` triggers the
+   * native invalid tooltip if the user submits garbage.
+   * NOTE: HTML5 pattern is compiled with the `v` flag in modern
+   * browsers, which forbids an unescaped `-` inside a character
+   * class. Keeping the hyphen OUTSIDE the class avoids the
+   * "Invalid character in character class" console warning. */
   const flatInp  = el('input', { type: 'text',  autocomplete: 'address-line2', required: '',
-    'aria-required': 'true', placeholder: 'e.g. A-1204', value: st.contributor_flat });
+    'aria-required': 'true', placeholder: 'e.g. A-101 or B-1305',
+    pattern: '[A-Ca-c]-?\\d{3,4}',
+    value: st.contributor_flat });
   /* Mobile is a 10-digit Indian number (starting 6-9). Committee uses
    * it only if a receipt needs rectification (wrong flat, wrong name,
    * spelling). It is NEVER shown on the public board. `inputmode` +
@@ -317,6 +378,19 @@ export async function render(root, { match }) {
   nameInp .addEventListener('input', () => { st.contributor_name  = nameInp.value.trim(); });
   emailInp.addEventListener('input', () => { st.contributor_email = emailInp.value.trim(); });
   flatInp .addEventListener('input', () => { st.contributor_flat  = flatInp.value.trim(); });
+  /* Blur-time canonicalisation: whatever the resident typed
+   * ("a101", "A 101", "a-1301") gets rewritten to the canonical
+   * `TOWER-FloorSlot` form the moment they leave the field. If the
+   * input is invalid we leave it alone (so a validation toast on
+   * submit points at their actual text) but never eagerly toast on
+   * blur — that's annoying while typing. */
+  flatInp.addEventListener('blur', () => {
+    const parsed = parseFlat(flatInp.value);
+    if (parsed.valid && parsed.canonical !== flatInp.value) {
+      flatInp.value = parsed.canonical;
+      st.contributor_flat = parsed.canonical;
+    }
+  });
   mobileInp.addEventListener('input', () => {
     /* Strip everything that isn't a digit so users can paste "+91 98
      * 1234 5678" and the field still ends up with the plain 10 digits. */
@@ -343,7 +417,9 @@ export async function render(root, { match }) {
   const mobileField = el('div', { class: 'field' }, reqLbl('Mobile number'), mobileInp,
     el('small', { class: 'sub', text: 'Used only if the committee needs to reach you to rectify a receipt. Not shown publicly.' })
   );
-  const flatField  = el('div', { class: 'field' }, reqLbl('Flat number'),  flatInp);
+  const flatField  = el('div', { class: 'field' }, reqLbl('Flat number'),  flatInp,
+    el('small', { class: 'sub', text: flatRuleText() })
+  );
 
   function refreshIdentityLabels() {
     const isBehalf = st.on_behalf;
@@ -376,10 +452,19 @@ export async function render(root, { match }) {
     if (!st.contributor_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.contributor_email)) {
       return toast('Enter a valid email address', 'err');
     }
-    if (!/^[6-9]\d{9}$/.test(st.contributor_mobile || '')) {
-      return toast('Enter a valid 10-digit mobile number (starting 6-9)', 'err');
-    }
-    if (!st.contributor_flat)  return toast('Flat number is required', 'err');
+    /* Mobile: strict 10-digit / 6-9 start / defensive strip of +91
+     * & leading 0 via the shared validator. */
+    const mobCheck = validateMobile(st.contributor_mobile);
+    if (!mobCheck.valid) return toast(mobCheck.reason, 'err');
+    st.contributor_mobile = mobCheck.digits;
+    if (mobileInp.value !== mobCheck.digits) mobileInp.value = mobCheck.digits;
+    /* Flat: canonical `Tower-FloorSlot`. Rejects made-up towers, floors
+     * above 13, and slots beyond the per-tower cap (A/C:4, B:6). */
+    if (!st.contributor_flat) return toast('Flat number is required', 'err');
+    const flatCheck = parseFlat(st.contributor_flat);
+    if (!flatCheck.valid) return toast(flatCheck.reason, 'err');
+    st.contributor_flat = flatCheck.canonical;
+    if (flatInp.value !== flatCheck.canonical) flatInp.value = flatCheck.canonical;
     /* Enforce the event's "one contribution per flat" rule client-side
      * with a friendly message. `addContribution` also enforces the
      * same rule at storage time so a devtools-crafted submit can't

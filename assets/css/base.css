@@ -241,6 +241,31 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.4s linear inf
 .pill-gold{background:#f7dfad;color:#7a5410}
 .pill-muted{background:#efe4d0;color:var(--muted)}
 
+/* ---------- UPI pay CTA (contribute view) ----------
+ * A Zomato-style prominent "Pay ₹X via UPI" button. Big tap target,
+ * dominant terra fill so it's obvious what the primary action is;
+ * icon on the left, amount + hint stacked in the middle, chevron on
+ * the right. Safe by design: the anchor's href is a strict
+ * `upi://pay?...` intent built via URLSearchParams (see
+ * contribute.js#upiIntentUrl) — no app-specific schemes, so Android's
+ * chooser natively lists every installed UPI app. */
+.tvh-upi-payee{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:10px}
+.tvh-upi-payee-name{font-weight:800;color:var(--ink);font-size:14px}
+.tvh-upi-payee-vpa{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:14px;color:var(--terra);word-break:break-all}
+.tvh-upi-cta{display:flex!important;align-items:center;justify-content:space-between;gap:12px;text-align:left;background:var(--terra);color:#fff;border:0;padding:14px 16px;border-radius:14px;box-shadow:0 8px 18px rgba(163,67,40,.22);text-decoration:none}
+.tvh-upi-cta:hover{background:#8f3320;color:#fff}
+.tvh-upi-cta:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.tvh-upi-cta-ico{font-size:22px;line-height:1;flex-shrink:0}
+.tvh-upi-cta-txt{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.tvh-upi-cta-lead{font-weight:800;font-size:16px;line-height:1.15;color:#fff}
+.tvh-upi-cta-sub{font-weight:500;font-size:12px;opacity:.9;color:#fff}
+.tvh-upi-cta-caret{font-size:22px;line-height:1;font-weight:400;opacity:.85;flex-shrink:0}
+.tvh-upi-actions{margin-top:8px}
+.tvh-upi-apps{display:flex;flex-direction:column;gap:2px;margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--sage-soft);color:#3f5c34}
+.tvh-upi-apps-lbl{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#3f5c34}
+.tvh-upi-apps-list{font-size:12px;color:#3f5c34;line-height:1.4}
+.tvh-upi-qr{margin-top:12px}
+
 label{display:block;font-weight:700;font-size:13px;margin-bottom:4px;color:var(--ink)}
 /* Red asterisk marker for mandatory form fields. Rendered as
  * `<span class="req" aria-hidden="true">*</span>` after the label

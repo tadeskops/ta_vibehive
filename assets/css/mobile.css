@@ -56,7 +56,16 @@
   /* Persona pill: trim padding so it doesn't wrap on 360 px viewports */
   .whoami { padding: 4px 8px; font-size: 12px; }
   .whoami .avatar { width: 22px; height: 22px; font-size: 10px; }
-  .whoami .whoami-name { max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* On mobile the whoami pill collapses to JUST avatar + role chip.
+   * Rationale:
+   *   - Header real estate is scarce; the resident's own name is
+   *     already the H1 ("Namaste, System 🙏") on the dashboard.
+   *   - The role chip is the one bit of chrome the user asked to
+   *     always see, so it stays.
+   *   - "Switch" is redundant on mobile — the bottom tabbar's Me tab
+   *     already deep-links into `#/admin` or `#/login`. */
+  .whoami .whoami-name { display: none; }
+  #whoami .btn-ghost   { display: none; }
   /* Role chip stays visible on mobile — user asked for the role to
    * always be readable. Slightly tighter padding so it doesn't
    * overpower the compact pill. */
