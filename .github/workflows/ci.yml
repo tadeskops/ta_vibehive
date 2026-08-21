@@ -76,13 +76,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # LOC across shipped source (assets + top-level HTML). Vendored libs excluded.
-          loc=$(find assets -type f \( -name '*.css' -o -name '*.js' \) \
-                            -not -path 'assets/vendor/*' -print0 2>/dev/null \
+          # LOC across shipped source (assets + top-level HTML + lib workflow-side).
+          # Vendored libs excluded (hash-pinned third-party).
+          loc=$(find assets lib -type f \( -name '*.css' -o -name '*.js' \) \
+                                -not -path 'assets/vendor/*' -print0 2>/dev/null \
               | xargs -0 cat 2>/dev/null | wc -l || echo 0)
           htmloc=$(cat index.html 404.html 2>/dev/null | wc -l)
           total=$((loc + htmloc))
-          echo "LOC: assets=$loc html=$htmloc total=$total"
+          echo "LOC: code+lib=$loc html=$htmloc total=$total"
           if [ "$total" -gt 2500 ]; then
             echo "::error::phase G-0 LOC budget exceeded ($total > 2500)"
             exit 1

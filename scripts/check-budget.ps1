@@ -23,22 +23,28 @@ Set-Location $root
 
 Write-Host "== G3 · sleek budget ==" -ForegroundColor Cyan
 
-# 1. LOC across shipped assets (css/js) + top-level HTML. Vendored libs excluded.
+# 1. LOC across shipped assets (css/js) + top-level HTML + lib/ (workflow-side).
+#    Vendored libs excluded (third-party, hash-pinned).
 $assetFiles = Get-ChildItem -Path assets -Recurse -Include *.css, *.js -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch '\\assets\\vendor\\' }
+$libFiles = Get-ChildItem -Path lib -Recurse -Include *.js -ErrorAction SilentlyContinue
 $htmlFiles  = Get-ChildItem -Path . -Filter *.html -File
 
 $assetLoc = 0
 foreach ($f in $assetFiles) {
     $assetLoc += (Get-Content -LiteralPath $f.FullName | Measure-Object -Line).Lines
 }
+$libLoc = 0
+foreach ($f in $libFiles) {
+    $libLoc += (Get-Content -LiteralPath $f.FullName | Measure-Object -Line).Lines
+}
 $htmlLoc = 0
 foreach ($f in $htmlFiles) {
     $htmlLoc += (Get-Content -LiteralPath $f.FullName | Measure-Object -Line).Lines
 }
-$totalLoc = $assetLoc + $htmlLoc
+$totalLoc = $assetLoc + $libLoc + $htmlLoc
 
-Write-Host ("  LOC assets={0}  html={1}  total={2}  budget={3}" -f $assetLoc, $htmlLoc, $totalLoc, $SliceBudget)
+Write-Host ("  LOC assets={0}  lib={1}  html={2}  total={3}  budget={4}" -f $assetLoc, $libLoc, $htmlLoc, $totalLoc, $SliceBudget)
 
 if ($totalLoc -gt $SliceBudget) {
     Write-Host ("  [FAIL] LOC budget exceeded ({0} > {1})" -f $totalLoc, $SliceBudget) -ForegroundColor Red
