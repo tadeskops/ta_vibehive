@@ -29,9 +29,28 @@ export async function render(root, { match }) {
   if (!rec.receipt) { await attachReceipt(rec); }
   const r = state.contribs().find(c => c.id === rec.id).receipt;
 
-  const actions = el('div', { class: 'row row-end print-hide', style: 'margin-bottom:16px' },
+  /* Share text kept short (WhatsApp UX is best under ~180 chars). The
+   * verify URL is the only actionable payload — the recipient clicks
+   * it and lands on the public verify page which recomputes the hash. */
+  const shareUrl  = verifyUrl(r.id);
+  const shareSubject = `Receipt ${r.id} · ${soc.short_name}`;
+  const shareBody = `Namaste! Your contribution of ${fmtINR(r.amount)} towards ${evt ? evt.title : 'the event'} is receipted.\n\nReceipt no: ${r.id}\nVerify online: ${shareUrl}\n\n— ${soc.short_name}`;
+
+  /* Prefill mailto recipient only when the contributor field is an email
+   * (older records store an id like "aarav@the-address"). Leaves the
+   * "To:" field blank otherwise so the user picks the recipient. */
+  const looksLikeEmail = s => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  const toEmail = looksLikeEmail(rec.contributor) ? rec.contributor : '';
+  const mailtoHref = `mailto:${encodeURIComponent(toEmail)}` +
+    `?subject=${encodeURIComponent(shareSubject)}` +
+    `&body=${encodeURIComponent(shareBody)}`;
+  const waHref = `https://wa.me/?text=${encodeURIComponent(shareBody)}`;
+
+  const actions = el('div', { class: 'row row-end print-hide', style: 'margin-bottom:16px;flex-wrap:wrap;gap:8px' },
     el('a', { class: 'btn btn-ghost', href: `#/e/${rec.event}` }, '← Event'),
     el('a', { class: 'btn btn-ghost', href: `#/verify/${encodeURIComponent(r ? r.id : '')}` }, '🔎 Verify online'),
+    el('a', { class: 'btn btn-ghost', href: mailtoHref, title: 'Open your mail client with a pre-filled message' }, '✉ Email'),
+    el('a', { class: 'btn btn-ghost', href: waHref, target: '_blank', rel: 'noopener', title: 'Open WhatsApp with a pre-filled message' }, '🟢 WhatsApp'),
     el('button', { class: 'btn', on: { click: () => window.print() } }, '🖨 Download PDF / Print')
   );
 
