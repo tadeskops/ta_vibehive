@@ -102,12 +102,100 @@ async function renderChrome() {
   } else {
     whoami.append(el('a', { class: 'btn btn-sm', href: '#/login' }, 'Sign in'));
   }
+
+  /* Mobile tab-bar: highlight the active tab + adjust the "Me" link. */
+  syncMobileTabbar(user);
+}
+
+/* Mark the mobile tab that matches the current hash. Also swaps the
+ * "Me" tab between #/login and #/admin depending on role, so admins
+ * one-tap into the admin console from the tab-bar. */
+function syncMobileTabbar(user) {
+  const hash = location.hash || '#/';
+  const tabbar = document.getElementById('tvhTabbar');
+  if (!tabbar) return;
+  const me = document.getElementById('tvhTabMe');
+  if (me) {
+    if (user && (user.role === 'admin' || user.role === 'mgmt')) me.href = '#/admin';
+    else me.href = '#/login';
+  }
+  const anchors = tabbar.querySelectorAll('a[data-tab]');
+  anchors.forEach(a => {
+    const h = a.getAttribute('href') || '';
+    const on = h === '#/' ? hash === '#/' : hash.startsWith(h);
+    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    a.classList.toggle('is-active', on);
+  });
+}
+
+/* Bottom-sheet wiring — WhatsApp-style. Populated on open so the
+ * admin item appears / disappears with role changes without needing
+ * a page reload. Closes on backdrop tap, X-button, Escape, or when
+ * any item inside is tapped (letting the router take over). */
+function mountSheet() {
+  const fab   = document.getElementById('tvhFab');
+  const back  = document.getElementById('tvhSheetBack');
+  const sheet = document.getElementById('tvhSheet');
+  const list  = document.getElementById('tvhSheetList');
+  if (!fab || !back || !sheet || !list || sheet.__wired) return;
+  sheet.__wired = true;
+  const closeBtn = sheet.querySelector('.tvh-sheet-close');
+
+  async function populate() {
+    const user = session();
+    const items = [
+      { href: '#/verify',  ico: '🔎', label: 'Verify a receipt' },
+      { href: '#/events',  ico: '🎉', label: 'Browse events' },
+    ];
+    if (user) {
+      items.push({ href: '#/login', ico: '🔄', label: 'Switch account' });
+    } else {
+      items.push({ href: '#/login', ico: '🔑', label: 'Sign in' });
+    }
+    if (user && await can(user, 'features.registry.edit')) {
+      items.push({ href: '#/admin', ico: '⚙', label: 'Admin console', admin: true });
+    }
+    clear(list);
+    for (const it of items) {
+      const li = el('li', it.admin ? { class: 'is-admin' } : {},
+        el('a', { href: it.href },
+          el('span', { class: 'ico', 'aria-hidden': 'true', text: it.ico }),
+          el('span', { text: it.label })
+        )
+      );
+      list.append(li);
+    }
+  }
+
+  function open() {
+    populate();
+    back.hidden = false; sheet.hidden = false;
+    /* two-frame delay so the transition actually plays */
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      back.classList.add('is-open'); sheet.classList.add('is-open');
+    }));
+    fab.setAttribute('aria-expanded', 'true');
+    sheet.setAttribute('aria-hidden', 'false');
+  }
+  function close() {
+    back.classList.remove('is-open'); sheet.classList.remove('is-open');
+    fab.setAttribute('aria-expanded', 'false');
+    sheet.setAttribute('aria-hidden', 'true');
+    setTimeout(() => { back.hidden = true; sheet.hidden = true; }, 220);
+  }
+  fab.addEventListener('click', () => (fab.getAttribute('aria-expanded') === 'true' ? close() : open()));
+  back.addEventListener('click', close);
+  closeBtn && closeBtn.addEventListener('click', close);
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !sheet.hidden) close(); });
+  list.addEventListener('click', (e) => { if (e.target.closest('a')) close(); });
+  window.addEventListener('hashchange', () => { if (!sheet.hidden) close(); });
 }
 
 router.start(() => renderChrome());
 window.addEventListener('DOMContentLoaded', async () => {
   $('#year').textContent = String(new Date().getFullYear());
   renderChrome();
+  mountSheet();
   /* Society sub-line under the VibeHive wordmark. Reads through
    * getSociety() so admin overrides show up immediately. */
   try {

@@ -19,6 +19,7 @@
 <link rel="apple-touch-icon" href="assets/images/TaLogo.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/mobile.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -71,6 +72,28 @@
   </div>
 </footer>
 <template id="tpl-toast"><div class="toast" role="status"></div></template>
+
+<!-- ================================================================
+     Mobile-only: fixed bottom tab-bar + bottom-sheet.
+     Rendered on every page but hidden by CSS on desktop (>=641px).
+     Wired in assets/js/app.js (mountTabBar).
+     ================================================================ -->
+<nav class="tvh-tabbar" id="tvhTabbar" data-tvh-mobile-only aria-label="Primary (mobile)">
+  <a href="#/" data-tab="home"><span class="ico" aria-hidden="true">🏠</span><span>Home</span></a>
+  <a href="#/events" data-tab="events"><span class="ico" aria-hidden="true">🎉</span><span>Events</span></a>
+  <button type="button" class="tvh-fab" id="tvhFab" aria-label="Quick actions" aria-haspopup="dialog" aria-expanded="false">+</button>
+  <a href="#/verify" data-tab="verify"><span class="ico" aria-hidden="true">🔎</span><span>Verify</span></a>
+  <a href="#/login" data-tab="me" id="tvhTabMe"><span class="ico" aria-hidden="true">👤</span><span>Me</span></a>
+</nav>
+<div class="tvh-sheet-back" id="tvhSheetBack" data-tvh-mobile-only hidden></div>
+<aside class="tvh-sheet" id="tvhSheet" data-tvh-mobile-only role="dialog" aria-labelledby="tvhSheetTitle" aria-hidden="true" hidden>
+  <div class="tvh-sheet-head">
+    <h3 id="tvhSheetTitle">Quick actions</h3>
+    <button type="button" class="tvh-sheet-close" aria-label="Close">×</button>
+  </div>
+  <ul id="tvhSheetList"><!-- populated by app.js --></ul>
+</aside>
+
 <script type="module" src="assets/js/app.js"></script>
 </body>
 </html>

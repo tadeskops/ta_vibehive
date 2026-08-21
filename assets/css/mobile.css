@@ -1,0 +1,217 @@
+/* =====================================================================
+   mobile.css — mobile-only overlay for VibeHive
+   ---------------------------------------------------------------------
+   Ported from ta-society-helpdesk/docs/assets/css/mobile-landing.css.
+   Site-wide overlay wrapped in @media (max-width: 640px). Adds:
+
+     * A fixed bottom tab-bar (Home / Events / [+ FAB] / Verify / Me).
+     * A WhatsApp-style bottom-sheet opened by the "+" FAB.
+     * A compact header (hidden topnav; smaller brand mark).
+     * A footer collapsed on mobile so the tab-bar doesn't overlap it.
+     * Toasts lifted above the tab-bar.
+
+   Palette inherits from base.css tokens (--terra, --gold, --sage,
+   --card, --line, --ink, --muted). No new colour introduced.
+
+   Desktop (>=641px) is completely untouched — every mobile-specific
+   node is `display:none` via the @media (min-width:641px) block at
+   the bottom, and the desktop-facing rules in base.css keep winning.
+   ===================================================================== */
+
+/* Hide mobile-only nodes on desktop, and desktop-only nodes on mobile.
+   Scoped to the min-width query so within the mobile block below the
+   rule does NOT apply, letting each element's own display win. */
+@media (min-width: 641px) {
+  [data-tvh-mobile-only] { display: none !important; }
+}
+
+/* ============================================================
+   MOBILE OVERRIDES (<= 640 px)
+   ============================================================ */
+@media (max-width: 640px) {
+
+  [data-tvh-desktop-only] { display: none !important; }
+
+  /* --- Header: hide the horizontal nav, compact the brand ---- */
+  .topbar-inner {
+    padding: 8px 12px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .topnav { display: none !important; }
+  .brand-mark img { height: 30px; width: 30px; }
+  .brand-text b.wordmark { font-size: 17px; }
+  .brand-text em { font-size: 10.5px; }
+  /* Persona pill: trim padding so it doesn't wrap on 360 px viewports */
+  .whoami { padding: 4px 8px; font-size: 12px; }
+  .whoami .avatar { width: 22px; height: 22px; font-size: 10px; }
+  .whoami .role-badge { display: none; }
+  .whoami > span:nth-child(2) { max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* --- Stage: room for the fixed tab-bar --------------------- */
+  .stage {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* --- Footer: covered by the tab-bar; hide to reclaim space -- */
+  .footpad { display: none !important; }
+
+  /* --- Toasts: lift above the tab-bar ------------------------- */
+  .toast, .toasts, #tpl-toast-mount {
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* --- Notification drop: full-width on phones --------------- */
+  .tvh-notify-drop {
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    max-width: none !important;
+  }
+
+  /* =============================================================
+     Fixed bottom tab-bar
+     ============================================================= */
+  .tvh-tabbar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 40;
+    display: flex;
+    justify-content: space-around;
+    align-items: flex-end;
+    padding: 6px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(180deg, rgba(255, 250, 240, 0.78), var(--card) 60%);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -6px 18px rgba(163, 67, 40, 0.10);
+  }
+  .tvh-tabbar a {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 2px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    line-height: 1;
+    min-height: 48px;
+  }
+  .tvh-tabbar a .ico { font-size: 18px; line-height: 1; }
+  .tvh-tabbar a[aria-current="page"],
+  .tvh-tabbar a.is-active { color: var(--terra); }
+  .tvh-tabbar a[aria-current="page"] .ico,
+  .tvh-tabbar a.is-active .ico { transform: translateY(-1px); }
+  .tvh-tabbar a:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: -2px;
+    border-radius: 8px;
+  }
+
+  /* Centre "+" FAB — Community-Warmth terra→gold gradient */
+  .tvh-tabbar button.tvh-fab,
+  .tvh-tabbar a.tvh-fab {
+    position: relative;
+    top: -14px;
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--terra), var(--gold));
+    color: #fff;
+    box-shadow: 0 8px 20px rgba(163, 67, 40, 0.32);
+    justify-content: center;
+    align-items: center;
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .tvh-tabbar .tvh-fab:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 3px;
+  }
+
+  /* =============================================================
+     Bottom-sheet triggered by the "+" FAB
+     ============================================================= */
+  .tvh-sheet-back {
+    position: fixed;
+    inset: 0;
+    z-index: 41;
+    background: rgba(30, 15, 10, 0.42);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+  .tvh-sheet-back.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .tvh-sheet {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 42;
+    background: var(--card);
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+    padding: 8px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 32px rgba(30, 15, 10, 0.24);
+    transform: translateY(100%);
+    transition: transform 0.22s cubic-bezier(.2,.7,.2,1);
+  }
+  .tvh-sheet.is-open { transform: translateY(0); }
+  .tvh-sheet::before {
+    content: "";
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 6px auto 12px;
+    border-radius: 999px;
+    background: var(--line);
+  }
+  .tvh-sheet-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 4px 8px;
+  }
+  .tvh-sheet-head h3 { margin: 0; font-size: 15px; color: var(--ink); }
+  .tvh-sheet-close {
+    border: 0; background: transparent; font-size: 20px;
+    color: var(--muted); cursor: pointer; padding: 4px 8px;
+  }
+  .tvh-sheet ul {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+  }
+  .tvh-sheet li a {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px;
+    background: var(--terra-soft);
+    border-radius: 12px;
+    color: var(--terra);
+    font-weight: 700;
+    font-size: 13px;
+    text-decoration: none;
+    min-height: 56px;
+  }
+  .tvh-sheet li a .ico { font-size: 20px; }
+  .tvh-sheet li a:hover, .tvh-sheet li a:focus-visible {
+    background: var(--gold);
+    color: #fff;
+    outline: none;
+  }
+  .tvh-sheet li.is-admin a { background: var(--sage-soft); color: #4a6641; }
+  .tvh-sheet li.is-admin a:hover { background: var(--sage); color: #fff; }
+}
+
+/* Above 640 px the tab-bar + sheet are fully hidden even if markup
+   is present. */
+@media (min-width: 641px) {
+  .tvh-tabbar, .tvh-sheet, .tvh-sheet-back { display: none !important; }
+}
