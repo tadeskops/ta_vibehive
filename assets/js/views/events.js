@@ -45,6 +45,16 @@ export async function render(root) {
   ));
 
   mount(root, head, ...sections);
+
+  /* Deep-link from the mobile "+" sheet: if the user tapped "Create a
+   * new event", sessionStorage carries a one-shot flag that pops the
+   * template picker straight away. Consumed + cleared here. */
+  try {
+    if (canCreate && sessionStorage.getItem('tvh:new-event') === '1') {
+      sessionStorage.removeItem('tvh:new-event');
+      setTimeout(() => openTemplatePicker(user), 60);
+    }
+  } catch (_e) { /* private mode / quota - ignore */ }
 }
 
 function labelForStatus(s) {

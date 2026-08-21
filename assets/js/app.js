@@ -143,27 +143,27 @@ function mountSheet() {
 
   async function populate() {
     const user = session();
-    const items = [
-      { href: '#/verify',  ico: '🔎', label: 'Verify a receipt' },
-      { href: '#/events',  ico: '🎉', label: 'Browse events' },
-    ];
-    if (user) {
-      items.push({ href: '#/login', ico: '🔄', label: 'Switch account' });
-    } else {
-      items.push({ href: '#/login', ico: '🔑', label: 'Sign in' });
+    /* Sheet is now a focused two-action launcher: create + contribute.
+     * "New event" is gated on `events.create` (admin/mgmt/committee).
+     * "Add contribution" always goes to /events so the resident picks
+     * the event tile they want to give to - the tile has an inline
+     * "＋ Contribute" button that deep-links straight into the form.
+     * Verify / Sign-in / Admin already live in the tab-bar and topnav. */
+    const items = [];
+    if (user && await can(user, 'events.create')) {
+      items.push({ href: '#/events', ico: '🎉', label: 'Create a new event', sub: 'Pick a template · publish when ready',
+        onClick: () => { try { sessionStorage.setItem('tvh:new-event', '1'); } catch (_e) {} } });
     }
-    if (user && await can(user, 'features.registry.edit')) {
-      items.push({ href: '#/admin', ico: '⚙', label: 'Admin console', admin: true });
-    }
+    items.push({ href: '#/events', ico: '💛', label: 'Add a contribution', sub: user ? 'Pick an event and give' : 'Sign in when you contribute' });
     clear(list);
     for (const it of items) {
-      const li = el('li', it.admin ? { class: 'is-admin' } : {},
-        el('a', { href: it.href },
-          el('span', { class: 'ico', 'aria-hidden': 'true', text: it.ico }),
-          el('span', { text: it.label })
-        )
+      const anchor = el('a', { href: it.href },
+        el('span', { class: 'ico', 'aria-hidden': 'true', text: it.ico }),
+        el('span', {}, el('span', { text: it.label }),
+          it.sub ? el('span', { class: 'sub', text: it.sub }) : null)
       );
-      list.append(li);
+      if (it.onClick) anchor.addEventListener('click', it.onClick);
+      list.append(el('li', {}, anchor));
     }
   }
 

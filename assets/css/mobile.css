@@ -187,25 +187,30 @@
   }
   .tvh-sheet ul {
     list-style: none; margin: 0; padding: 0;
-    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+    display: flex; flex-direction: column; gap: 10px;
   }
   .tvh-sheet li a {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px;
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px;
     background: var(--terra-soft);
-    border-radius: 12px;
+    border-radius: 14px;
     color: var(--terra);
     font-weight: 700;
-    font-size: 13px;
+    font-size: 15px;
     text-decoration: none;
-    min-height: 56px;
+    min-height: 60px;
   }
-  .tvh-sheet li a .ico { font-size: 20px; }
+  .tvh-sheet li a .ico { font-size: 22px; flex-shrink: 0; }
+  .tvh-sheet li a > span:last-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .tvh-sheet li a .sub {
+    font-weight: 500; font-size: 12px; color: var(--muted); letter-spacing: 0.01em;
+  }
   .tvh-sheet li a:hover, .tvh-sheet li a:focus-visible {
     background: var(--gold);
     color: #fff;
     outline: none;
   }
+  .tvh-sheet li a:hover .sub, .tvh-sheet li a:focus-visible .sub { color: rgba(255,255,255,0.85); }
   .tvh-sheet li.is-admin a { background: var(--sage-soft); color: #4a6641; }
   .tvh-sheet li.is-admin a:hover { background: var(--sage); color: #fff; }
 }
