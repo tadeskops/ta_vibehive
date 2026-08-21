@@ -3,11 +3,10 @@
  */
 'use strict';
 import { el, mount, toast, fmtDate } from '../dom.js';
-import { state } from '../store.js';
+import { state, cfg, getSociety } from '../store.js';
 import { catalog, isSystemOn, setSystemOverride } from '../features.js';
 import { session } from '../auth.js';
 import { can, labelForRole, badgeClass } from '../rbac.js';
-import { cfg } from '../store.js';
 
 export async function render(root, { match }) {
   const user = session();
@@ -15,12 +14,14 @@ export async function render(root, { match }) {
   const canEditFeatures = await can(user, 'features.registry.edit');
   const canUsers        = await can(user, 'users.manage');
   const canAudit        = await can(user, 'reports.view');
+  const canSettings     = await can(user, 'society.settings.edit');
 
   const tab = match.tab || 'features';
   const nav = el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-bottom:16px' },
     tabLink('features', 'Feature registry', tab),
     tabLink('roles', 'Roles & permissions', tab),
     tabLink('users', 'Users', tab),
+    tabLink('settings', 'Society settings', tab),
     tabLink('audit', 'Audit log', tab),
   );
 
@@ -28,6 +29,7 @@ export async function render(root, { match }) {
   if (tab === 'features' && canEditFeatures) body = await renderFeatures(user);
   else if (tab === 'roles')                  body = await renderRoles();
   else if (tab === 'users' && canUsers)      body = renderUsers();
+  else if (tab === 'settings' && canSettings)body = await renderSettings(user);
   else if (tab === 'audit' && canAudit)      body = renderAudit();
   else body = el('div', { class: 'card card-pad' },
     el('h3', { text: 'No access' }),
@@ -36,7 +38,7 @@ export async function render(root, { match }) {
 
   const head = el('div', {},
     el('h1', { text: 'Administration' }),
-    el('p', { class: 'sub', text: 'Feature toggles, roles, users, and audit trail. Everything is configuration, nothing is hard-coded.' })
+    el('p', { class: 'sub', text: 'Feature toggles, roles, users, settings, and audit trail. Everything is configuration, nothing is hard-coded.' })
   );
   mount(root, head, nav, body);
 }
@@ -136,8 +138,97 @@ function renderAudit() {
         el('td', { text: fmtDate(e.ts) + ' · ' + new Date(e.ts).toLocaleTimeString('en-IN', { hour12: false }) }),
         el('td', { text: e.actor || '—' }),
         el('td', { text: e.action }),
-        el('td', { text: [e.event, e.feature, e.value != null ? 'val=' + e.value : null, e.contrib, e.receipt, e.reason].filter(Boolean).join(' · ') })
+        el('td', { text: [e.event, e.feature, e.value != null ? 'val=' + e.value : null, e.contrib, e.receipt, e.reason, e.detail].filter(Boolean).join(' · ') })
       )) : [el('tr', {}, el('td', { colspan: 4, text: 'No audit entries yet.', style: 'text-align:center;color:var(--muted)' }))]))
     )
+  );
+}
+
+/* ---------- society settings ---------- */
+const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+async function renderSettings(user) {
+  const shipped = await cfg.society();
+  const overrides = state.societyOverrides();
+  const effective = await getSociety();
+
+  const inputs = {
+    'receipts.archive_repo':    textInput(effective.receipts && effective.receipts.archive_repo, 'owner/private-repo'),
+    'receipts.watermark_asset': textInput(effective.receipts && effective.receipts.watermark_asset, 'assets/images/TaStampBlueOverlay.png'),
+    'receipts.stamp_asset':     textInput(effective.receipts && effective.receipts.stamp_asset, 'assets/images/TaStampBlue.png'),
+    'contact.chairman':         textInput(effective.contact && effective.contact.chairman, 'chairman@example.org'),
+    'contact.manager':          textInput(effective.contact && effective.contact.manager, 'manager@example.org'),
+  };
+
+  const saveBtn = el('button', { class: 'btn', on: { click: () => {
+    const next = { receipts: {}, contact: {} };
+    for (const [path, input] of Object.entries(inputs)) {
+      const [g, k] = path.split('.');
+      const v = input.value.trim();
+      if (v) next[g][k] = v;
+    }
+    if (next.receipts.archive_repo && !REPO_RE.test(next.receipts.archive_repo)) {
+      toast('Archive repo must be owner/name', 'err');
+      return;
+    }
+    for (const g of Object.keys(next)) if (!Object.keys(next[g]).length) delete next[g];
+    state.saveSocietyOverrides(next);
+    state.audit({ actor: user.id, action: 'society.settings.save', detail: Object.keys(next).join(',') || 'cleared' });
+    toast('Settings saved', 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  } } }, 'Save settings');
+
+  const resetBtn = el('button', { class: 'btn btn-ghost', on: { click: () => {
+    if (!Object.keys(overrides).length) { toast('Nothing to reset'); return; }
+    state.saveSocietyOverrides({});
+    state.audit({ actor: user.id, action: 'society.settings.reset' });
+    toast('Overrides cleared', 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  } } }, 'Reset to shipped defaults');
+
+  const dirty = Object.keys(overrides).length > 0;
+
+  return el('div', {},
+    el('div', { class: 'panel' },
+      el('h3', { text: 'Society identity (read-only)' }),
+      kv('Legal name', shipped.legal_name),
+      kv('English name', shipped.english_name),
+      kv('Registration', shipped.reg_no + ' · ' + fmtDate(shipped.reg_date)),
+      kv('Location', shipped.location),
+      kv('Total flats', String(shipped.total_flats)),
+      el('p', { class: 'sub', style: 'margin-top:8px', text: 'Identity fields ship in config/society.json. Changes are git-tracked so the change record is auditable.' })
+    ),
+    el('div', { class: 'panel' },
+      el('h3', { text: 'Receipts archive · Admin only' }),
+      el('p', { class: 'sub', text: 'Where verified receipts get pushed for long-term storage. Must be a private GitHub repo owned by the society. Format: owner/name.' }),
+      labeledField('Archive repo', inputs['receipts.archive_repo'], `Effective: ${effective.receipts.archive_repo || '(not set)'} · ${overrides.receipts && overrides.receipts.archive_repo ? 'overridden by admin' : 'from shipped defaults'}`),
+      labeledField('Watermark asset', inputs['receipts.watermark_asset'], 'Rendered behind receipt text.'),
+      labeledField('Stamp asset',     inputs['receipts.stamp_asset'],     'Corner stamp on the receipt.'),
+    ),
+    el('div', { class: 'panel' },
+      el('h3', { text: 'Contact addresses' }),
+      labeledField('Chairman email', inputs['contact.chairman'], 'Used on receipts and notifications.'),
+      labeledField('Manager email',  inputs['contact.manager'],  'On-site manager reply-to.'),
+    ),
+    el('div', { class: 'row', style: 'gap:10px' }, saveBtn, resetBtn,
+      el('span', { class: 'pill ' + (dirty ? 'pill-gold' : 'pill-muted'), text: dirty ? 'overrides active' : 'shipped defaults' })
+    )
+  );
+}
+
+function textInput(value, placeholder) {
+  return el('input', { type: 'text', value: value || '', placeholder: placeholder || '' });
+}
+function labeledField(label, input, hint) {
+  return el('div', { class: 'field' },
+    el('label', { text: label }),
+    input,
+    hint ? el('small', { text: hint }) : null
+  );
+}
+function kv(k, v) {
+  return el('div', { class: 'feature-row' },
+    el('span', { class: 'name', text: k }),
+    el('span', { text: v || '—' })
   );
 }

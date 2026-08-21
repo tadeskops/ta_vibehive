@@ -34,6 +34,28 @@ export const cfg = {
   templates:() => loadJSON('config/event-templates.json'),
 };
 
+/* Effective society config = shipped defaults ⊕ admin overrides (localStorage).
+ * Every consumer that needs live society state (brand strip, receipt view,
+ * receipt minting, admin settings form) reads through this — never `cfg.society()`
+ * directly — so a config change takes effect on the next call, no reload needed.
+ */
+export async function getSociety() {
+  const base = await cfg.society();
+  const over = local.get('societyOverrides', {}) || {};
+  return mergeDeep(structuredClone(base), over);
+}
+function mergeDeep(target, src) {
+  if (!src || typeof src !== 'object') return target;
+  for (const [k, v] of Object.entries(src)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      target[k] = mergeDeep(target[k] && typeof target[k] === 'object' ? { ...target[k] } : {}, v);
+    } else if (v !== undefined) {
+      target[k] = v;
+    }
+  }
+  return target;
+}
+
 /* Local persisted state. All keys namespaced under `tvh:v1:` so multiple demo
  * societies could coexist on the same origin without collision. */
 export const local = {
@@ -61,6 +83,8 @@ export const state = {
   saveContribs(c) { local.set('contribs', c); },
   featureOverrides() { return local.get('featureOverrides', {}); },
   saveFeatureOverrides(o) { local.set('featureOverrides', o); },
+  societyOverrides() { return local.get('societyOverrides', {}); },
+  saveSocietyOverrides(o) { local.set('societyOverrides', o || {}); },
   currentUser() { return local.get('session', null); },
   setCurrentUser(u) { u ? local.set('session', u) : local.remove('session'); },
   audit(entry) {

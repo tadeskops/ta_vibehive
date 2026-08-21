@@ -5,7 +5,7 @@
  * verification code that can later be pushed to a private archive repo.
  */
 'use strict';
-import { state, cfg } from './store.js';
+import { state, getSociety } from './store.js';
 
 export const RECEIPT_PREFIX = 'TA';
 
@@ -32,7 +32,7 @@ export async function mintReceiptId(contribution, eventPurposeCode) {
 }
 
 export async function attachReceipt(contribution) {
-  const soc = await cfg.society();
+  const soc = await getSociety();
   const evt = state.events().find(e => e.id === contribution.event);
   const code = (evt ? evt.template : 'gen').slice(0, 4).toUpperCase();
   const receiptId = await mintReceiptId(contribution, code);
@@ -45,7 +45,7 @@ export async function attachReceipt(contribution) {
     issued_at: new Date().toISOString(),
     issued_by_society: soc.short_name,
     verify_hash: verifyHash,
-    archive_repo: soc.receipts.archive_repo || null,
+    archive_repo: (soc.receipts && soc.receipts.archive_repo) || null,
     archived: false,
   };
   const list = state.contribs();

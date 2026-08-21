@@ -2,7 +2,7 @@
  * so no third-party PDF lib is loaded (CSP-safe, supply-chain-safe). */
 'use strict';
 import { el, mount, fmtINR, fmtDate, toast } from '../dom.js';
-import { state, cfg } from '../store.js';
+import { state, getSociety } from '../store.js';
 import { findEvent } from '../events.js';
 import { attachReceipt } from '../receipts.js';
 import { session } from '../auth.js';
@@ -13,7 +13,7 @@ export async function render(root, { match }) {
   const rec = contribs.find(c => c.id === match.id);
   if (!rec) return mount(root, el('div', { class: 'card card-pad' }, el('h2', { text: 'Contribution not found.' })));
   const evt = findEvent(rec.event);
-  const soc = await cfg.society();
+  const soc = await getSociety();
   const user = session();
   const canView = user && (user.id === rec.contributor || await can(user, 'receipts.download'));
   if (!canView) return mount(root, el('div', { class: 'card card-pad' }, el('h2', { text: 'Not authorised.' })));

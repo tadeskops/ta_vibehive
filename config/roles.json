@@ -8,6 +8,8 @@
   ],
   "permissions": {
     "society.brand.edit":        ["admin"],
+    "society.settings.edit":     ["admin"],
+    "receipts.archive.configure":["admin"],
     "features.registry.edit":    ["admin"],
     "roles.edit":                ["admin"],
     "users.manage":              ["admin", "mgmt"],
