@@ -168,6 +168,8 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
   const canConfigure = user ? await can(user, 'events.create') : false;
   const canVerifyContrib = user ? await can(user, 'contributions.verify') : false;
   const canVerifyExpense = user ? await can(user, 'expenses.verify') : false;
+  const canReceiptDownload = user ? await can(user, 'receipts.download') : false;
+  const canRoleReceiptView = !!(user && user.role && user.role !== 'resident' && canReceiptDownload);
 
   /* When public-mask is on and the viewer is signed out, do not render
    * any contribution rows at all -- name + amount + event + date are
@@ -213,7 +215,8 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
       const amt = c.hide_amount ? '—' : fmtINR(Number(c.amount || 0));
       const stCls = c.status === 'verified' ? 'ok' : 'warn';
       const dateShort = (c.created_at || '').slice(0, 10);
-      const showReceipt = c.status === 'verified' && ownedByMe(c);
+      const showReceipt = c.status === 'verified' && !canRoleReceiptView && ownedByMe(c);
+      const showRoleReceiptIcon = c.status === 'verified' && canRoleReceiptView;
       const showVerifyIcon = canVerifyContrib && c.status === 'pending';
       return el('div', { class: 'row row-between', style: 'gap:10px;padding:10px 0;border-top:1px solid var(--line)' },
         el('div', { style: 'min-width:0;flex:1' },
@@ -224,6 +227,7 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
           el('div', { style: 'font-weight:800', text: amt }),
           el('div', { class: 'row', style: 'gap:6px;align-items:center;justify-content:flex-end' },
             el('small', { class: 'pill ' + stCls, text: c.status }),
+            showRoleReceiptIcon ? receiptViewIconLink(c.id) : null,
             showVerifyIcon ? verifyContribIconBtn(c, user, evt) : null
           ),
           showReceipt ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/receipt/${c.id}`, style: 'margin-top:2px' }, '🧾 Receipt') : null
@@ -275,7 +279,16 @@ function stat(k, v, d) {
   );
 }
 
-/* Sleek inline verify icon button (pencil-check glyph) for the
+function receiptViewIconLink(contribId) {
+  return el('a', {
+    class: 'tvh-mini-icon-btn',
+    href: `#/receipt/${encodeURIComponent(String(contribId || ''))}`,
+    title: 'View receipt',
+    'aria-label': 'View receipt'
+  }, '👁');
+}
+
+/* Sleek inline verify icon button (check glyph) for the
  * dashboard widget. Kept intentionally compact so pending rows stay
  * one-line on mobile. Handler navigates through the same service
  * calls as the manage-view Verify button so the audit + receipt
