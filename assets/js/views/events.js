@@ -7,7 +7,7 @@ import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { navigate } from '../router.js';
 import { toast } from '../dom.js';
-import { eventCard } from './home.js';
+import { eventCard, shouldMaskPublic } from './home.js';
 
 export async function render(root) {
   const user = session();
@@ -15,6 +15,10 @@ export async function render(root) {
   const canPropose = await can(user, 'events.propose');
   const canApprove = await can(user, 'events.approve');
   const canVerify  = await can(user, 'contributions.verify');
+  /* Public-mask overlay: applied ONLY to the anonymous public cards
+   * below (published / closed). Committee/admin rows never mask
+   * because they need the full information to manage the pipeline. */
+  const masked = await shouldMaskPublic(user);
   /* Draft / Review / Archived are back-of-house. Residents only see
    * PUBLISHED (accepting contributions) and CLOSED (past events -
    * they can still see the outcome), plus any REVIEW events THEY
@@ -56,7 +60,7 @@ export async function render(root) {
         el('span', { class: 'pill pill-muted', text: `${list.length}` })
       ),
       el('div', { class: 'grid grid-3', style: 'margin-top:12px' },
-        ...list.map(evt => (st === STATUS.PUBLISHED || st === STATUS.CLOSED) ? eventCard(evt) : adminRow(evt, user))
+        ...list.map(evt => (st === STATUS.PUBLISHED || st === STATUS.CLOSED) ? eventCard(evt, { masked }) : adminRow(evt, user))
       )
     ));
   }

@@ -4,9 +4,34 @@ import { el, mount, fmtINR, fmtDate, daysLeft } from '../dom.js';
 import { publicEvents, totalFor, verifiedCount, STATUS } from '../events.js';
 import { session } from '../auth.js';
 import { navigate } from '../router.js';
-import { isEventOn } from '../features.js';
+import { isEventOn, isSystemOn } from '../features.js';
 import { getSociety, state } from '../store.js';
 import { can } from '../rbac.js';
+
+/* Community Warmth · v0.1 -- privacy.public_mask
+ *
+ * When the admin turns on `privacy.public_mask` (default OFF) and the
+ * viewer is signed OUT, every financial number on the public dashboard
+ * and every event card gets hidden behind a "Sign in to view" gate.
+ * Specifically masked (per requirement 2026-08-22):
+ *   - Hero "raised across the community" total
+ *   - "Collected" KPI card + "Latest contributions" widget
+ *   - Every event card's title, day + date + time, and progress amounts
+ *   - Additionally, for events built from the `sports` template, the
+ *     event `purpose` field (used as a venue proxy since the schema
+ *     doesn't carry a first-class `venue` column yet)
+ * The Contributors KPI (a count, not a rupee figure) stays visible so
+ * a walk-in resident can still tell the community is active.
+ *
+ * Never applies to signed-in residents/committee/admins -- once you
+ * log in you get the full board back. */
+const MASK_LABEL = '\uD83D\uDD12 Sign in to view';
+const MASK_DOTS  = '\u2022\u2022\u2022';
+export async function shouldMaskPublic(user) {
+  if (user) return false;
+  try { return await isSystemOn('privacy.public_mask'); }
+  catch (_e) { return false; }
+}
 
 /* Options the dashboard "Latest contributions" widget offers when
  * configuring how many rows to show. Change here to expand. */
@@ -15,6 +40,7 @@ const RECENT_N_CHOICES = [5, 10, 20];
 export async function render(root) {
   const user = session();
   const events = publicEvents();
+  const masked = await shouldMaskPublic(user);
   /* Society label for the hero pretitle — read live so a short_name /
    * location override in Settings reflects here on the next render.
    * Falls back to the shipped brand when the config isn't hydrated. */
@@ -37,7 +63,9 @@ export async function render(root) {
       el('div', {},
         el('div', { class: 'pill', text: heroBrand }),
         el('h1', { text: user ? `Namaste, ${user.name.split(' ')[0]} 🙏` : 'Welcome to VibeHive' }),
-        el('p', { class: 'sub', text: `${events.length} live event${events.length === 1 ? '' : 's'} · ${totalPublicSum(events)} raised across the community.` })
+        el('p', { class: 'sub', text: masked
+          ? `${events.length} live event${events.length === 1 ? '' : 's'} · ${MASK_LABEL} for community totals.`
+          : `${events.length} live event${events.length === 1 ? '' : 's'} · ${totalPublicSum(events)} raised across the community.` })
       ),
       user ? el('a', { class: 'btn btn-ghost', href: '#/events' }, '＋ Browse events') : null
     )
@@ -53,7 +81,7 @@ export async function render(root) {
   ) : null;
 
   const cards = rest.length
-    ? el('div', { class: 'grid grid-3' }, ...rest.map(evt => eventCard(evt)))
+    ? el('div', { class: 'grid grid-3' }, ...rest.map(evt => eventCard(evt, { masked })))
     : el('div', { class: 'card card-pad' },
         el('h3', { text: 'No published events yet.' }),
         el('p', { class: 'sub', text: 'Committee members can create one from the Events page.' })
@@ -75,12 +103,17 @@ export async function render(root) {
   }
   const stats = el('div', { class: 'grid grid-4' },
     stat('Events', String(events.length), null),
+    /* Contributors is a count, not a rupee figure -- kept visible even
+     * when masking so an anonymous viewer can still see the community
+     * is active. */
     stat('Contributors', String(contributorKeys.size), 'unique residents'),
-    stat('Collected', fmtINR(events.reduce((s, e) => s + totalFor(e.id), 0)), 'across community'),
+    stat('Collected',
+      masked ? MASK_LABEL : fmtINR(events.reduce((s, e) => s + totalFor(e.id), 0)),
+      masked ? 'members only' : 'across community'),
     stat('Committee', 'Cultural · Sports · Volunteers', null)
   );
 
-  const latest = await renderLatestContribsCard(user, visibleEventIds);
+  const latest = await renderLatestContribsCard(user, visibleEventIds, masked);
 
   mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, latest);
 }
@@ -93,11 +126,23 @@ export async function render(root) {
  * between the choices in `RECENT_N_CHOICES`. Anonymous / hide_amount
  * flags are honoured — the widget never leaks a name/amount the
  * contributor asked to keep private. */
-async function renderLatestContribsCard(user, visibleEventIds) {
+async function renderLatestContribsCard(user, visibleEventIds, masked) {
   const soc = await getSociety();
   const rawN = Number((soc.dashboard && soc.dashboard.recent_n) || RECENT_N_CHOICES[0]);
   const N = RECENT_N_CHOICES.includes(rawN) ? rawN : RECENT_N_CHOICES[0];
   const canConfigure = user ? await can(user, 'events.create') : false;
+
+  /* When public-mask is on and the viewer is signed out, do not render
+   * any contribution rows at all -- name + amount + event + date are
+   * ALL sensitive here. A single "members only" panel replaces the
+   * whole widget so the layout stays intact. */
+  if (masked) {
+    return el('section', { class: 'card card-pad', style: 'margin-top:16px;text-align:center' },
+      el('h3', { style: 'margin:0 0 8px', text: 'Latest contributions' }),
+      el('p', { class: 'sub', style: 'margin:0', text:
+        MASK_LABEL + ' -- contribution details are visible to signed-in residents only.' })
+    );
+  }
 
   const allEvents = state.events();
   const eventById = new Map(allEvents.map(e => [e.id, e]));
@@ -183,36 +228,56 @@ function totalPublicSum(events) {
   return fmtINR(sum);
 }
 
-export function eventCard(evt) {
+export function eventCard(evt, opts) {
+  const masked = !!(opts && opts.masked);
   const pct = evt.goal ? Math.min(100, Math.round((totalFor(evt.id) / evt.goal) * 100)) : 0;
   const dl = daysLeft(evt.end_at);
   const heroCls = 'card-hero ' + (evt.hero_class || '');
   /* Contribute is offered inline on the tile so residents don't need
    * to open the event just to give. Only shown for PUBLISHED events
-   * (closed / archived events accept no more contributions). */
-  const canContribute = evt.status === STATUS.PUBLISHED;
+   * (closed / archived events accept no more contributions). Hidden
+   * entirely under public-mask so the "Sign in" gate is the single
+   * next action for anonymous viewers. */
+  const canContribute = evt.status === STATUS.PUBLISHED && !masked;
+  /* Under public-mask the whole card collapses to the template glyph
+   * + a gentle "Sign in to view" gate. We keep the glyph and the
+   * template badge visible so an anonymous viewer can still tell
+   * whether it's a sports / festival / donation-style event without
+   * leaking the name, dates, venue, or amounts. For `sports` events
+   * we additionally blank the `purpose` line (used today as a venue
+   * proxy). */
+  const isSports = evt.template === 'sports';
   return el('article', { class: 'card' },
     el('div', { class: heroCls.trim() },
       el('span', { class: 'badge', text: evt.glyph + ' ' + (evt.template || 'event') }),
       el('span', { class: 'glyph', text: evt.glyph || '' })
     ),
     el('div', { class: 'card-content' },
-      el('h3', { class: 'card-title', text: evt.title }),
-      el('p', { class: 'card-sub', text: evt.purpose || 'Community event' }),
-      evt.goal ? el('div', {}, 
-        el('div', { class: 'progress' + (evt.hero_class === 'sage' ? ' sage' : evt.hero_class === 'gold' ? ' gold' : '') }, el('i', { style: { width: pct + '%' } })),
-        el('div', { class: 'progress-meta' },
-          el('span', { text: `${fmtINR(totalFor(evt.id))} of ${fmtINR(evt.goal)}` }),
-          el('span', { text: `${verifiedCount(evt.id)} contributors` })
-        )
-      ) : el('div', { class: 'progress-meta', style: 'margin-top:8px' },
-        el('span', { text: `${fmtINR(totalFor(evt.id))} collected` }),
-        el('span', { text: `${verifiedCount(evt.id)} contributors` })
-      ),
+      el('h3', { class: 'card-title', text: masked ? MASK_LABEL : evt.title }),
+      el('p', { class: 'card-sub', text: masked
+        ? (isSports ? MASK_DOTS + ' venue hidden' : MASK_DOTS)
+        : (evt.purpose || 'Community event') }),
+      masked
+        ? el('div', { class: 'progress-meta', style: 'margin-top:8px' },
+            el('span', { text: MASK_LABEL }),
+            el('span', { text: MASK_DOTS + ' contributors' })
+          )
+        : (evt.goal ? el('div', {},
+            el('div', { class: 'progress' + (evt.hero_class === 'sage' ? ' sage' : evt.hero_class === 'gold' ? ' gold' : '') }, el('i', { style: { width: pct + '%' } })),
+            el('div', { class: 'progress-meta' },
+              el('span', { text: `${fmtINR(totalFor(evt.id))} of ${fmtINR(evt.goal)}` }),
+              el('span', { text: `${verifiedCount(evt.id)} contributors` })
+            )
+          ) : el('div', { class: 'progress-meta', style: 'margin-top:8px' },
+            el('span', { text: `${fmtINR(totalFor(evt.id))} collected` }),
+            el('span', { text: `${verifiedCount(evt.id)} contributors` })
+          )),
       el('div', { class: 'row row-between', style: 'margin-top:12px;flex-wrap:wrap;gap:8px' },
-        el('span', { class: 'card-sub', style: 'margin:0', text: dl != null ? (dl > 0 ? `${dl} day${dl === 1 ? '' : 's'} left` : 'Closes today') : (evt.start_at ? 'Starts ' + fmtDate(evt.start_at) : '') }),
+        el('span', { class: 'card-sub', style: 'margin:0', text: masked
+          ? MASK_DOTS + ' schedule hidden'
+          : (dl != null ? (dl > 0 ? `${dl} day${dl === 1 ? '' : 's'} left` : 'Closes today') : (evt.start_at ? 'Starts ' + fmtDate(evt.start_at) : '')) }),
         el('div', { class: 'row', style: 'gap:6px' },
-          el('a', { class: 'btn btn-sm btn-ghost', href: `#/e/${evt.id}` }, 'View'),
+          el('a', { class: 'btn btn-sm btn-ghost', href: masked ? '#/login' : `#/e/${evt.id}` }, masked ? 'Sign in' : 'View'),
           canContribute ? el('a', { class: 'btn btn-sm', href: `#/e/${evt.id}/contribute` }, '＋ Contribute') : null
         )
       )
