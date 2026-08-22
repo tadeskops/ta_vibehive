@@ -103,3 +103,28 @@ export async function readEvent(slug) {
 export async function writeEvent(slug, event, expectedSha) {
   return request('PUT', '/events/' + encodeURIComponent(slug), { event, ...(expectedSha ? { expectedSha } : {}) });
 }
+
+/* ---------- Contributions ---------- */
+
+/** List contributions visible to the caller. Optionally filter by event slug. */
+export async function listContributions(eventFilter) {
+  const qs = eventFilter ? '?event=' + encodeURIComponent(eventFilter) : '';
+  const data = await request('GET', '/contributions' + qs);
+  return (data && data.contributions) || [];
+}
+
+/** Submit a new contribution. Server stamps `id`, `created_at`,
+ *  `created_by`, and `status='pending'`. */
+export async function createContribution(contribution) {
+  return request('POST', '/contributions', { contribution });
+}
+
+/** Verify a pending contribution. Committee+. `contribPath` is the
+ *  storage path returned by `createContribution` (e.g. `contributions/
+ *  2026/08/c-xxx.json`) — the year/month/id are parsed from it. */
+export async function verifyContribution(contribPath) {
+  const m = String(contribPath || '').match(/contributions\/(\d{4})\/(\d{2})\/([^/]+)\.json$/);
+  if (!m) throw new ApiError(400, 'Invalid contribution path');
+  const [, year, month, id] = m;
+  return request('POST', `/contributions/${year}/${month}/${encodeURIComponent(id)}/verify`);
+}
