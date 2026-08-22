@@ -44,7 +44,31 @@ receipts/
 Every mutating route returns the new file `sha`; the client sends that
 back as `expectedSha` next time to get optimistic-lock protection.
 
-## Deploy (one-time setup)
+## Deploy (fully automated — recommended)
+
+Once these three GitHub repository secrets are set, every push to
+`worker/**` deploys the Worker to Cloudflare automatically:
+
+1. `CLOUDFLARE_API_TOKEN` — https://dash.cloudflare.com/profile/api-tokens
+   - "Create Token" → "Edit Cloudflare Workers" template → save the value
+2. `CLOUDFLARE_ACCOUNT_ID` — visible in the right sidebar of any Cloudflare page
+3. `TVH_ARCHIVE_PAT` — the fine-grained GitHub PAT with `Contents: Read+Write`
+   on the archive repository (`tadeskops/tvh_record`)
+
+Add them at: https://github.com/tadeskops/ta_vibehive/settings/secrets/actions/new
+
+Then run **once** (Actions → "sync-worker-secrets" → Run workflow) to
+push `TVH_ARCHIVE_PAT` into the Cloudflare Worker secret store. From
+now on:
+
+- Push code to `worker/**` → GitHub Actions runs `deploy-worker.yml`
+  → Worker redeploys within ~30 seconds
+- Rotate the PAT → update the `TVH_ARCHIVE_PAT` repository secret →
+  re-run "sync-worker-secrets"
+
+You never need to run `wrangler` on your laptop again.
+
+## Deploy (manual, only if you can't use GitHub Actions)
 
 Prerequisites
 1. Cloudflare account (free tier is fine)
