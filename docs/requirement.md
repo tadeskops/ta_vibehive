@@ -76,9 +76,11 @@ Implemented:
 - Runtime footer reflects configured toggles.
 - Footer brand row keeps society name visible, while source/build chips are independently configurable and disabled by default.
 - Verify receipt entry points are configuration-driven and default to disabled (`navigation.show_verify = false`).
+- Desktop footer suppresses the verify action and source/meta row to keep desktop chrome minimal.
 
 Current enforced behavior:
 - Desktop legal/source meta lines are intentionally suppressed from the end-user footer UI.
+- Desktop footer verify action is intentionally suppressed from the end-user footer UI.
 - Source/build chips in the brand row can be enabled from Settings when needed.
 
 Core implementation:

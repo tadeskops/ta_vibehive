@@ -8,6 +8,7 @@ Scope: Current shipped behavior in ta_vibehive.
 Implemented:
 - Header navigation: Home, Events; role-gated links for Reports/Settings/Admin.
 - Verify receipt entry points (header nav, mobile tab, and footer action) are configuration-gated via `navigation.show_verify` and default OFF.
+- Desktop footer verify action is intentionally suppressed; verify visibility applies to header/mobile entry points.
 - Auth state controls in header: sign-in for signed-out users, sign-out for signed-in users, and whoami role chip.
 - Route-driven SPA with stable hash routes for all main surfaces.
 - Quick action `+` is reserved for "Create a new event" only.
@@ -102,7 +103,7 @@ Implemented:
   - Role-to-email mapping (one or more IDs per role)
   - Admin-only editability for admin role mappings; secretary/mgmt can edit non-admin role mappings
   - Access table visibility state
-- Desktop footer legal line remains suppressed by policy; source/build chips are configurable from settings.
+- Desktop footer legal/source meta lines remain suppressed by policy.
 - Dense resident-governance grid in Settings is collapsed by default and expands on tap.
 
 Core UI files:

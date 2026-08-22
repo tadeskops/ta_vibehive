@@ -214,11 +214,13 @@ async function applyFooterDesktopVisibility() {
     };
     setFoot('footpad-social', desk.show_social !== false);
     setFoot('footpad-report-btn', desk.show_bug_report !== false);
-    setAny('footpad-verify-link', showVerify);
-    /* Legal line remains desktop-hidden by policy. Brand row remains
-     * visible and its optional chips (source/build) are configurable. */
+    /* Keep verify in header/mobile when enabled, but suppress footer verify
+     * affordance on desktop to reduce footer clutter. */
+    const showFooterVerify = showVerify && !isDesktop;
+    setAny('footpad-verify-link', showFooterVerify);
+    /* Legal/source meta lines remain desktop-hidden by policy. */
     setFoot('footpad-legal-line', isDesktop ? false : (desk.show_legal !== false));
-    setAny('footpad-source-line', desk.show_brand_line !== false);
+    setFoot('footpad-source-line', isDesktop ? false : (desk.show_brand_line !== false));
     const showBrandSource = desk.show_brand_source === true;
     const showBrandBuild = desk.show_brand_build === true;
     setAny('footpad-source-link', showBrandSource);
