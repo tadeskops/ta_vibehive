@@ -1,0 +1,37 @@
+# Cloudflare Worker config for ta_vibehive backend.
+#
+# Secrets (set via `wrangler secret put <NAME>`; never commit values):
+#   TVH_ARCHIVE_PAT   fine-grained PAT with contents:read+write on the archive repo only
+#
+# Public variables (vars below): may be read by the Worker; safe to commit.
+
+name = "tvh-worker"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Production environment (default)
+[vars]
+GH_ARCHIVE_OWNER   = "tadeskops"
+GH_ARCHIVE_REPO    = "tvh_record"
+GH_ARCHIVE_BRANCH  = "main"
+GOOGLE_OAUTH_CLIENT_ID = "REPLACE_WITH_GOOGLE_CLIENT_ID"
+LOG_LEVEL          = "info"
+
+# CORS allow-list. Comma-separated origins. Add your Pages URL + local dev.
+ALLOWED_ORIGINS    = "https://tadeskops.github.io,http://localhost:8091,http://127.0.0.1:8091"
+
+# Preview environment (used for branch deploys + local dev)
+[env.preview]
+name = "tvh-worker-preview"
+
+[env.preview.vars]
+GH_ARCHIVE_OWNER   = "tadeskops"
+GH_ARCHIVE_REPO    = "tvh_record"
+GH_ARCHIVE_BRANCH  = "main"
+GOOGLE_OAUTH_CLIENT_ID = "REPLACE_WITH_GOOGLE_CLIENT_ID"
+LOG_LEVEL          = "debug"
+ALLOWED_ORIGINS    = "http://localhost:8091,http://127.0.0.1:8091"
+
+[dev]
+port = 8788
