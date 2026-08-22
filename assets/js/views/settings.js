@@ -559,8 +559,9 @@ async function renderAttributes(user, canUsersManage) {
   const selTheme = el('select', {
     on: { change: (e) => stageAttr('receipts.default_theme', e.target.value, { silent: true }) }
   },
-    el('option', { value: 'default', text: 'Default — letterhead + overlay',                           selected: (rcfg.default_theme || 'default') === 'default' }),
-    el('option', { value: 'minimal', text: 'Minimal — plain A5 (reserved for translations follow-up)', selected: rcfg.default_theme === 'minimal' })
+    el('option', { value: 'default',           text: 'Default — Community Warmth · A4 portrait',      selected: (rcfg.default_theme || 'default') === 'default' }),
+    el('option', { value: 'cheque-classic',    text: 'Cheque Classic — blue grid · A5 landscape',      selected: rcfg.default_theme === 'cheque-classic' }),
+    el('option', { value: 'certificate-brand', text: 'Certificate Brand — indigo + gold · A4 landscape', selected: rcfg.default_theme === 'certificate-brand' })
   );
 
   /* --- Dashboard sub-panel --- */
@@ -963,7 +964,7 @@ async function renderAttributes(user, canUsersManage) {
         el('div', { style: 'margin-top:6px' }, el('small', { class: 'sub', text: 'Example preview: ' }), previewRollupPath)
       )),
       row('Seal language (default for downloads)', 'Language used for the verified-contribution rubber stamp. Managers see only this default; residents can NOT override per download.', selSealLang),
-      row('Receipt theme (default for downloads)', 'Visual layout used when a resident downloads a receipt. Non-default themes are reserved for the translations follow-up slice.', selTheme),
+      row('Receipt theme (default for downloads)', 'Visual layout used when a resident downloads a receipt. Committee can override per download via the theme picker on the receipt page.', selTheme),
     ),
     panel('Receipts',
       'Active template drives what the printable receipt looks like. Manage templates in the Receipt templates tab.',
