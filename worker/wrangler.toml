@@ -15,7 +15,7 @@ compatibility_flags = ["nodejs_compat"]
 GH_ARCHIVE_OWNER   = "tadeskops"
 GH_ARCHIVE_REPO    = "tvh_record"
 GH_ARCHIVE_BRANCH  = "main"
-GOOGLE_OAUTH_CLIENT_ID = "REPLACE_WITH_GOOGLE_CLIENT_ID"
+GOOGLE_OAUTH_CLIENT_ID = "888761828993-d38vmjdjnuns2ubksvpdmkv860qeeap5.apps.googleusercontent.com"
 LOG_LEVEL          = "info"
 
 # CORS allow-list. Comma-separated origins. Add your Pages URL + local dev.
@@ -29,7 +29,7 @@ name = "tvh-worker-preview"
 GH_ARCHIVE_OWNER   = "tadeskops"
 GH_ARCHIVE_REPO    = "tvh_record"
 GH_ARCHIVE_BRANCH  = "main"
-GOOGLE_OAUTH_CLIENT_ID = "REPLACE_WITH_GOOGLE_CLIENT_ID"
+GOOGLE_OAUTH_CLIENT_ID = "888761828993-d38vmjdjnuns2ubksvpdmkv860qeeap5.apps.googleusercontent.com"
 LOG_LEVEL          = "debug"
 ALLOWED_ORIGINS    = "http://localhost:8091,http://127.0.0.1:8091"
 
