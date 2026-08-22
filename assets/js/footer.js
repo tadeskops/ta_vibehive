@@ -117,6 +117,50 @@
     });
   }
 
+  /* Persist a report row to localStorage under the shared VibeHive
+   * namespace so the admin console (`#/admin/bug-reports`) and the
+   * export/download flows can surface every Send-attempt — even the
+   * ones where the reporter closed the GitHub tab without submitting.
+   *
+   * Contract with store.js: keys are namespaced `tvh:v1:` and store
+   * plain JSON. We intentionally do NOT import from store.js because
+   * footer.js is a non-module defence-in-depth script.
+   *
+   * Screenshots are intentionally NOT stored (LocalStorage is capped
+   * at ~5 MB per origin). Only their filenames + count are kept. The
+   * resized blobs are still handed to the user via download. */
+  var REPORTS_KEY = 'tvh:v1:bug_reports';
+  var REPORTS_CAP = 200;
+  function persistReport(entry) {
+    try {
+      var raw = localStorage.getItem(REPORTS_KEY);
+      var list = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(list)) list = [];
+      list.unshift(entry);
+      if (list.length > REPORTS_CAP) list.length = REPORTS_CAP;
+      localStorage.setItem(REPORTS_KEY, JSON.stringify(list));
+      return true;
+    } catch (_e) { return false; }
+  }
+
+  /* Read the current logged-in session, if any, so we can stamp the
+   * report with the reporter's identity. Best-effort — anonymous
+   * reports are legitimate and must still be accepted. */
+  function currentSubmitter() {
+    try {
+      var raw = localStorage.getItem('tvh:v1:session');
+      if (!raw) return null;
+      var s = JSON.parse(raw);
+      if (!s || typeof s !== 'object') return null;
+      return {
+        id:    s.id    || null,
+        email: s.email || null,
+        name:  s.name  || null,
+        role:  s.role  || null
+      };
+    } catch (_e) { return null; }
+  }
+
   /* Save a Blob to the user's downloads. Used to hand back resized
    * screenshots so the reporter can drag them onto the freshly opened
    * GitHub issue tab. Best-effort — a failure here must not block
@@ -297,10 +341,33 @@
             var url = repo + '/issues/new?labels=' + encodeURIComponent('site-bug')
                     + '&title=' + encodeURIComponent(title)
                     + '&body='  + encodeURIComponent(body);
+            /* Persist locally BEFORE opening GitHub so admins still
+             * see the report even if the reporter closes the GitHub
+             * tab without submitting or the popup is blocked. Screen-
+             * shot blobs stay out of storage; only filenames + count
+             * are kept so the LocalStorage quota can't overflow. */
+            var reportId = 'rpt_' + Date.now().toString(36) + '_' +
+              Math.random().toString(36).slice(2, 8);
+            persistReport({
+              id: reportId,
+              ts: new Date().toISOString(),
+              submitter: currentSubmitter(),
+              page: page,
+              user_agent: ua,
+              viewport: viewport,
+              build: 'Community Warmth · v0.1',
+              title: title,
+              description: desc,
+              screenshot_count: picks.length,
+              screenshot_files: picks.map(function (p, i) {
+                return 'vibehive-bug-' + reportId + '-' + (i + 1) + '.jpg';
+              }),
+              gh_url: url
+            });
             /* Save any resized screenshots to Downloads so the user
              * has files ready to attach on GitHub. */
             picks.forEach(function (p, i) {
-              var stem = 'vibehive-bug-' + Date.now().toString(36) + '-' + (i + 1);
+              var stem = 'vibehive-bug-' + reportId + '-' + (i + 1);
               downloadBlob(p.blob, stem + '.jpg');
             });
             var w = window.open(url, '_blank', 'noopener,noreferrer');

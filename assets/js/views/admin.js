@@ -15,6 +15,11 @@ export async function render(root, { match }) {
   const canUsers        = await can(user, 'users.manage');
   const canAudit        = await can(user, 'reports.view');
   const canSettings     = await can(user, 'society.settings.edit');
+  /* Site-bug reports: view is gated on `reports.view` (same as audit
+   * log — committee / manager / mgmt / admin) and export is gated on
+   * `reports.export` (admin / mgmt only, matching Reports view). */
+  const canBugView      = await can(user, 'reports.view');
+  const canBugExport    = await can(user, 'reports.export');
 
   const tab = match.tab || 'features';
   const nav = el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-bottom:16px' },
@@ -23,6 +28,7 @@ export async function render(root, { match }) {
     tabLink('users', 'Users', tab),
     tabLink('settings', 'Society settings', tab),
     tabLink('audit', 'Audit log', tab),
+    canBugView ? tabLink('bug-reports', 'Bug reports', tab) : null,
   );
 
   let body;
@@ -31,6 +37,7 @@ export async function render(root, { match }) {
   else if (tab === 'users' && canUsers)      body = renderUsers();
   else if (tab === 'settings' && canSettings)body = await renderSettings(user);
   else if (tab === 'audit' && canAudit)      body = renderAudit();
+  else if (tab === 'bug-reports' && canBugView) body = renderBugReports({ canExport: canBugExport, user });
   else body = el('div', { class: 'card card-pad' },
     el('h3', { text: 'No access' }),
     el('p', { text: 'Ask an Admin to grant you this section.' })
@@ -147,6 +154,137 @@ function renderAudit() {
         el('td', { text: [e.event, e.feature, e.value != null ? 'val=' + e.value : null, e.contrib, e.receipt, e.reason, e.detail].filter(Boolean).join(' · ') })
       )) : [el('tr', {}, el('td', { colspan: 4, text: 'No audit entries yet.', style: 'text-align:center;color:var(--muted)' }))]))
     )
+  );
+}
+
+/* ---------- site-bug reports ---------- *
+ * Reports are written by `assets/js/footer.js` on every Send-attempt
+ * from the "Report site bug" modal. Storage: `tvh:v1:bug_reports`.
+ * View permission: `reports.view`. Export permission: `reports.export`.
+ * Clearing all reports is admin-only in practice — it is a destructive
+ * action, so we surface a confirm() before wiping. */
+function renderBugReports({ canExport, user }) {
+  const list = state.bugReports().slice();
+  /* Newest first — footer.js already unshifts, but re-sort defensively
+   * so hand-edited storage doesn't render out of order. */
+  list.sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
+
+  function truncate(s, n) {
+    s = String(s || '');
+    return s.length > n ? s.slice(0, n - 1) + '\u2026' : s;
+  }
+  function pageLabel(p) {
+    try {
+      const u = new URL(p);
+      return (u.hash || u.pathname || '/').slice(0, 40) || '/';
+    } catch (_e) { return truncate(p, 40); }
+  }
+  function submitterLabel(s) {
+    if (!s) return el('em', { class: 'sub', text: 'anonymous' });
+    return el('span', { title: (s.email || '') + ' · ' + (s.role || '?') },
+      s.name || s.email || s.id || '\u2014');
+  }
+
+  function downloadText(filename, mime, text) {
+    try {
+      const blob = new Blob([text], { type: mime + ';charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.append(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 200);
+    } catch (_e) { toast('Download failed.', 'err'); }
+  }
+  function toCsv(rows) {
+    /* Minimal RFC 4180 CSV — wrap every field, escape internal quotes.
+     * Newlines inside descriptions are preserved so a reviewer can
+     * paste the CSV into Excel/Sheets and see the full text. */
+    const header = ['id', 'ts', 'submitter_name', 'submitter_email', 'submitter_role',
+      'page', 'user_agent', 'viewport', 'build', 'title', 'description',
+      'screenshot_count', 'gh_url'];
+    const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const lines = [header.map(esc).join(',')];
+    rows.forEach(r => {
+      const s = r.submitter || {};
+      lines.push([
+        r.id, r.ts, s.name, s.email, s.role,
+        r.page, r.user_agent, r.viewport, r.build,
+        r.title, r.description, r.screenshot_count, r.gh_url
+      ].map(esc).join(','));
+    });
+    return lines.join('\r\n');
+  }
+
+  const actions = el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' });
+  if (canExport && list.length) {
+    const jsonBtn = el('button', { class: 'btn btn-sm', type: 'button' }, '⬇ Export JSON');
+    jsonBtn.addEventListener('click', () => {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      downloadText('vibehive-bug-reports-' + stamp + '.json', 'application/json',
+        JSON.stringify(list, null, 2));
+      toast('Exported ' + list.length + ' report(s) as JSON.', 'ok');
+    });
+    const csvBtn = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, '⬇ Export CSV');
+    csvBtn.addEventListener('click', () => {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      downloadText('vibehive-bug-reports-' + stamp + '.csv', 'text/csv', toCsv(list));
+      toast('Exported ' + list.length + ' report(s) as CSV.', 'ok');
+    });
+    actions.append(jsonBtn, csvBtn);
+  }
+  /* Clear-all is admin-only (matches the "destructive" bar we set for
+   * every other reset action in the app). Committee/mgr can view + a
+   * mgmt user can export, but only admin can wipe. */
+  if (user && user.role === 'admin' && list.length) {
+    const wipe = el('button', { class: 'btn btn-sm', type: 'button',
+      style: 'background:var(--emerg);color:#faf3ea' }, 'Clear all');
+    wipe.addEventListener('click', () => {
+      if (!confirm('Delete all ' + list.length + ' locally-stored bug reports? This cannot be undone. Reports already filed on GitHub are unaffected.')) return;
+      state.clearBugReports();
+      toast('All bug reports cleared.', 'ok');
+      /* Re-mount the tab by triggering a hashchange to the same route. */
+      const cur = location.hash;
+      location.hash = '#/admin';
+      setTimeout(() => { location.hash = cur; }, 20);
+    });
+    actions.append(wipe);
+  }
+
+  const summary = el('p', { class: 'sub', style: 'margin:0 0 12px' },
+    list.length
+      ? String(list.length) + ' report(s) captured locally. Each Send-attempt from the "Report site bug" modal is logged here — including the ones where the reporter closed the GitHub tab before submitting. Screenshots are NOT stored (kept as filenames only) to stay within LocalStorage quotas.'
+      : 'No bug reports yet. When a resident opens the "Report site bug" modal from the footer and hits Send, an entry will appear here.'
+  );
+
+  const table = el('table', { class: 'table' },
+    el('thead', {}, el('tr', {},
+      el('th', { text: 'When' }),
+      el('th', { text: 'Submitter' }),
+      el('th', { text: 'Page' }),
+      el('th', { text: 'Description' }),
+      el('th', { text: '📎' }),
+      el('th', { text: 'GitHub' })
+    )),
+    el('tbody', {},
+      ...(list.length ? list.map(r => el('tr', {},
+        el('td', { text: fmtDate(r.ts) + ' · ' + new Date(r.ts).toLocaleTimeString('en-IN', { hour12: false }) }),
+        el('td', {}, submitterLabel(r.submitter)),
+        el('td', {}, el('code', { class: 'mono', text: pageLabel(r.page), title: r.page })),
+        el('td', { style: 'max-width:340px;white-space:pre-wrap', text: truncate(r.description, 240) }),
+        el('td', { style: 'text-align:center', text: r.screenshot_count ? String(r.screenshot_count) : '' }),
+        el('td', {}, r.gh_url
+          ? el('a', { href: r.gh_url, target: '_blank', rel: 'noopener noreferrer', class: 'btn btn-sm btn-ghost', text: 'Open' })
+          : null)
+      )) : [el('tr', {}, el('td', { colspan: 6, text: 'No entries.', style: 'text-align:center;color:var(--muted)' }))])
+    )
+  );
+
+  return el('div', { class: 'panel' },
+    el('h3', { text: 'Site-bug reports · newest first' }),
+    summary,
+    actions,
+    table
   );
 }
 

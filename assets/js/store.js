@@ -172,6 +172,20 @@ export const state = {
     local.set('audit', log.slice(-500));
   },
   auditLog() { return local.get('audit', []); },
+  /* Site-bug reports captured by `assets/js/footer.js` on every Send
+   * — persisted locally so admins can review + export them even when
+   * the reporter closed the GitHub tab without submitting. Screenshot
+   * blobs are NOT stored here; only their filenames + count. Keyed
+   * under `bug_reports` in the same namespaced localStorage as every
+   * other collection. The footer script writes this key directly (it
+   * is a plain non-module script — see the "Backend note" in
+   * footer.js for the rationale) so the shape MUST stay stable. */
+  bugReports() {
+    const raw = local.get('bug_reports', []);
+    return Array.isArray(raw) ? raw : [];
+  },
+  saveBugReports(list) { local.set('bug_reports', Array.isArray(list) ? list : []); },
+  clearBugReports() { local.remove('bug_reports'); },
   reset() { local.keys().forEach(k => local.remove(k)); },
 };
 
