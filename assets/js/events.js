@@ -14,6 +14,19 @@ export const STATUS = Object.freeze({
   CLOSED: 'closed', ARCHIVED: 'archived'
 });
 
+/* Roles that can act on incoming "manage requests". Kept in sync
+ * with config/roles.json — `events.approve` for event proposals,
+ * `contributions.verify` for pending contributions. Notifications
+ * are broadcast per-role so every approver's bell lights up. */
+const APPROVER_ROLES_EVENT   = ['admin', 'secretary', 'mgmt', 'committee'];
+const APPROVER_ROLES_CONTRIB = ['admin', 'secretary', 'mgmt', 'manager'];
+
+function notifyRoles(roles, payload) {
+  for (const role of roles) {
+    try { notifyEmit({ ...payload, audience: 'role', role }); } catch (_e) { /* silent */ }
+  }
+}
+
 function normalizeStatus(raw) {
   const s = String(raw || '').trim().toLowerCase();
   if (s === STATUS.DRAFT || s === STATUS.REVIEW || s === STATUS.PUBLISHED || s === STATUS.CLOSED || s === STATUS.ARCHIVED) return s;
@@ -177,6 +190,32 @@ export async function saveEvent(evt, actor) {
       });
     } catch (_e) { /* notification failures never block save */ }
   }
+  /* Manage-request bell: notify every approver role when a proposal
+   * lands in REVIEW so committee/mgmt/secretary/admin see it in
+   * their notifications drawer without polling. */
+  if (evt.status === STATUS.REVIEW && priorStatus !== STATUS.REVIEW) {
+    const proposer = evt.proposed_by || (actor && (actor.email || actor.id)) || 'a resident';
+    notifyRoles(APPROVER_ROLES_EVENT, {
+      kind: 'approval',
+      title: `Event proposal: ${evt.title || 'Untitled'}`,
+      body: `${proposer} suggested a new event. Review and publish or send back.`,
+      link: `#/events`,
+    });
+  }
+  /* Close the loop back to the proposer once their request is
+   * approved. Best-effort direct-to-user notification. */
+  if (evt.status === STATUS.PUBLISHED && priorStatus === STATUS.REVIEW && evt.proposed_by) {
+    try {
+      notifyEmit({
+        audience: 'user',
+        userEmail: evt.proposed_by,
+        kind: 'event',
+        title: 'Your event proposal is approved',
+        body: `${evt.title || 'Your event'} is now live. Tap to open.`,
+        link: `#/e/${evt.id}`,
+      });
+    } catch (_e) { /* silent */ }
+  }
   return evt;
 }
 
@@ -240,10 +279,15 @@ export async function addContribution(payload, actor) {
       throw err;
     }
   }
-  /* Build the payload the Worker persists in the archive repo. We do
-   * NOT ship binary proof attachments through the Worker path — those
-   * remain in the local cache so the committee can view them from
-   * their own browser. Payloads on the wire are lean JSON. */
+  /* Build the payload the Worker persists in the archive repo. Small
+   * proof attachments (screenshots) are shipped inline as data URLs
+   * so committee members can review them from any device. Anything
+   * larger than PROOF_INLINE_MAX stays browser-local — a follow-up
+   * slice will move blobs to a signed-URL flow. */
+  const PROOF_INLINE_MAX = 700 * 1024; /* ~700 KB base64 ≈ ~500 KB raw */
+  const proofFits = payload.proof_data_url
+    && (Number(payload.proof_size || 0) <= PROOF_INLINE_MAX)
+    && String(payload.proof_data_url).length <= PROOF_INLINE_MAX;
   const wirePayload = {
     event: payload.event,
     contributor: payload.contributor,
@@ -263,6 +307,9 @@ export async function addContribution(payload, actor) {
     filled_by_email: payload.filled_by_email || null,
     cluster: evt && evt.cluster || null,
     template: evt && evt.template || null,
+    proof_data_url: proofFits ? payload.proof_data_url : '',
+    proof_name:     proofFits ? (payload.proof_name || '') : '',
+    proof_size:     proofFits ? Number(payload.proof_size || 0) : 0,
   };
   let serverRec = null;
   try {
@@ -312,6 +359,24 @@ export async function addContribution(payload, actor) {
   list.push(rec);
   state.saveContribs(list);
   state.audit({ actor: rec.created_by, action: 'contrib.create', contrib: rec.id, event: rec.event, amount: rec.amount, on_behalf: rec.on_behalf });
+  /* Manage-request bell: notify every verifier role that a new
+   * contribution is waiting to be checked. Anonymous flag is
+   * respected in the visible name; amount is always shown to
+   * approvers so they can triage. */
+  try {
+    const evtRow = state.events().find(e => e.id === rec.event);
+    const evtTitle = (evtRow && evtRow.title) || 'Event';
+    const who = rec.anonymous
+      ? 'Anonymous'
+      : (rec.contributor_name || rec.contributor_email || rec.contributor || 'A resident');
+    const amt = `₹${Number(rec.amount || 0).toLocaleString('en-IN')}`;
+    notifyRoles(APPROVER_ROLES_CONTRIB, {
+      kind: 'approval',
+      title: `Contribution to verify: ${evtTitle}`,
+      body: `${who} · ${amt} · ${rec.method || 'unknown method'}. Tap to verify.`,
+      link: `#/e/${rec.event}/manage`,
+    });
+  } catch (_e) { /* notification failures never block create */ }
   return rec;
 }
 
