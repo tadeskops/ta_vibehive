@@ -51,6 +51,22 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 @media (prefers-reduced-motion:reduce){
   .tvh-saving-ring{animation:none;background:var(--gold,#c78f2a);border:none}
 }
+/* Sleek verify icon-button used on the dashboard widget to let
+ * committee/manager approve pending contributions or expenses in
+ * one tap. Deliberately compact so pending rows stay one-line on
+ * mobile. Hover reveals the gold accent so the affordance is
+ * discoverable without shouting. */
+.tvh-verify-icon{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;padding:0;
+  background:transparent;color:var(--terra);
+  border:1px solid var(--line);border-radius:8px;
+  cursor:pointer;font-size:13px;line-height:1;
+  transition:background .12s ease,color .12s ease,border-color .12s ease,transform .12s ease;
+}
+.tvh-verify-icon:hover{background:var(--gold-soft,#faf1de);color:#7a5410;border-color:#e3c877}
+.tvh-verify-icon:active{transform:scale(0.94)}
+.tvh-verify-icon:disabled{opacity:0.55;cursor:progress}
 @media (prefers-reduced-motion:reduce){
   body.is-busy .topbar::after{animation:none;background:linear-gradient(90deg,transparent 0%,rgba(199,143,42,.55) 50%,transparent 100%);background-size:100% 100%;background-position:0 0}
 }

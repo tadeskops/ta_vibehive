@@ -1,6 +1,6 @@
 /* Landing / home view. */
 'use strict';
-import { el, mount, fmtINR, fmtDate, daysLeft } from '../dom.js';
+import { el, mount, fmtINR, fmtDate, daysLeft, toast, modal } from '../dom.js';
 import { publicEvents, totalFor, verifiedCount, STATUS } from '../events.js';
 import { session } from '../auth.js';
 import { navigate } from '../router.js';
@@ -136,8 +136,13 @@ export async function render(root) {
    * single call-to-action. Signed-in residents/committee see the
    * regular widget. */
   const latest = user ? await renderLatestContribsCard(user, visibleEventIds, masked) : null;
+  /* Verifier inbox — surfaces pending expenses on the dashboard for
+   * anyone with `expenses.verify`. Empty state renders nothing so it
+   * stays quiet for up-to-date committees. */
+  const canVerifyExpense = user ? await can(user, 'expenses.verify') : false;
+  const pendingExpenses = user && !masked ? renderPendingExpensesCard(user, visibleEventIds, canVerifyExpense) : null;
 
-  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, latest);
+  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, latest, pendingExpenses);
 }
 
 /* Latest contributions widget. Shows the top-N most recent
@@ -153,6 +158,8 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
   const rawN = Number((soc.dashboard && soc.dashboard.recent_n) || RECENT_N_CHOICES[0]);
   const N = RECENT_N_CHOICES.includes(rawN) ? rawN : RECENT_N_CHOICES[0];
   const canConfigure = user ? await can(user, 'events.create') : false;
+  const canVerifyContrib = user ? await can(user, 'contributions.verify') : false;
+  const canVerifyExpense = user ? await can(user, 'expenses.verify') : false;
 
   /* When public-mask is on and the viewer is signed out, do not render
    * any contribution rows at all -- name + amount + event + date are
@@ -199,6 +206,7 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
       const stCls = c.status === 'verified' ? 'ok' : 'warn';
       const dateShort = (c.created_at || '').slice(0, 10);
       const showReceipt = c.status === 'verified' && ownedByMe(c);
+      const showVerifyIcon = canVerifyContrib && c.status === 'pending';
       return el('div', { class: 'row row-between', style: 'gap:10px;padding:10px 0;border-top:1px solid var(--line)' },
         el('div', { style: 'min-width:0;flex:1' },
           el('div', { style: 'font-weight:700', text: `${nm}${c.flat ? ' · Flat ' + c.flat : ''}` }),
@@ -206,7 +214,10 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
         ),
         el('div', { style: 'text-align:right;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px' },
           el('div', { style: 'font-weight:800', text: amt }),
-          el('small', { class: 'pill ' + stCls, text: c.status }),
+          el('div', { class: 'row', style: 'gap:6px;align-items:center;justify-content:flex-end' },
+            el('small', { class: 'pill ' + stCls, text: c.status }),
+            showVerifyIcon ? verifyContribIconBtn(c, user, evt) : null
+          ),
           showReceipt ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/receipt/${c.id}`, style: 'margin-top:2px' }, '🧾 Receipt') : null
         )
       );
@@ -253,6 +264,119 @@ function stat(k, v, d) {
     el('div', { class: 'k', text: k }),
     el('div', { class: 'v', text: v }),
     d ? el('div', { class: 'd', text: d }) : null
+  );
+}
+
+/* Sleek inline verify icon button (pencil-check glyph) for the
+ * dashboard widget. Kept intentionally compact so pending rows stay
+ * one-line on mobile. Handler navigates through the same service
+ * calls as the manage-view Verify button so the audit + receipt
+ * flow is identical. Re-renders the home view in place on success. */
+function verifyContribIconBtn(c, user, evt) {
+  const btn = el('button', {
+    type: 'button',
+    class: 'tvh-verify-icon',
+    'aria-label': `Verify contribution from ${c.contributor_name || 'resident'}`,
+    title: 'Verify & mint receipt'
+  }, '✏');
+  btn.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = '…';
+    try {
+      const [mod, rec] = await Promise.all([
+        import('../events.js'),
+        import('../receipts.js'),
+      ]);
+      const verified = await mod.verifyContribution(c.id, user);
+      await rec.attachReceipt(verified);
+      toast(`Verified · ${(evt && evt.title) || 'Event'} · receipt minted`, 'ok');
+      /* Re-render the dashboard to reflect the new status without a
+       * full reload. */
+      const root = document.getElementById('main');
+      if (root) render(root); else location.reload();
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      toast((err && err.message) || 'Verify failed', 'err');
+    }
+  });
+  return btn;
+}
+
+function verifyExpenseIconBtn(x, user, evt) {
+  const btn = el('button', {
+    type: 'button',
+    class: 'tvh-verify-icon',
+    'aria-label': `Verify expense from ${x.created_by || 'user'}`,
+    title: 'Verify expense'
+  }, '✏');
+  btn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (btn.disabled) return;
+    modal({
+      title: 'Verify this expense?',
+      body: el('p', { text: `${x.category || 'Expense'} · ${fmtINR(x.amount)} against ${(evt && evt.title) || 'this event'}. Once verified it will count in the dashboard and reports.` }),
+      actions: [
+        { label: 'Cancel', close: true },
+        { label: 'Verify', kind: '', onClick: (close) => {
+          const list = state.expenses();
+          const rec = list.find(r => r && r.id === x.id);
+          if (!rec) { close(); return; }
+          const nowIso = new Date().toISOString();
+          rec.status = 'verified';
+          rec.verified_at = nowIso;
+          rec.verified_by = user && (user.email || user.id) || 'unknown';
+          rec.updated_at = nowIso;
+          state.saveExpenses(list);
+          state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: rec.id, event: rec.event_id, amount: rec.amount });
+          close(); toast('Expense verified.', 'ok');
+          const root = document.getElementById('main');
+          if (root) render(root); else location.reload();
+        } }
+      ]
+    });
+  });
+  return btn;
+}
+
+/* Pending-expenses inbox — surfaced on the dashboard for verifiers so
+ * they don't need to open each event's manage view to clear backlog.
+ * Empty state (no pending rows) renders nothing so it stays quiet for
+ * committees who are up-to-date. */
+function renderPendingExpensesCard(user, visibleEventIds, canVerifyExpense) {
+  if (!canVerifyExpense) return null;
+  const eventById = new Map(state.events().map(e => [e.id, e]));
+  const pending = state.expenses()
+    .filter(x => x && (x.status === 'pending' || !x.status))
+    .filter(x => !visibleEventIds || visibleEventIds.has(x.event_id))
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  if (!pending.length) return null;
+  const rows = pending.map(x => {
+    const evt = eventById.get(x.event_id);
+    return el('div', { class: 'row row-between', style: 'gap:10px;padding:10px 0;border-top:1px solid var(--line)' },
+      el('div', { style: 'min-width:0;flex:1' },
+        el('div', { style: 'font-weight:700', text: `${x.category || 'Expense'}${x.created_by ? ' · ' + x.created_by : ''}` }),
+        el('small', { class: 'sub', style: 'display:block', text: `${(evt && evt.title) || 'Event'} · ${fmtDate((x.created_at || '').slice(0, 10)) || ''}${x.description ? ' · ' + x.description : ''}` })
+      ),
+      el('div', { style: 'text-align:right;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px' },
+        el('div', { style: 'font-weight:800', text: fmtINR(x.amount) }),
+        el('div', { class: 'row', style: 'gap:6px;align-items:center;justify-content:flex-end' },
+          el('small', { class: 'pill', text: 'pending' }),
+          verifyExpenseIconBtn(x, user, evt)
+        )
+      )
+    );
+  });
+  const totalPending = pending.reduce((s, x) => s + Number(x.amount || 0), 0);
+  return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
+    el('div', { class: 'row row-between', style: 'align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px' },
+      el('h3', { style: 'margin:0', text: 'Expenses awaiting your verify' }),
+      el('small', { class: 'sub', text: `${pending.length} entr${pending.length === 1 ? 'y' : 'ies'} · ${fmtINR(totalPending)} queued` })
+    ),
+    el('div', {}, ...rows)
   );
 }
 
