@@ -1,4 +1,4 @@
-name: CI · verify
+name: CI · verify + feature audit
 
 on:
   push:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   verify:
-    name: G1..G4 gates
+    name: Integrity and feature checks
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -24,148 +24,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node (for HTML checks)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: G4 · gitleaks (secret scan)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: G4 · CSP presence + strictness
+      - name: Core verify checks
         run: |
-          set -euo pipefail
-          missing=0
-          htmls=$(find . -type f -name '*.html' \
-                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
-          for f in $htmls; do
-            for header in 'Content-Security-Policy' 'X-Content-Type-Options' 'Referrer-Policy' 'Permissions-Policy'; do
-              if ! grep -q "$header" "$f"; then
-                echo "::error file=$f::missing $header meta"
-                missing=1
-              fi
-            done
-            if grep -q "unsafe-inline\|unsafe-eval" "$f"; then
-              echo "::error file=$f::CSP contains unsafe-inline or unsafe-eval"; missing=1
-            fi
-            if ! grep -q "default-src 'self'" "$f"; then
-              echo "::error file=$f::CSP missing default-src 'self'"; missing=1
-            fi
-            if ! grep -q "frame-ancestors 'none'" "$f"; then
-              echo "::error file=$f::CSP missing frame-ancestors 'none'"; missing=1
-            fi
-          done
-          exit $missing
+          node scripts/ci-verify.mjs
 
-      - name: G4 · no dangerous DOM sinks
+      - name: Feature coverage audit
         run: |
-          set -euo pipefail
-          patterns='innerHTML\s*=|outerHTML\s*=|document\.write|x-html\s*=|\beval\s*\(|new\s+Function\s*\('
-          if grep -RInE "$patterns" assets/ lib/ --include='*.js' --include='*.html' 2>/dev/null | grep -v 'assets/vendor/'; then
-            echo "::error::forbidden DOM sink"
-            exit 1
-          fi
-          htmls=$(find . -type f -name '*.html' \
-                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
-          for f in $htmls; do
-            if grep -qE "$patterns" "$f"; then
-              echo "::error file=$f::forbidden DOM sink in html"; exit 1
-            fi
-          done
+          node scripts/feature-audit.mjs
 
-      - name: G4 · no inline JS / event handlers
+      - name: Publish feature summary
         run: |
-          set -euo pipefail
-          htmls=$(find . -type f -name '*.html' \
-                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
-          for f in $htmls; do
-            stripped=$(sed -E 's/x-on:[a-z]+=/BLANK=/g; s/@[a-z]+=/BLANK=/g' "$f")
-            if echo "$stripped" | grep -qE 'on(click|load|error|submit|change|input|mouseover|focus|blur|keydown|keyup)\s*='; then
-              echo "::error file=$f::inline event handler"
-              exit 1
-            fi
-          done
-          if grep -RInE '<script[^>]*>[^<]' --include='*.html' . 2>/dev/null | grep -v './temp/' | grep -v './docs/'; then
-            echo "::error::inline <script> body detected"
-            exit 1
-          fi
+          cat temp/feature-audit.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: G4 · no LLM in request path (marker grep)
-        run: |
-          set -euo pipefail
-          if grep -RInE '(openai|anthropic|langchain|@ai-sdk)' assets lib --include='*.js' --include='*.css' --include='*.html' 2>/dev/null; then
-            echo "::error::LLM SDK found in shipped/lib code"
-            exit 1
-          fi
-          htmls=$(find . -maxdepth 4 -type f -name '*.html' \
-                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
-          for f in $htmls; do
-            if grep -qE '(openai|anthropic|langchain|@ai-sdk)' "$f"; then
-              echo "::error file=$f::LLM SDK marker"; exit 1
-            fi
-          done
-
-      - name: G3 · LOC + size budget
-        shell: bash
-        run: |
-          set -euo pipefail
-          loc=$(find assets lib -type f \( -name '*.css' -o -name '*.js' \) \
-                                -not -path 'assets/vendor/*' -print0 2>/dev/null \
-              | xargs -0 cat 2>/dev/null | wc -l || echo 0)
-          htmls=$(find . -type f -name '*.html' \
-                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
-          htmloc=$(cat $htmls 2>/dev/null | wc -l)
-          total=$((loc + htmloc))
-          echo "LOC: code+lib=$loc html=$htmloc total=$total"
-          if [ "$total" -gt 2500 ]; then
-            echo "::error::G-0/G-1 LOC budget exceeded ($total > 2500)"
-            exit 1
-          fi
-          gz=$(cat index.html assets/css/base.css assets/vendor/alpine-*.min.js 2>/dev/null | gzip -c9 | wc -c)
-          echo "First-paint gz=${gz}B"
-          if [ "$gz" -gt 153600 ]; then
-            echo "::error::first-paint > 150 KB gzipped"
-            exit 1
-          fi
-          csgz=$(cat assets/css/base.css | gzip -c9 | wc -c)
-          echo "CSS gz=${csgz}B"
-          if [ "$csgz" -gt 10240 ]; then
-            echo "::error::CSS > 10 KB gzipped"
-            exit 1
-          fi
-
-      - name: G1 · unit tests (Node built-in runner)
-        run: |
-          set -euo pipefail
-          if [ -d tests ]; then
-            node --test tests/
-          else
-            echo "no tests/ dir yet — skipping"
-          fi
-
-      - name: G4 · SRI attribute present on vendored scripts
-        run: |
-          set -euo pipefail
-          missing=0
-          htmls=$(find . -type f -name '*.html' \
-                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
-          for f in $htmls; do
-            for ref in $(grep -oE 'assets/vendor/[a-zA-Z0-9._-]+\.js' "$f" || true); do
-              if ! grep -B1 -A2 "$ref" "$f" | grep -q 'integrity="sha384-'; then
-                echo "::error file=$f::vendored ref $ref lacks integrity=sha384-... attribute"
-                missing=1
-              fi
-            done
-          done
-          exit $missing
-
-      - name: G1 · HTML validate (basic well-formed)
-        run: |
-          set -euo pipefail
-          htmls=$(find . -type f -name '*.html' \
-                  -not -path './temp/*' -not -path './docs/*' -not -path './node_modules/*')
-          npx --yes html-validate@8 $htmls || {
-            echo "::warning::html-validate found issues (non-blocking)"
-          }
+      - name: Upload feature audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-audit
+          path: temp/feature-audit.md

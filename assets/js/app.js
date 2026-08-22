@@ -90,11 +90,45 @@ const ICON_SIGNOUT =
     '<polyline points="16 17 21 12 16 7"/>' +
     '<line x1="21" x2="9" y1="12" y2="12"/>' +
   '</svg>';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function buildSvgIcon(kind) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  const add = (tag, attrs) => {
+    const n = document.createElementNS(SVG_NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
+    svg.appendChild(n);
+  };
+  if (kind === 'signin') {
+    add('path', { d: 'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4' });
+    add('polyline', { points: '10 17 15 12 10 7' });
+    add('line', { x1: '15', x2: '3', y1: '12', y2: '12' });
+    return svg;
+  }
+  if (kind === 'signout') {
+    add('path', { d: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4' });
+    add('polyline', { points: '16 17 21 12 16 7' });
+    add('line', { x1: '21', x2: '9', y1: '12', y2: '12' });
+    return svg;
+  }
+  add('path', { d: 'M12 3v12' });
+  add('path', { d: 'm7 10 5 5 5-5' });
+  add('path', { d: 'M5 21h14' });
+  return svg;
+}
 function iconSpan(svg) {
   const s = document.createElement('span');
   s.className = 'btn-ico';
   s.setAttribute('aria-hidden', 'true');
-  s.innerHTML = svg;
+  s.append(buildSvgIcon(svg === ICON_SIGNIN ? 'signin' : 'signout'));
   return s;
 }
 
@@ -158,7 +192,7 @@ async function renderChrome() {
       });
       /* Download-arrow SVG — matches the IG / bell stroke weight so
        * every icon in the cluster has the same visual weight. */
-      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>';
+      btn.append(buildSvgIcon('download'));
       btn.addEventListener('click', (ev) => {
         ev.preventDefault();
         try { location.hash = '#/reports'; }

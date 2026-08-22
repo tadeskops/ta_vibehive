@@ -355,6 +355,7 @@ async function renderSettings(user) {
 
   const paths = [
     ['receipts.archive_repo',    'Archive repo',        'owner/private-repo'],
+    ['receipts.archive_repo_fallback', 'Archive repo fallback', 'owner/backup-private-repo'],
     ['receipts.archive_branch',  'Archive branch',      'main'],
     ['receipts.archive_pat',     'Archive PAT (fine-grained)', 'github_pat_...'],
     ['receipts.watermark_asset', 'Watermark asset',     'assets/images/TaStampBlueOverlay.png'],
@@ -416,6 +417,9 @@ async function renderSettings(user) {
   const saveBtn = el('button', { class: 'btn', on: { click: () => {
     if (draft.receipts && draft.receipts.archive_repo && !REPO_RE.test(draft.receipts.archive_repo)) {
       toast('Archive repo must be owner/name', 'err'); return;
+    }
+    if (draft.receipts && draft.receipts.archive_repo_fallback && !REPO_RE.test(draft.receipts.archive_repo_fallback)) {
+      toast('Archive fallback repo must be owner/name', 'err'); return;
     }
     /* Merge draft on top of current overrides so partial edits accumulate. */
     const next = mergeDeep(structuredClone(overrides || {}), draft);

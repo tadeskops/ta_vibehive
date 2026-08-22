@@ -58,6 +58,7 @@ Implemented:
 - Gmail allowlist parser accepts newline/comma/semicolon/space separators.
 - Role-to-email mapping supports one-or-more email IDs per role.
 - Settings now uses a simple direct role-to-email editor (one list per role) instead of tier/rank configuration.
+- Role mapping editor is presented as a vertical click-to-expand list (one role card at a time) for easier member management.
 - Backward-compatible email-to-role index is maintained for runtime lookup.
 - Attributes-tab settings edits are staged and committed through one consolidated "Save all settings changes" action.
 - Receipt templates and expense preferences support explicit staged Save/Discard actions.
@@ -96,7 +97,11 @@ Implemented:
 - Contribution form includes note/remarks and validation helpers.
 - Per-event draft cache survives refresh and is cleared on successful submit.
 - Event create/edit/publish writes fail-fast when local browser storage is blocked/full, with explicit error feedback instead of silent success.
+- Event create/edit/publish is now repository-gated: save succeeds only after archive commit succeeds. If archive push fails or archive is not configured/enabled, local event changes are rolled back and user sees an explicit error.
+- Settings save actions are now repository-gated for attributes, templates, and expense preferences: each Save button batches staged changes, pushes archive snapshot(s), and rolls back local writes on archive failure.
 - One-contribution-per-flat event rule is supported and enforced at storage guard level.
+- Event creator can set/edit suggested contribution amounts per event using one-by-one add/remove rows (any count); these values drive resident quick-tap amount chips.
+- Event creator can set/edit an optional appreciation note template per event; contribute page renders it dynamically using selected amount placeholder (`{amount}`).
 - Mobile/quick-action `+` is create-only (new event) and is shown only when `events.create` permission is granted via role/configuration.
 - Quick-action stack popup UI is currently disabled (kept in code), and tapping `+` directly routes to event creation flow.
 - Contribution payment UX currently runs in manual UPI mode:
@@ -117,7 +122,7 @@ Core implementation:
 Implemented:
 - Event-based receipt ID format using time components and collision fallback.
 - Verified receipt generation stores verification hash and archive metadata.
-- Immediate archive push is attempted on write; outbox fallback ensures no data loss.
+- Immediate archive push is attempted on write. For event save operations, archive success is mandatory and is treated as the authoritative write gate.
 
 Core implementation:
 - `assets/js/receipts.js`
@@ -137,6 +142,7 @@ Implemented:
 
 Required runtime settings:
 - `receipts.archive_repo`
+- `receipts.archive_repo_fallback` (optional secondary target; used when primary push fails)
 - `receipts.archive_branch` (default `main`)
 - `receipts.archive_pat` (fine-grained token with repo contents read/write)
 
@@ -158,6 +164,11 @@ Completed validation:
   - Reports page no longer renders literal `null` nodes.
   - Header border glow is visible across view transitions and backend/network progress states.
   - Save actions on settings tabs trigger the global progress indicator.
+  - GitHub Actions coverage:
+    - `.github/workflows/ci.yml` now runs repository integrity checks plus automated feature-coverage audit on push/PR and publishes the audit in step summary + artifact.
+    - `.github/workflows/feature-audit-save.yml` now snapshots feature coverage weekly into `docs/ops/feature-audit-latest.md` and commits updates when changed.
+    - `config/feature-traceability.json` declares must-live features and feature-to-file mapping; CI fails only when a must-live feature becomes unwired.
+    - `docs/automation-policy.md` defines the no-local-only final save policy and launch checklist.
 
 Known non-blocking browser message:
 - CSP `frame-ancestors` warning when delivered via meta tag in localhost context. This does not block app flows.

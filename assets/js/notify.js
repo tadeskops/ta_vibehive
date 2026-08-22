@@ -34,6 +34,7 @@ const refs = {
   wrap: null,
   drop: null,
 };
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function all() { return local.get(NOTIF_KEY, []); }
 function persist(list) { local.set(NOTIF_KEY, list.slice(-MAX_STORED)); }
@@ -127,14 +128,21 @@ function ensureDrop() {
   d.className = 'tvh-notify-drop';
   d.setAttribute('role', 'dialog');
   d.setAttribute('aria-label', 'Notifications');
-  d.innerHTML = `
-    <div class="tvh-notify-head">
-      <span>Notifications</span>
-      <button type="button" data-tvh-mark-all>Mark all read</button>
-    </div>
-    <div class="tvh-notify-list" data-tvh-list></div>`;
+  const head = document.createElement('div');
+  head.className = 'tvh-notify-head';
+  const title = document.createElement('span');
+  title.textContent = 'Notifications';
+  const markAll = document.createElement('button');
+  markAll.type = 'button';
+  markAll.setAttribute('data-tvh-mark-all', '');
+  markAll.textContent = 'Mark all read';
+  head.append(title, markAll);
+  const list = document.createElement('div');
+  list.className = 'tvh-notify-list';
+  list.setAttribute('data-tvh-list', '');
+  d.append(head, list);
   document.body.appendChild(d);
-  d.querySelector('[data-tvh-mark-all]').addEventListener('click', (ev) => {
+  markAll.addEventListener('click', (ev) => {
     ev.preventDefault();
     markAllRead();
     renderList();
@@ -175,28 +183,48 @@ function renderList() {
   const d = ensureDrop();
   const list = d.querySelector('[data-tvh-list]');
   const items = listMine(LIST_LIMIT);
+  list.replaceChildren();
   if (!items.length) {
-    list.innerHTML = `<div class="tvh-notify-empty">You're all caught up. 🌿</div>`;
+    const empty = document.createElement('div');
+    empty.className = 'tvh-notify-empty';
+    empty.textContent = "You're all caught up. 🌿";
+    list.append(empty);
     return;
   }
-  list.innerHTML = items.map(n => `
-    <a class="tvh-notify-item${n.readAt ? '' : ' is-unread'}"
-       href="${esc(n.link || '#')}"
-       data-nid="${esc(n.id)}"
-       data-kind="${esc(n.kind || 'info')}">
-      <div class="tvh-notify-item-t">${esc(n.title)}</div>
-      ${n.body ? `<div class="tvh-notify-item-b">${esc(n.body)}</div>` : ''}
-      <div class="tvh-notify-item-m">${esc(relTime(n.createdAt))}</div>
-    </a>`).join('');
-  list.querySelectorAll('.tvh-notify-item').forEach(a => {
+
+  for (const n of items) {
+    const a = document.createElement('a');
+    a.className = 'tvh-notify-item' + (n.readAt ? '' : ' is-unread');
+    a.href = String(n.link || '#');
+    a.setAttribute('data-nid', String(n.id || ''));
+    a.setAttribute('data-kind', String(n.kind || 'info'));
+
+    const t = document.createElement('div');
+    t.className = 'tvh-notify-item-t';
+    t.textContent = String(n.title || '');
+    a.appendChild(t);
+
+    if (n.body) {
+      const b = document.createElement('div');
+      b.className = 'tvh-notify-item-b';
+      b.textContent = String(n.body || '');
+      a.appendChild(b);
+    }
+
+    const m = document.createElement('div');
+    m.className = 'tvh-notify-item-m';
+    m.textContent = String(relTime(n.createdAt) || '');
+    a.appendChild(m);
+
     a.addEventListener('click', (ev) => {
-      const id   = a.getAttribute('data-nid');
+      const id = a.getAttribute('data-nid');
       const href = a.getAttribute('href') || '';
       markRead(id);
       if (!href || href === '#') { ev.preventDefault(); close(); return; }
       close();
     });
-  });
+    list.appendChild(a);
+  }
 }
 
 function render() {
@@ -223,17 +251,34 @@ export function mountBell(container) {
 
   const wrap = document.createElement('span');
   wrap.className = 'tvh-bell-wrap';
-  wrap.innerHTML = `
-    <button type="button" class="tvh-bell" data-tvh-bell aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
-      <svg class="tvh-bell-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-        <path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2H9.55A2.5 2.5 0 0 0 12 22Zm7-6v-5a7 7 0 0 0-5.5-6.83V3.5a1.5 1.5 0 0 0-3 0v.67A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/>
-      </svg>
-      <span class="tvh-bell-badge" data-tvh-count hidden>0</span>
-    </button>`;
+  const bell = document.createElement('button');
+  bell.type = 'button';
+  bell.className = 'tvh-bell';
+  bell.setAttribute('data-tvh-bell', '');
+  bell.setAttribute('aria-label', 'Notifications');
+  bell.setAttribute('aria-haspopup', 'true');
+  bell.setAttribute('aria-expanded', 'false');
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'tvh-bell-ico');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '18');
+  svg.setAttribute('height', '18');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute('d', 'M12 22a2.5 2.5 0 0 0 2.45-2H9.55A2.5 2.5 0 0 0 12 22Zm7-6v-5a7 7 0 0 0-5.5-6.83V3.5a1.5 1.5 0 0 0-3 0v.67A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z');
+  svg.appendChild(path);
+  const count = document.createElement('span');
+  count.className = 'tvh-bell-badge';
+  count.setAttribute('data-tvh-count', '');
+  count.hidden = true;
+  count.textContent = '0';
+  bell.append(svg, count);
+  wrap.appendChild(bell);
   container.appendChild(wrap);
   refs.wrap  = wrap;
-  refs.bell  = wrap.querySelector('[data-tvh-bell]');
-  refs.count = wrap.querySelector('[data-tvh-count]');
+  refs.bell  = bell;
+  refs.count = count;
 
   refs.bell.addEventListener('click', (ev) => {
     ev.preventDefault();

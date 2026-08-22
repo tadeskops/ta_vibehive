@@ -17,6 +17,29 @@ function parseRepo(s) {
   return { owner: m[1], repo: m[2] };
 }
 
+function archiveRepoCandidates(soc) {
+  const over = state.societyOverrides() || {};
+  const fromOver = [
+    over && over.receipts && over.receipts.archive_repo,
+    over && over.receipts && over.receipts.archive_repo_fallback,
+  ];
+  const fromBase = [
+    soc && soc.receipts && soc.receipts.archive_repo,
+    soc && soc.receipts && soc.receipts.archive_repo_fallback,
+  ];
+  const seen = new Set();
+  const out = [];
+  for (const raw of fromOver.concat(fromBase)) {
+    const ref = parseRepo(raw);
+    if (!ref) continue;
+    const key = `${ref.owner}/${ref.repo}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ref);
+  }
+  return out;
+}
+
 function isArchiveEnabled(soc) {
   return !!(soc && soc.receipts && soc.receipts.archive && soc.receipts.archive.enabled);
 }
@@ -61,52 +84,59 @@ export async function flushArchiveQueueNow(opts = {}) {
     return { ok: false, reason: 'archive_disabled', count: queued.length };
   }
 
-  const repoRef = parseRepo(soc && soc.receipts && soc.receipts.archive_repo);
+  const repoRefs = archiveRepoCandidates(soc);
   const token = archiveToken(soc);
   const branch = archiveBranch(soc);
-  if (!repoRef || !token) {
+  if (!repoRefs.length || !token) {
     return { ok: false, reason: 'archive_not_configured', count: queued.length };
   }
 
   const drained = state.drainOutbox();
   if (!drained.length) return { ok: true, empty: true, count: 0 };
 
-  try {
-    const summary = await pushBatch({
-      owner: repoRef.owner,
-      repo: repoRef.repo,
-      branch,
-      token,
-      entries: drained,
-      message: opts.message || `tvh archive: ${drained.length} entr${drained.length === 1 ? 'y' : 'ies'}`,
-    });
-    markArchivedByEntries(drained);
-    state.audit({
-      actor: opts.actor || null,
-      action: 'archive.push.ok',
-      detail: `${drained.length} entries · ${summary.commitSha || ''}`.trim(),
-    });
-    return {
-      ok: true,
-      count: drained.length,
-      commitSha: summary.commitSha,
-      url: summary.url,
-      fileCount: summary.fileCount,
-    };
-  } catch (err) {
-    requeue(drained);
-    state.audit({
-      actor: opts.actor || null,
-      action: 'archive.push.fail',
-      detail: (err && err.message) ? err.message.slice(0, 220) : 'unknown error',
-    });
-    return {
-      ok: false,
-      reason: 'push_failed',
-      error: err,
-      count: drained.length,
-    };
+  let lastErr = null;
+  for (const repoRef of repoRefs) {
+    try {
+      const summary = await pushBatch({
+        owner: repoRef.owner,
+        repo: repoRef.repo,
+        branch,
+        token,
+        entries: drained,
+        message: opts.message || `tvh archive: ${drained.length} entr${drained.length === 1 ? 'y' : 'ies'}`,
+      });
+      markArchivedByEntries(drained);
+      state.audit({
+        actor: opts.actor || null,
+        action: 'archive.push.ok',
+        detail: `${drained.length} entries · ${repoRef.owner}/${repoRef.repo} · ${summary.commitSha || ''}`.trim(),
+      });
+      return {
+        ok: true,
+        count: drained.length,
+        commitSha: summary.commitSha,
+        url: summary.url,
+        fileCount: summary.fileCount,
+        targetRepo: `${repoRef.owner}/${repoRef.repo}`,
+      };
+    } catch (err) {
+      lastErr = err;
+    }
   }
+
+  requeue(drained);
+  state.audit({
+    actor: opts.actor || null,
+    action: 'archive.push.fail',
+    detail: (lastErr && lastErr.message) ? lastErr.message.slice(0, 220) : 'unknown error',
+  });
+  return {
+    ok: false,
+    reason: 'push_failed',
+    error: lastErr,
+    count: drained.length,
+    triedRepos: repoRefs.map(r => `${r.owner}/${r.repo}`),
+  };
 }
 
 export async function queueAndMaybePushArchive(entry, opts = {}) {

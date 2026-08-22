@@ -206,6 +206,51 @@ async function renderEdit(root, evt, user, caps) {
   const endI = field('end', 'End / deadline', el('input', { type: 'date', value: evt.end_at || '' }));
   const capI = field('cap', 'Capacity', el('input', { type: 'number', value: String(evt.capacity || 0), min: '0' }));
   const fixedI = field('fixed', 'Fixed amount (₹, if applicable)', el('input', { type: 'number', value: String(evt.fixed_amount || 0), min: '0' }));
+  const suggestedRows = el('div', { style: 'display:flex;flex-direction:column;gap:8px' });
+  function addSuggestedRow(amount) {
+    const inp = el('input', {
+      type: 'number',
+      min: '1',
+      step: '1',
+      value: amount ? String(amount) : '',
+      placeholder: 'Amount in ₹',
+      'data-suggested-amount': '1'
+    });
+    const removeBtn = el('button', {
+      type: 'button',
+      class: 'btn btn-ghost btn-sm',
+      on: { click: () => row.remove() }
+    }, 'Remove');
+    const row = el('div', { class: 'row', style: 'gap:8px;align-items:center' }, inp, removeBtn);
+    suggestedRows.append(row);
+  }
+  const existingSuggested = Array.isArray(evt.tiers)
+    ? evt.tiers.map(t => Number(t && t.amount)).filter(n => Number.isFinite(n) && n > 0)
+    : [];
+  if (existingSuggested.length) existingSuggested.forEach(addSuggestedRow);
+  else addSuggestedRow('');
+  const suggestedI = el('div', { class: 'field' },
+    el('label', { text: 'Suggested contribution amounts (₹)' }),
+    suggestedRows,
+    el('div', { style: 'margin-top:8px' },
+      el('button', { type: 'button', class: 'btn btn-ghost btn-sm', on: { click: () => addSuggestedRow('') } }, '+ Add amount')
+    ),
+    el('small', {
+      id: 'evt-suggested-help',
+      class: 'sub',
+      text: 'Add one by one. Residents can tap these quickly in the contribute form.'
+    })
+  );
+  const appreciateI = el('div', { class: 'field' },
+    el('label', { text: 'Appreciation note shown on contribute screen (optional)' }),
+    el('input', {
+      type: 'text',
+      value: evt.appreciation_note || '',
+      maxlength: '160',
+      placeholder: 'It would be wonderful if you could contribute a minimum of {amount}. This is completely voluntary.'
+    }),
+    el('small', { class: 'sub', text: 'Polite suggestion only. Use {amount} to insert the selected amount dynamically.' })
+  );
 
   /* ---------- payment / collection details (per-event) ----------
    * The event creator must publish EITHER a UPI VPA OR a QR code (or
@@ -363,6 +408,8 @@ async function renderEdit(root, evt, user, caps) {
 
         const updated = {
           ...evt,
+          tiers: tiersFromRows(suggestedRows),
+          appreciation_note: (appreciateI.querySelector('input').value || '').trim().slice(0, 160),
           title: titleI.querySelector('input').value.trim() || evt.title,
           purpose: purposeI.querySelector('input').value.trim(),
           goal: Number(goalI.querySelector('input').value || 0),
@@ -402,7 +449,7 @@ async function renderEdit(root, evt, user, caps) {
         }
         if (updated.status === STATUS.CLOSED && !caps.canClose) { toast('Only Management Committee can close.', 'err'); return; }
         try {
-          saveEvent(updated, user);
+          await saveEvent(updated, user);
           toast('Event saved', 'ok');
           navigate('/e/' + updated.id);
         } catch (err) {
@@ -413,7 +460,7 @@ async function renderEdit(root, evt, user, caps) {
   );
 
   form.append(el('h2', { text: 'Edit event' }),
-    el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI),
+    el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI, suggestedI, appreciateI),
     el('section', { style: 'margin-top:14px' },
       el('h3', { text: 'Payment / collection' }),
       el('p', { class: 'sub', style: 'margin-bottom:10px', text: 'Publish a UPI VPA and/or a QR code so residents can pay. If both are blank, society-wide payment settings are used.' }),
@@ -426,6 +473,25 @@ async function renderEdit(root, evt, user, caps) {
     actions
   );
   mount(root, form);
+}
+
+function tiersFromRows(rowsRoot) {
+  const inputs = Array.from(rowsRoot.querySelectorAll('input[data-suggested-amount="1"]'));
+  const seen = new Set();
+  const vals = [];
+  for (const inp of inputs) {
+    const n = Number(inp.value || 0);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    const v = Math.round(n);
+    if (seen.has(v)) continue;
+    seen.add(v);
+    vals.push(v);
+  }
+  return vals.map((amount, idx) => ({
+    amount,
+    label: idx === 0 ? 'Starter' : '',
+    highlight: idx === 1,
+  }));
 }
 
 function field(id, label, input) {

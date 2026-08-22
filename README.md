@@ -156,8 +156,24 @@ Archive writes are done directly from the app via GitHub Git Data API
 - Any push failure re-queues entries into outbox (no loss).
 - Admin → Society settings → Flush archive queue retries pending entries.
 
+Repository-gated save policy (launch hardening):
+
+- Event create/edit/publish save succeeds only after archive push succeeds.
+- Settings save actions (attributes/templates/expense preferences) are batch-save flows and are blocked on archive failure to avoid local-only drift.
+- On archive failure, local writes are rolled back and the user gets an explicit error.
+
 Required configuration: set `receipts.archive_repo` and `receipts.archive_pat`
 (fine-grained PAT with repository Contents read/write) in Society settings.
+
+Automation workflows:
+
+- `.github/workflows/ci.yml` runs security/integrity checks + feature coverage audit on push/PR.
+- `.github/workflows/feature-audit-save.yml` publishes a weekly repository snapshot at `docs/ops/feature-audit-latest.md`.
+- `.github/workflows/reports-cron.yml` runs hourly and exports live-event contribution snapshots only during configured local hours in `config/reports-cron.json` (default 3/day: 06:00, 14:00, 22:00 IST), then commits results to `docs/ops/live-reports/`.
+
+Required secret for report automation:
+
+- `TVH_ARCHIVE_PAT` (fine-grained token with read access to the archive repository configured in `config/society.json` → `receipts.archive_repo`).
 
 ---
 

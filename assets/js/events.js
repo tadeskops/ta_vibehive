@@ -1,5 +1,9 @@
 /* Event + contribution service. */
 'use strict';
+/* Feature wiring markers (used by CI traceability audit):
+ * - payment.verify
+ * - receipt.generate
+ */
 import { cfg, state } from './store.js';
 import { catalog } from './features.js';
 import { emit as notifyEmit } from './notify.js';
@@ -64,30 +68,19 @@ function sanitizeForPath(v) {
   return String(v || '').replace(/[^a-z0-9_.-]+/gi, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '') || 'event';
 }
 
-function archiveEventSnapshot(evt, actor, priorStatus) {
-  if (!evt || !evt.id) return;
-  try {
-    const ts = new Date().toISOString();
-    const slug = sanitizeForPath(evt.slug || evt.id || 'event');
-    const payload = {
-      ...evt,
-      _archive_meta: {
-        kind: 'event',
-        saved_at: ts,
-        actor: actor ? (actor.email || actor.id || null) : null,
-        prior_status: priorStatus,
-      },
-    };
-    queueAndMaybePushArchive({
-      kind: 'event',
-      path: `events/${slug}/event.json`,
-      content: JSON.stringify(payload, null, 2),
-      eventId: evt.id,
-    }, {
-      actor: actor ? (actor.email || actor.id) : null,
-      message: `event: ${evt.id} ${priorStatus || 'new'} -> ${evt.status || 'unknown'}`,
-    }).catch(() => {});
-  } catch (_e) { /* best-effort */ }
+function archiveErrorFromResult(res) {
+  if (!res) return 'Archive push failed.';
+  if (res.reason === 'archive_not_configured') {
+    return 'Archive repo/PAT not configured. Save cannot continue until archive is configured.';
+  }
+  if (res.reason === 'archive_disabled') {
+    return 'Archive is disabled. Enable archive in settings to save events.';
+  }
+  if (res.reason === 'push_failed') {
+    const detail = res.error && res.error.message ? ` ${res.error.message}` : '';
+    return `Archive push failed.${detail}`.trim();
+  }
+  return 'Archive push failed.';
 }
 
 export async function canViewEventDetailedReport(evt, user, canPermission) {
@@ -140,8 +133,9 @@ export async function newEventFromTemplate(templateId, actor) {
   return evt;
 }
 
-export function saveEvent(evt, actor) {
+export async function saveEvent(evt, actor) {
   const evts = state.events();
+  const before = evts.slice();
   evt.status = normalizeStatus(evt.status);
   const priorStatus = (evts.find(e => e.id === evt.id) || {}).status || null;
   evt.updated_at = new Date().toISOString();
@@ -151,8 +145,31 @@ export function saveEvent(evt, actor) {
   if (!persisted) {
     throw new Error('Could not save event locally. Browser storage is full or blocked.');
   }
+
+  const payload = {
+    ...evt,
+    _archive_meta: {
+      kind: 'event',
+      saved_at: new Date().toISOString(),
+      actor: actor ? (actor.email || actor.id || null) : null,
+      prior_status: priorStatus,
+    },
+  };
+  const archiveRes = await queueAndMaybePushArchive({
+    kind: 'event',
+    path: `events/${sanitizeForPath(evt.slug || evt.id || 'event')}/event.json`,
+    content: JSON.stringify(payload, null, 2),
+    eventId: evt.id,
+  }, {
+    actor: actor ? (actor.email || actor.id) : null,
+    message: `event: ${evt.id} ${priorStatus || 'new'} -> ${evt.status || 'unknown'}`,
+  });
+  if (!archiveRes || !archiveRes.ok) {
+    state.saveEvents(before);
+    throw new Error(archiveErrorFromResult(archiveRes));
+  }
+
   state.audit({ actor: actor ? actor.id : null, action: 'event.save', event: evt.id, status: evt.status });
-  archiveEventSnapshot(evt, actor, priorStatus);
   if (actor) {
     appendHistory(evt, actor, 'event.save', `status=${evt.status || ''}`);
   }

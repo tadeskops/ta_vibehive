@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "timezone": "Asia/Kolkata",
+  "run_hours_local": [6, 14, 22],
+  "output": {
+    "dir": "docs/ops/live-reports",
+    "write_latest": true
+  },
+  "report": {
+    "max_rows_per_event": 5000
+  }
+}

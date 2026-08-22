@@ -109,7 +109,7 @@ function adminRow(evt, user) {
         showApprove ? el('button', { class: 'btn btn-sm', on: { click: async () => {
           try {
             const e2 = { ...evt, status: STATUS.PUBLISHED, approved_by: user.email, approved_at: new Date().toISOString() };
-            saveEvent(e2, user);
+            await saveEvent(e2, user);
             toast('Event approved and published', 'ok');
             location.reload();
           } catch (err) {
@@ -160,7 +160,7 @@ async function openTemplatePicker(user, opts) {
           evt.proposed_by = user && user.email ? user.email : (user && user.id) || null;
           evt.proposed_at = new Date().toISOString();
         }
-        saveEvent(evt, user);
+        await saveEvent(evt, user);
         close();
         toast(propose ? 'Proposal submitted for review' : 'Draft created', 'ok');
         navigate('/e/' + evt.id + (propose ? '' : '/edit'));

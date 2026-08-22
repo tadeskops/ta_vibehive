@@ -26,12 +26,43 @@ const ICON_SIGNOUT =
     '<polyline points="16 17 21 12 16 7"/>' +
     '<line x1="21" x2="9" y1="12" y2="12"/>' +
   '</svg>';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function buildAuthIcon(kind) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('width', '18');
+  svg.setAttribute('height', '18');
+
+  const add = (tag, attrs) => {
+    const n = document.createElementNS(SVG_NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
+    svg.appendChild(n);
+  };
+
+  if (kind === 'signin') {
+    add('path', { d: 'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4' });
+    add('polyline', { points: '10 17 15 12 10 7' });
+    add('line', { x1: '15', x2: '3', y1: '12', y2: '12' });
+    return svg;
+  }
+  add('path', { d: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4' });
+  add('polyline', { points: '16 17 21 12 16 7' });
+  add('line', { x1: '21', x2: '9', y1: '12', y2: '12' });
+  return svg;
+}
 
 function iconSpan(svg) {
   const s = document.createElement('span');
   s.className = 'oauth-glyph';
   s.setAttribute('aria-hidden', 'true');
-  s.innerHTML = svg;
+  s.append(buildAuthIcon(svg === ICON_SIGNIN ? 'signin' : 'signout'));
   return s;
 }
 

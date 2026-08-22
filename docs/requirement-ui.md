@@ -132,9 +132,12 @@ Core UI files:
 
 Implemented:
 - Society settings panel in admin includes archive repo, branch, and PAT fields.
+- Society settings panel in admin includes optional fallback archive repo so archive writes can target either configured private repo.
 - Draft indicators for settings edits and archive outbox count.
 - Flush archive queue button performs real archive push and returns actionable status feedback.
 - Archive queue includes event snapshot writes triggered by event saves in addition to receipts/history/reports.
+- Event create/edit/publish UX is repo-gated: success toast/navigation occurs only after archive push succeeds; archive failure blocks save and keeps user on editor with explicit error.
+- Settings tab save buttons (attributes/templates/expense preferences) are consolidated batch saves and now repo-gated: on archive failure, local writes are rolled back and the user remains in the editor with explicit error.
 
 Core UI files:
 - `assets/js/views/admin.js`

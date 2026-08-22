@@ -1,0 +1,50 @@
+name: Live Contribution Reports Export
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Run even if current hour is outside configured windows'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reports-cron
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Generate live reports snapshot
+        env:
+          TVH_ARCHIVE_PAT: ${{ secrets.TVH_ARCHIVE_PAT }}
+          FORCE_RUN: ${{ github.event.inputs.force_run || 'false' }}
+        run: |
+          node scripts/generate-reports.mjs
+
+      - name: Commit generated reports
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [ -n "$(git status --porcelain docs/ops/live-reports)" ]; then
+            git add docs/ops/live-reports
+            git commit -m "chore(reports): export live contribution snapshot"
+            git push
+          else
+            echo "No report changes to commit."
+          fi

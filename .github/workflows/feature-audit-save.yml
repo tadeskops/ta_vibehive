@@ -1,0 +1,48 @@
+name: Feature Audit Snapshot
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: feature-audit-save
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Generate feature audit
+        run: |
+          node scripts/feature-audit.mjs
+
+      - name: Save snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p docs/ops
+          cp temp/feature-audit.md docs/ops/feature-audit-latest.md
+
+      - name: Commit snapshot
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [ -n "$(git status --porcelain docs/ops/feature-audit-latest.md)" ]; then
+            git add docs/ops/feature-audit-latest.md
+            git commit -m "chore(ci): update feature audit snapshot"
+            git push
+          else
+            echo "No feature audit changes."
+          fi

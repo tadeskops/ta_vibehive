@@ -19,6 +19,12 @@
  * privacy.anonymous is on, etc.
  */
 'use strict';
+
+/* Feature wiring markers (used by CI traceability audit):
+ * - contribution.voluntary
+ * - contribution.suggested
+ * - contribution.custom
+ */
 import { el, mount, fmtINR, toast } from '../dom.js';
 import { findEvent, addContribution, contribsFor } from '../events.js';
 import { isEventOn } from '../features.js';
@@ -79,6 +85,17 @@ function upiIntentUrl({ vpa, name, amount, note }) {
   p.set('cu', 'INR');
   if (note)   p.set('tn', note);
   return 'upi://pay?' + p.toString();
+}
+
+function appreciationText(template, amount) {
+  const t = String(template || '').trim();
+  if (!t) return '';
+  const n = Number(amount || 0);
+  const amountFmt = fmtINR(n > 0 ? n : 0);
+  const amountNum = (n > 0 ? n : 0).toLocaleString('en-IN');
+  return t
+    .replace(/\{amount\}/gi, amountFmt)
+    .replace(/\{amount_number\}/gi, amountNum);
 }
 
 export async function render(root, { match }) {
@@ -185,6 +202,7 @@ export async function render(root, { match }) {
         st.amount = t.amount;
         amtInp.value = String(t.amount);
         refreshPayHint();
+        refreshAppreciation();
         persistDraft();
       });
       return b;
@@ -192,7 +210,32 @@ export async function render(root, { match }) {
   ) : null;
 
   const amtInp = el('input', { type: 'number', min: '1', value: String(st.amount) });
-  amtInp.addEventListener('input', () => { st.amount = Number(amtInp.value || 0); refreshPayHint(); persistDraft(); });
+  const appreciateMsg = el('small', { class: 'sub', text: '' });
+  const appreciateCard = el('div', {
+    class: 'callout callout-muted',
+    style: 'display:none;margin:8px 0 14px;background:#efe4d0;color:var(--muted);border-color:#efe4d0'
+  },
+    el('div', {},
+      el('div', { class: 'lbl', text: 'Note from organizers' }),
+      appreciateMsg
+    )
+  );
+  function refreshAppreciation() {
+    const msg = appreciationText(evt.appreciation_note, st.amount);
+    if (!msg) {
+      appreciateCard.style.display = 'none';
+      appreciateMsg.textContent = '';
+      return;
+    }
+    appreciateMsg.textContent = msg;
+    appreciateCard.style.display = 'flex';
+  }
+  amtInp.addEventListener('input', () => {
+    st.amount = Number(amtInp.value || 0);
+    refreshPayHint();
+    refreshAppreciation();
+    persistDraft();
+  });
 
   const methodSel = el('select', {},
     upiOn ? el('option', { value: 'upi', text: 'UPI (scan / pay)' }) : null,
@@ -638,6 +681,7 @@ export async function render(root, { match }) {
       el('label', { for: 'amt' }, el('span', { text: 'Amount (₹)' }), el('span', { class: 'req', 'aria-hidden': 'true', text: '*' })),
       amtInp
     ) : null,
+    appreciateCard,
     el('div', { class: 'field' }, el('label', { text: 'Payment method' }), methodSel),
     payHint,
     /* Payment verification group. Rule: UPI/bank submissions need EITHER
@@ -679,6 +723,7 @@ export async function render(root, { match }) {
 
   refreshRefLabel();
   refreshPayHint();
+  refreshAppreciation();
   refreshIdentityLabels();
   persistDraft();
   mount(root, form);

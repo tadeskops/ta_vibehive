@@ -1,0 +1,72 @@
+{
+  "must_live": [
+    "event.moderator_history",
+    "contribution.voluntary",
+    "contribution.suggested",
+    "contribution.custom",
+    "privacy.anonymous",
+    "privacy.public_board",
+    "payment.upi",
+    "payment.bank",
+    "payment.verify",
+    "receipt.generate",
+    "receipt.archive",
+    "reporting.progress",
+    "reporting.event_detail_signedin"
+  ],
+  "feature_files": {
+    "event.moderator_history": [
+      "assets/js/events.js",
+      "assets/js/views/event.js"
+    ],
+    "contribution.voluntary": [
+      "assets/js/views/contribute.js"
+    ],
+    "contribution.suggested": [
+      "assets/js/views/contribute.js"
+    ],
+    "contribution.custom": [
+      "assets/js/views/contribute.js"
+    ],
+    "privacy.anonymous": [
+      "assets/js/views/contribute.js",
+      "assets/js/views/home.js"
+    ],
+    "privacy.public_board": [
+      "assets/js/views/event.js",
+      "assets/js/views/home.js"
+    ],
+    "payment.upi": [
+      "assets/js/views/contribute.js",
+      "assets/js/views/settings.js"
+    ],
+    "payment.bank": [
+      "assets/js/views/contribute.js",
+      "assets/js/views/settings.js"
+    ],
+    "payment.verify": [
+      "assets/js/events.js",
+      "assets/js/views/event.js"
+    ],
+    "receipt.generate": [
+      "assets/js/receipts.js",
+      "assets/js/events.js",
+      "assets/js/views/receipt.js"
+    ],
+    "receipt.archive": [
+      "assets/js/archive-runtime.js",
+      "assets/js/events.js",
+      "assets/js/views/reports.js"
+    ],
+    "reporting.progress": [
+      "assets/js/views/home.js",
+      "assets/js/views/event.js",
+      "assets/js/views/reports.js"
+    ],
+    "reporting.event_detail_signedin": [
+      "assets/js/events.js",
+      "assets/js/views/event.js",
+      "assets/js/views/reports.js"
+    ]
+  }
+}

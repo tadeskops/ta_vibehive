@@ -21,6 +21,7 @@ import { state, cfg, getSociety } from '../store.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { busy } from '../busy.js';
+import { queueAndMaybePushArchive, flushArchiveQueueNow } from '../archive-runtime.js';
 
 /* ---------- helpers ---------- */
 function pick(obj, path) {
@@ -79,6 +80,30 @@ async function runBusy(label, fn) {
     await new Promise((resolve) => setTimeout(resolve, 120));
     return out;
   });
+}
+
+function archiveErrorText(res) {
+  if (!res) return 'Archive push failed.';
+  if (res.reason === 'archive_not_configured') {
+    return 'Archive repo/PAT is not configured. This save is blocked to avoid local-only drift.';
+  }
+  if (res.reason === 'archive_disabled') {
+    return 'Archive is disabled. Enable archive in settings before saving.';
+  }
+  if (res.reason === 'push_failed') {
+    const msg = res.error && res.error.message ? ` ${res.error.message}` : '';
+    return `Archive push failed.${msg}`.trim();
+  }
+  return 'Archive push failed.';
+}
+
+async function pushArchiveBatchStrict(entries, actor, message) {
+  for (const e of entries) {
+    await queueAndMaybePushArchive(e, { actor, immediate: false, message });
+  }
+  const out = await flushArchiveQueueNow({ actor, message });
+  if (!out || !out.ok) throw new Error(archiveErrorText(out));
+  return out;
 }
 
 const QR_ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -638,10 +663,23 @@ async function renderAttributes(user, canUsersManage) {
       toast('No staged settings changes.', 'warn');
       return;
     }
+    const beforeOverrides = structuredClone(state.societyOverrides() || {});
     await runBusy('Saving settings…', async () => {
       const next = mergeDeep(structuredClone(state.societyOverrides() || {}), draft);
       pruneEmpty(next);
       state.saveSocietyOverrides(next);
+      try {
+        await pushArchiveBatchStrict([
+          {
+            kind: 'settings',
+            path: 'settings/society-overrides.json',
+            content: JSON.stringify(next, null, 2),
+          }
+        ], user.email || user.id || null, `settings: attributes save by ${user.email || user.id || 'unknown'}`);
+      } catch (err) {
+        state.saveSocietyOverrides(beforeOverrides);
+        throw err;
+      }
       state.audit({ actor: user.email, action: 'settings.attributes.save_all', detail: flatKeys(draft).join(',') });
       state.clearSettingsDraft();
       draft = {};
@@ -785,12 +823,32 @@ async function renderTemplates(user) {
         toast('No template changes to save.', 'warn');
         return;
       }
+      const beforeTemplates = structuredClone(state.receiptTemplates() || []);
+      const beforeOverrides = structuredClone(state.societyOverrides() || {});
       await runBusy('Saving receipt templates…', async () => {
         state.saveReceiptTemplates(clone(draftTemplates));
         const o = state.societyOverrides() || {};
         setAt(o, 'receipts.active_template_id', draftActiveId || undefined);
         pruneEmpty(o);
         state.saveSocietyOverrides(o);
+        try {
+          await pushArchiveBatchStrict([
+            {
+              kind: 'settings',
+              path: 'settings/receipt-templates.json',
+              content: JSON.stringify(clone(draftTemplates), null, 2),
+            },
+            {
+              kind: 'settings',
+              path: 'settings/society-overrides.json',
+              content: JSON.stringify(o, null, 2),
+            }
+          ], user.email || user.id || null, `settings: templates save by ${user.email || user.id || 'unknown'}`);
+        } catch (err) {
+          state.saveReceiptTemplates(beforeTemplates);
+          state.saveSocietyOverrides(beforeOverrides);
+          throw err;
+        }
         state.audit({
           actor: user.email,
           action: 'settings.templates.save_all',
@@ -973,12 +1031,25 @@ async function renderExpensePrefs(user, canAttributes) {
       toast('No expense preference changes to save.', 'warn');
       return;
     }
+    const beforeOverrides = structuredClone(state.societyOverrides() || {});
     await runBusy('Saving expense preferences…', async () => {
       const o = state.societyOverrides() || {};
       setAt(o, 'expenses.residents_can_see', draft.residents_can_see ? true : undefined);
       setAt(o, 'expenses.default_visible_to_residents', draft.default_visible_to_residents ? true : undefined);
       pruneEmpty(o);
       state.saveSocietyOverrides(o);
+      try {
+        await pushArchiveBatchStrict([
+          {
+            kind: 'settings',
+            path: 'settings/society-overrides.json',
+            content: JSON.stringify(o, null, 2),
+          }
+        ], user.email || user.id || null, `settings: expense prefs save by ${user.email || user.id || 'unknown'}`);
+      } catch (err) {
+        state.saveSocietyOverrides(beforeOverrides);
+        throw err;
+      }
       state.audit({ actor: user.email, action: 'settings.expense.save_all', detail: JSON.stringify(draft) });
       persisted = { ...draft };
     });
