@@ -4,6 +4,29 @@ VibeHive uses **OAuth 2.0 Authorization Code + PKCE** (RFC 7636) to sign residen
 in via **Google** or **Microsoft**. There is no server, no client secret, and
 no password to remember or leak.
 
+## Who does this? (TL;DR)
+
+> **Only ONE person, ONCE, per society deployment** — the developer / committee
+> admin who first spins up the site. That's it.
+>
+> **Residents do NOT do any of this.** A resident's entire sign-in experience is:
+>
+> 1. Open the site.
+> 2. Tap **Continue with Google** (or **Continue with Microsoft**).
+> 3. Approve the standard Google/Microsoft consent prompt (once, first time only —
+>    if they are already signed into their Google/Microsoft account in that browser
+>    it is literally one tap and they're in).
+>
+> No account creation. No password. No OTP. No admin approval per user.
+> No repeat setup on a new device — they just tap the same button.
+
+**Who runs the steps below?**
+- **You** (the developer / committee admin doing the initial deploy) — you register
+  the app with Google and Microsoft, paste two client IDs into `config/auth.json`,
+  commit, push. Takes ~15 minutes total.
+- **Nobody else, ever** — unless you change the site's URL, add a new provider, or
+  fork the repo for another society (each society deployment is its own OAuth app).
+
 You need to do the following **once per society deployment** (typically the very
 first time you deploy the app, or if the site URL changes). After that,
 every resident just taps "Continue with Google" (or Microsoft) and they are

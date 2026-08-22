@@ -57,9 +57,9 @@ export async function render(root, { params }) {
     parts.push(el('div', { class: 'callout gold', style: 'margin-top:12px' },
       el('div', { style: 'flex:1' },
         el('div', { class: 'lbl', text: 'OAuth providers not configured yet' }),
-        el('small', { text: 'This is a one-time task for the committee. Register the app with Google (and optionally Microsoft), paste the client IDs into ' }),
+        el('small', { text: 'One-time job for the deploying admin — NOT for residents. Register the app with Google (and optionally Microsoft) in their developer console, paste the client IDs into ' }),
         el('code', { text: 'config/auth.json' }),
-        el('small', { text: ', and every resident can then sign in with a single tap. Full step-by-step guide (redirect URIs, consent screen, etc.):' }),
+        el('small', { text: ', commit, push. After that, every resident just taps "Continue with Google" — no signup, no password, no OTP. Full step-by-step guide (~15 min):' }),
         el('div', { style: 'margin-top:8px' },
           el('a', { class: 'btn btn-sm', href: 'docs/AUTH_SETUP.md', target: '_blank', rel: 'noopener' }, 'Open setup guide')
         ),
