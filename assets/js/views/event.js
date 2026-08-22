@@ -240,31 +240,6 @@ function renderPublicBoard(evt, hideAmount) {
   );
 }
 
-async function renderEnabledFeaturePanel(evt) {
-  const cat = await catalog();
-  const enabled = cat.features.filter(f => f.scope === 'event' && !!evt.features[f.id]);
-  if (!enabled.length) return null;
-  const grouped = new Map();
-  for (const f of enabled) {
-    const arr = grouped.get(f.cluster) || [];
-    arr.push(f); grouped.set(f.cluster, arr);
-  }
-  return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
-    el('h3', { text: 'Enabled modules' }),
-    el('p', { class: 'sub', text: 'Only these features are active for this event. Everything else is hidden.' }),
-    el('div', { class: 'grid grid-3' },
-      ...Array.from(grouped.entries()).map(([cluster, feats]) => el('div', { class: 'panel', style: 'margin:0' },
-        el('h4', { text: labelForCluster(cat, cluster) }),
-        ...feats.map(f => el('div', { class: 'feature-row' },
-          el('span', { class: 'name', text: f.label }),
-          el('span', { class: 'pill pill-sage', text: 'ON' })
-        ))
-      ))
-    )
-  );
-}
-function labelForCluster(cat, id) { const c = cat.clusters.find(x => x.id === id); return c ? c.label : id; }
-
 /* ---------- edit view ---------- */
 async function renderEdit(root, evt, user, caps) {
   const cat = await catalog();
