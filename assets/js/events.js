@@ -508,3 +508,80 @@ export function publicBoardFor(eventId) {
     }))
     .sort((a, b) => (b.when || '').localeCompare(a.when || ''));
 }
+
+export function detectDataLinkageIssues() {
+  const events = state.events();
+  const contribs = state.contribs();
+  const eventById = new Map(events.map(e => [e.id, e]));
+  const visible = new Set(publicEvents().map(e => e.id));
+
+  const usageByEvent = new Map();
+  for (const c of contribs) {
+    if (!c || !c.event) continue;
+    const bucket = usageByEvent.get(c.event) || { count: 0, total: 0, sample: null };
+    bucket.count += 1;
+    bucket.total += Number(c.amount || 0);
+    if (!bucket.sample) bucket.sample = c;
+    usageByEvent.set(c.event, bucket);
+  }
+
+  const hiddenOwners = [];
+  const orphans = [];
+  for (const [eventId, stats] of usageByEvent.entries()) {
+    const evt = eventById.get(eventId);
+    if (!evt) {
+      orphans.push({ eventId, count: stats.count, total: stats.total, sample: stats.sample });
+      continue;
+    }
+    if (!visible.has(evt.id)) {
+      hiddenOwners.push({ event: evt, count: stats.count, total: stats.total });
+    }
+  }
+  hiddenOwners.sort((a, b) => b.total - a.total);
+  orphans.sort((a, b) => b.total - a.total);
+  return { hiddenOwners, orphans };
+}
+
+export async function migrateContributions(fromEventId, toEventId, actor) {
+  if (!fromEventId || !toEventId || fromEventId === toEventId) {
+    throw new Error('Source and target events must be different.');
+  }
+  const events = state.events();
+  const target = events.find(e => e.id === toEventId);
+  if (!target) throw new Error('Target event not found.');
+  const contribs = state.contribs();
+  let moved = 0;
+  for (const c of contribs) {
+    if (c && c.event === fromEventId) {
+      c.event = toEventId;
+      c.migrated_from = fromEventId;
+      c.migrated_at = new Date().toISOString();
+      moved += 1;
+    }
+  }
+  if (!moved) return { moved: 0 };
+  state.saveContribs(contribs);
+  state.audit({ actor: actor ? actor.id : null, action: 'contrib.migrate', from: fromEventId, to: toEventId, count: moved });
+  return { moved };
+}
+
+export async function restoreEventToPublished(eventId, actor) {
+  const events = state.events();
+  const evt = events.find(e => e.id === eventId);
+  if (!evt) throw new Error('Event not found.');
+  const before = normalizeStatus(evt.status);
+  const target = STATUS.PUBLISHED;
+  if (before !== target && !isTransitionAllowed(before, target)) {
+    if (before === STATUS.DRAFT || before === STATUS.REVIEW) {
+      evt.status = target;
+    } else {
+      throw new Error(`Cannot restore from "${before}". Move the event manually first.`);
+    }
+  } else {
+    evt.status = target;
+  }
+  evt.updated_at = new Date().toISOString();
+  state.saveEvents(events);
+  state.audit({ actor: actor ? actor.id : null, action: 'event.restore', event: evt.id, from: before, to: evt.status });
+  return evt;
+}

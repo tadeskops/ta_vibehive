@@ -2,12 +2,13 @@
  * Access-gated per action.
  */
 'use strict';
-import { el, mount, toast, fmtDate } from '../dom.js';
+import { el, mount, toast, fmtDate, fmtINR } from '../dom.js';
 import { state, cfg, getSociety } from '../store.js';
 import { catalog, isSystemOn, setSystemOverride } from '../features.js';
 import { session } from '../auth.js';
 import { can, labelForRole, badgeClass } from '../rbac.js';
 import { flushArchiveQueueNow } from '../archive-runtime.js';
+import { detectDataLinkageIssues, migrateContributions, restoreEventToPublished, publicEvents } from '../events.js';
 
 export async function render(root, { match }) {
   const user = session();
@@ -21,6 +22,9 @@ export async function render(root, { match }) {
    * `reports.export` (admin / mgmt only, matching Reports view). */
   const canBugView      = await can(user, 'reports.view');
   const canBugExport    = await can(user, 'reports.export');
+  const canRecovery     = user && user.role === 'admin';
+  const linkageIssues   = canRecovery ? detectDataLinkageIssues() : { hiddenOwners: [], orphans: [] };
+  const hasLinkageIssues = canRecovery && (linkageIssues.hiddenOwners.length || linkageIssues.orphans.length);
 
   const tab = match.tab || 'features';
   const nav = el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-bottom:16px' },
@@ -30,6 +34,7 @@ export async function render(root, { match }) {
     tabLink('settings', 'Society settings', tab),
     tabLink('audit', 'Audit log', tab),
     canBugView ? tabLink('bug-reports', 'Bug reports', tab) : null,
+    hasLinkageIssues ? tabLink('recovery', `⚠ Data recovery (${linkageIssues.hiddenOwners.length + linkageIssues.orphans.length})`, tab) : null,
   );
 
   let body;
@@ -39,6 +44,7 @@ export async function render(root, { match }) {
   else if (tab === 'settings' && canSettings)body = await renderSettings(user);
   else if (tab === 'audit' && canAudit)      body = renderAudit();
   else if (tab === 'bug-reports' && canBugView) body = renderBugReports({ canExport: canBugExport, user });
+  else if (tab === 'recovery' && canRecovery)   body = renderRecovery(user, linkageIssues);
   else body = el('div', { class: 'card card-pad' },
     el('h3', { text: 'No access' }),
     el('p', { text: 'Ask an Admin to grant you this section.' })
@@ -531,4 +537,133 @@ function kv(k, v) {
     el('span', { class: 'name', text: k }),
     el('span', { text: v || '—' })
   );
+}
+
+function renderRecovery(user, initialIssues) {
+  const wrap = el('div', {});
+
+  function render(issues) {
+    wrap.replaceChildren();
+    const total = issues.hiddenOwners.length + issues.orphans.length;
+    wrap.append(
+      el('div', { class: 'card card-pad' },
+        el('h3', { text: '⚠ Data linkage recovery' }),
+        el('p', { class: 'sub', text: total
+          ? `${issues.hiddenOwners.length} hidden event${issues.hiddenOwners.length === 1 ? '' : 's'} with contributions and ${issues.orphans.length} orphan bucket${issues.orphans.length === 1 ? '' : 's'} detected. Use the actions below to restore or migrate them.`
+          : 'All contributions are linked to visible events. Nothing to recover.' })
+      )
+    );
+    if (issues.hiddenOwners.length) wrap.append(renderHiddenOwners(issues.hiddenOwners));
+    if (issues.orphans.length)      wrap.append(renderOrphans(issues.orphans));
+  }
+
+  function targetPickerFor(excludeId) {
+    const options = publicEvents().filter(e => e.id !== excludeId);
+    const sel = el('select', { style: 'min-width:220px' },
+      el('option', { value: '', text: '— pick a visible event —', selected: true }),
+      ...options.map(e => el('option', { value: e.id, text: e.title || e.id }))
+    );
+    return sel;
+  }
+
+  function renderHiddenOwners(rows) {
+    return el('section', { class: 'card card-pad', style: 'margin-top:12px' },
+      el('h3', { text: 'Hidden events with contributions' }),
+      el('p', { class: 'sub', text: 'These events currently own contributions but are not visible on the home dashboard (draft/review/archived, or hidden by a slug collision). Restore them or migrate their contributions to a visible event.' }),
+      el('table', { class: 'table' },
+        el('thead', {}, el('tr', {},
+          el('th', { text: 'Event' }),
+          el('th', { text: 'Status' }),
+          el('th', { class: 'num', text: 'Rows' }),
+          el('th', { class: 'num', text: 'Total ₹' }),
+          el('th', { text: 'Recover' })
+        )),
+        el('tbody', {}, ...rows.map(r => {
+          const targetSel = targetPickerFor(r.event.id);
+          const migrateBtn = el('button', { class: 'btn btn-sm', type: 'button' }, 'Migrate →');
+          migrateBtn.addEventListener('click', async () => {
+            const toId = targetSel.value;
+            if (!toId) { toast('Pick a target event first.', 'warn'); return; }
+            const target = publicEvents().find(e => e.id === toId);
+            const msg = `Move ${r.count} contribution${r.count === 1 ? '' : 's'} (${fmtINR(r.total)}) from "${r.event.title || r.event.id}" to "${target && target.title || toId}"?`;
+            if (!confirm(msg)) return;
+            try {
+              const res = await migrateContributions(r.event.id, toId, user);
+              toast(`Migrated ${res.moved} row${res.moved === 1 ? '' : 's'}.`, 'ok');
+              render(detectDataLinkageIssues());
+            } catch (err) {
+              toast((err && err.message) || 'Migration failed', 'err');
+            }
+          });
+          const restoreBtn = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Restore (publish)');
+          restoreBtn.addEventListener('click', async () => {
+            if (!confirm(`Restore "${r.event.title || r.event.id}" to Published?`)) return;
+            try {
+              await restoreEventToPublished(r.event.id, user);
+              toast('Event restored to Published.', 'ok');
+              render(detectDataLinkageIssues());
+            } catch (err) {
+              toast((err && err.message) || 'Restore failed', 'err');
+            }
+          });
+          return el('tr', {},
+            el('td', {},
+              el('div', { style: 'font-weight:700', text: r.event.title || r.event.id }),
+              el('small', { class: 'sub', text: `id: ${r.event.id} · slug: ${r.event.slug || '—'}` })
+            ),
+            el('td', {}, el('span', { class: 'pill pill-muted', text: String(r.event.status || 'draft').toUpperCase() })),
+            el('td', { class: 'num', text: String(r.count) }),
+            el('td', { class: 'num', text: fmtINR(r.total) }),
+            el('td', {},
+              el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, targetSel, migrateBtn, restoreBtn)
+            )
+          );
+        }))
+      )
+    );
+  }
+
+  function renderOrphans(rows) {
+    return el('section', { class: 'card card-pad', style: 'margin-top:12px' },
+      el('h3', { text: 'Orphan contributions' }),
+      el('p', { class: 'sub', text: 'These contributions reference an event id that no longer exists in local storage. Reassign them to a visible event so residents and totals stay accurate.' }),
+      el('table', { class: 'table' },
+        el('thead', {}, el('tr', {},
+          el('th', { text: 'Missing event id' }),
+          el('th', { class: 'num', text: 'Rows' }),
+          el('th', { class: 'num', text: 'Total ₹' }),
+          el('th', { text: 'Reassign' })
+        )),
+        el('tbody', {}, ...rows.map(r => {
+          const targetSel = targetPickerFor(r.eventId);
+          const btn = el('button', { class: 'btn btn-sm', type: 'button' }, 'Reassign →');
+          btn.addEventListener('click', async () => {
+            const toId = targetSel.value;
+            if (!toId) { toast('Pick a target event first.', 'warn'); return; }
+            const target = publicEvents().find(e => e.id === toId);
+            const msg = `Reassign ${r.count} orphan contribution${r.count === 1 ? '' : 's'} (${fmtINR(r.total)}) to "${target && target.title || toId}"?`;
+            if (!confirm(msg)) return;
+            try {
+              const res = await migrateContributions(r.eventId, toId, user);
+              toast(`Reassigned ${res.moved} row${res.moved === 1 ? '' : 's'}.`, 'ok');
+              render(detectDataLinkageIssues());
+            } catch (err) {
+              toast((err && err.message) || 'Reassignment failed', 'err');
+            }
+          });
+          return el('tr', {},
+            el('td', {}, el('code', { text: r.eventId })),
+            el('td', { class: 'num', text: String(r.count) }),
+            el('td', { class: 'num', text: fmtINR(r.total) }),
+            el('td', {},
+              el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, targetSel, btn)
+            )
+          );
+        }))
+      )
+    );
+  }
+
+  render(initialIssues);
+  return wrap;
 }
