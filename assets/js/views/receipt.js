@@ -37,6 +37,25 @@ async function ensureJsPdf() {
   if (!(window.jspdf && window.jspdf.jsPDF)) throw new Error('PDF library did not initialise');
 }
 
+/* Event-type-aware copy for curated receipt templates.
+ * The visual template (cheque-classic / certificate-brand) is fixed
+ * to strictly match the two curated designs; only the field labels
+ * and title strings change based on the event's cluster/template so a
+ * Ganesh Chaturthi receipt reads "Contribution", a picnic reads
+ * "Registration", a cricket match reads "Entry", etc. */
+function receiptCopyForEvent(evt) {
+  const key = String((evt && (evt.template || evt.cluster)) || '').toLowerCase();
+  const COPY = {
+    festival:  { short: 'Contribution Receipt', long: 'CERTIFICATE OF CONTRIBUTION', purpose: 'Contribution towards', ackNoun: 'contribution' },
+    donation:  { short: 'Donation Receipt',     long: 'CERTIFICATE OF DONATION',     purpose: 'Donation towards',     ackNoun: 'donation' },
+    emergency: { short: 'Contribution Receipt', long: 'CERTIFICATE OF CONTRIBUTION', purpose: 'Contribution towards', ackNoun: 'contribution' },
+    infra:     { short: 'Contribution Receipt', long: 'CERTIFICATE OF CONTRIBUTION', purpose: 'Contribution towards', ackNoun: 'contribution' },
+    social:    { short: 'Registration Receipt', long: 'CERTIFICATE OF REGISTRATION', purpose: 'Registration for',     ackNoun: 'registration' },
+    sports:    { short: 'Entry Fee Receipt',    long: 'CERTIFICATE OF ENTRY',        purpose: 'Entry fee for',        ackNoun: 'entry fee' },
+  };
+  return COPY[key] || COPY.festival;
+}
+
 /* Build a receipt PDF. Delegates to a per-theme renderer based on
  * `opts.theme` (or `soc.receipts.default_theme`). All renderers share
  * a small set of primitives: helvetica type (small file size, no
@@ -188,7 +207,8 @@ function buildReceiptPdfChequeClassic(r, rec, evt, soc, opts) {
   doc.setTextColor(25, 62, 138);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('CONTRIBUTION RECEIPT', pageW / 2, 34.5, { align: 'center' });
+  const copy = receiptCopyForEvent(evt);
+  doc.text(copy.short.toUpperCase(), pageW / 2, 34.5, { align: 'center' });
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   doc.text(`No. ${r.id}   ·   Issued ${fmtDate(r.issued_at)}`, pageW / 2, 37.6, { align: 'center' });
@@ -263,7 +283,7 @@ function buildReceiptPdfChequeClassic(r, rec, evt, soc, opts) {
   /* Footer */
   doc.setFontSize(6.5);
   doc.setTextColor(160, 178, 205);
-  doc.text('VibeHive · Cheque Classic template', pageW / 2, pageH - 5, { align: 'center' });
+  doc.text('VibeHive · ' + copy.short + ' · Cheque Classic template', pageW / 2, pageH - 5, { align: 'center' });
 
   return doc;
 }
@@ -316,7 +336,8 @@ function buildReceiptPdfCertificateBrand(r, rec, evt, soc, opts) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(28);
   doc.setTextColor(...INDIGO);
-  doc.text('CERTIFICATE OF CONTRIBUTION', pageW / 2, 55, { align: 'center' });
+  const copy = receiptCopyForEvent(evt);
+  doc.text(copy.long, pageW / 2, 55, { align: 'center' });
   /* Gold underline */
   doc.setDrawColor(...GOLD);
   doc.setLineWidth(0.8);
@@ -325,7 +346,7 @@ function buildReceiptPdfCertificateBrand(r, rec, evt, soc, opts) {
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(11);
   doc.setTextColor(75, 85, 99);
-  doc.text('This is to acknowledge with sincere thanks the contribution received from', pageW / 2, 70, { align: 'center' });
+  doc.text('This is to acknowledge with sincere thanks the ' + copy.ackNoun + ' received from', pageW / 2, 70, { align: 'center' });
 
   /* Contributor line — big serif-ish (helvetica bold) */
   doc.setFont('helvetica', 'bold');
@@ -345,7 +366,7 @@ function buildReceiptPdfCertificateBrand(r, rec, evt, soc, opts) {
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(12);
   doc.setTextColor(55, 65, 81);
-  const prose = `towards ${(evt && evt.title) || 'the community event'} — purpose: ${(evt && (evt.purpose || evt.template)) || 'community welfare'}.`;
+  const prose = `${copy.purpose} ${(evt && evt.title) || 'the community event'} — purpose: ${(evt && (evt.purpose || evt.template)) || 'community welfare'}.`;
   doc.text(doc.splitTextToSize(prose, pageW - 60), pageW / 2, 100, { align: 'center' });
 
   /* Gold ribbon amount */
@@ -534,13 +555,17 @@ export async function render(root, { match }) {
     `&body=${encodeURIComponent(shareBody)}`;
 
   /* Per-download theme override — reads the society default from
-   * settings and lets the resident/committee flip to Cheque Classic
-   * or Certificate Brand for this one download. Value flows into
-   * `downloadReceiptPdf` / `shareToWhatsApp` via `currentTheme()`.
-   * Active-template id takes priority when it maps to one of the
-   * shipped presets (`shipped-cheque-classic`, `shipped-certificate-brand`)
-   * so operators can pick a theme purely from Settings → Receipt
-   * templates without touching the Receipts archive panel. */
+   * settings and lets Admin / Secretary / Management Committee flip
+   * to Cheque Classic or Certificate Brand for this one download.
+   * Below-secretary roles (committee, manager, resident) DO NOT see
+   * the picker — they silently get the society-configured default so
+   * receipts always look consistent for the household copy.
+   * Value flows into `downloadReceiptPdf` / `shareToWhatsApp` via
+   * `currentTheme()`. Active-template id takes priority when it maps
+   * to one of the shipped presets (`shipped-cheque-classic`,
+   * `shipped-certificate-brand`) so operators can pick a theme purely
+   * from Settings → Receipt templates without touching the Receipts
+   * archive panel. */
   const SHIPPED_THEME_BY_ID = {
     'shipped-default': 'default',
     'shipped-cheque-classic': 'cheque-classic',
@@ -550,6 +575,7 @@ export async function render(root, { match }) {
   const defaultTheme = themeFromActive
     || (soc.receipts && soc.receipts.default_theme)
     || 'default';
+  const canOverrideTheme = await can(user, 'receipts.theme.override');
   const themePicker = el('select', {
     class: 'btn btn-ghost',
     style: 'min-width:180px',
@@ -562,11 +588,13 @@ export async function render(root, { match }) {
   themePicker.value = ['default', 'cheque-classic', 'certificate-brand'].includes(defaultTheme) ? defaultTheme : 'default';
   const currentTheme = () => themePicker.value || 'default';
 
-  const actions = el('div', { class: 'row row-end print-hide', style: 'margin-bottom:16px;flex-wrap:wrap;gap:8px' },
+  const actionKids = [
     el('a', { class: 'btn btn-ghost', href: `#/e/${rec.event}` }, '← Event'),
     el('a', { class: 'btn btn-ghost', href: `#/verify/${encodeURIComponent(r ? r.id : '')}` }, '🔎 Verify online'),
     el('a', { class: 'btn btn-ghost', href: mailtoHref, title: 'Open your mail client with a pre-filled message' }, '✉ Email'),
-    themePicker,
+  ];
+  if (canOverrideTheme) actionKids.push(themePicker);
+  actionKids.push(
     el('button', {
       class: 'btn btn-ghost',
       type: 'button',
@@ -599,6 +627,10 @@ export async function render(root, { match }) {
         }
       } }
     }, '⬇ Download PDF')
+  );
+
+  const actions = el('div', { class: 'row row-end print-hide', style: 'margin-bottom:16px;flex-wrap:wrap;gap:8px' },
+    ...actionKids
   );
 
   const receipt = el('article', { class: 'receipt' },

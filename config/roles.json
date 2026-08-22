@@ -30,6 +30,7 @@
     "receipts.generate":         ["admin", "secretary", "mgmt", "manager"],
     "receipts.download":         ["admin", "secretary", "mgmt", "committee", "manager", "resident"],
     "receipts.archive":          ["admin", "secretary", "mgmt"],
+    "receipts.theme.override":   ["admin", "secretary", "mgmt"],
     "expenses.record":           ["admin", "secretary", "mgmt", "committee", "manager", "resident"],
     "expenses.verify":           ["admin", "secretary", "mgmt", "committee"],
     "expenses.view":             ["admin", "secretary", "mgmt", "committee", "manager"],

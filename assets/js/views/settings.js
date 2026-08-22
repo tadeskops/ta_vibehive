@@ -300,6 +300,7 @@ async function renderAttributes(user, canUsersManage) {
   const vm = mergeDeep(structuredClone(soc || {}), structuredClone(draft || {}));
   const templates = state.receiptTemplates() || [];
   const users = state.users() || [];
+  const canThemeOverride = await can(user, 'receipts.theme.override');
   const roleCfg = await cfg.roles();
   const roleDefs = ((roleCfg && roleCfg.hierarchy) || [])
     .map(r => ({ id: String(r.id || '').trim().toLowerCase(), label: String(r.label || r.id || '').trim() }))
@@ -964,7 +965,9 @@ async function renderAttributes(user, canUsersManage) {
         el('div', { style: 'margin-top:6px' }, el('small', { class: 'sub', text: 'Example preview: ' }), previewRollupPath)
       )),
       row('Seal language (default for downloads)', 'Language used for the verified-contribution rubber stamp. Managers see only this default; residents can NOT override per download.', selSealLang),
-      row('Receipt theme (default for downloads)', 'Visual layout used when a resident downloads a receipt. Committee can override per download via the theme picker on the receipt page.', selTheme),
+      canThemeOverride
+        ? row('Receipt theme (default for downloads)', 'Visual layout used when a resident downloads a receipt. Only Admin, Secretary and Management Committee can pick the theme; below-secretary roles inherit whatever is selected here.', selTheme)
+        : null,
     ),
     panel('Receipts',
       'Active template drives what the printable receipt looks like. Manage templates in the Receipt templates tab.',
