@@ -366,7 +366,11 @@ function syncMobileTabbar(user, showVerify) {
   const me = document.getElementById('tvhTabMe');
   if (me) {
     if (user && (user.role === 'admin' || user.role === 'mgmt')) me.href = '#/admin';
-    else me.href = '#/login';
+    else if (user) me.href = '#/login';
+    /* Anonymous visitors: hide the "Me" tab entirely so the header
+     * sign-in button is the single entry point to authentication. */
+    if (!user) { me.hidden = true; me.style.display = 'none'; }
+    else       { me.hidden = false; me.style.display = ''; }
   }
   const anchors = tabbar.querySelectorAll('a[data-tab]');
   anchors.forEach(a => {

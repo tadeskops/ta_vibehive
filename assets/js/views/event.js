@@ -110,6 +110,25 @@ export async function render(root, { match }) {
   const total = totalFor(evt.id);
   const pct = goal ? Math.min(100, Math.round((total / goal) * 100)) : 0;
   const dl = daysLeft(evt.end_at);
+  /* Anonymous visitors get the event title + hero glyph only. Every
+   * financial figure, contributor count, progress bar, and expense
+   * row is behind the sign-in gate. Keeps the tile behaviour and the
+   * detail behaviour consistent for non-members. */
+  const isAnonymous = !user;
+
+  if (isAnonymous) {
+    const stats = el('div', { class: 'grid grid-2' },
+      statCard('Status', String(evt.status || 'draft').toUpperCase()),
+      statCard('Access', 'Sign in for details')
+    );
+    const gate = el('section', { class: 'card card-pad', style: 'margin-top:16px;text-align:center' },
+      el('h3', { text: '🔒 Sign in to see schedule & finances' }),
+      el('p', { class: 'sub', text: 'Contribution history, goal, timeline, and community expenses are visible to signed-in residents only.' }),
+      el('a', { class: 'btn', href: '#/login', style: 'margin-top:6px' }, 'Sign in')
+    );
+    mount(root, hero, stats, gate);
+    return;
+  }
 
   const stats = el('div', { class: 'grid grid-4' },
     goal ? statCard('Goal', fmtINR(goal)) : null,
