@@ -98,15 +98,15 @@ Implemented:
 - Contribution form includes note/remarks and validation helpers.
 - Per-event draft cache survives refresh and is cleared on successful submit.
 - Event create/edit/publish writes fail-fast when local browser storage is blocked/full, with explicit error feedback instead of silent success.
-- Event create/edit/publish is now repository-gated: save succeeds only after archive commit succeeds. If archive push fails or archive is not configured/enabled, local event changes are rolled back and user sees an explicit error.
-- Settings save actions are now repository-gated for attributes, templates, and expense preferences: each Save button batches staged changes, pushes archive snapshot(s), and rolls back local writes on archive failure.
-- Settings -> Attributes now exposes archive controls (`receipts.archive_repo`, optional fallback repo, `receipts.archive_branch`, `receipts.archive_pat`, and archive enabled toggle) so operators can configure persistence without code edits.
+- Event create/edit/publish is repository-gated: save succeeds only after archive commit succeeds. If archive push fails or archive is not configured/enabled, local event changes are rolled back and user sees an explicit error.
+- Settings save actions are repository-gated for attributes, templates, and expense preferences: each Save button batches staged changes, pushes archive snapshot(s), and rolls back local writes on archive failure.
+- Settings -> Attributes exposes archive controls (`receipts.archive_repo`, optional fallback repo, `receipts.archive_branch`, `receipts.archive_pat`, and archive enabled toggle) so operators can configure remote persistence without code edits.
+- If archive persistence is missing/disabled during template-based event creation, the flow redirects to Settings -> Attributes with a setup hint instead of leaving the user stuck on the template modal.
 - One-contribution-per-flat event rule is supported and enforced at storage guard level.
 - Event creator can set/edit suggested contribution amounts per event using one-by-one add/remove rows (any count); these values drive resident quick-tap amount chips.
 - Event creator can set/edit an optional appreciation note template per event; contribute page renders it dynamically using selected amount placeholder (`{amount}`).
 - Mobile/quick-action `+` is create-only (new event) and is shown only when `events.create` permission is granted via role/configuration.
 - Quick-action stack popup UI is currently disabled (kept in code), and tapping `+` directly routes to event creation flow.
-- If archive persistence is missing/disabled during template-based event creation, the flow now redirects to Settings -> Attributes with a setup hint instead of leaving the user stuck on the template modal.
 - Contribution payment UX currently runs in manual UPI mode:
   - Configured UPI ID is displayed for external app payment.
   - Society can attach a UPI QR image from Settings (stored inline) in addition to path-based QR fallback.
