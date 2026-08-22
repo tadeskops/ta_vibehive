@@ -97,6 +97,34 @@ function slugId(prefix) {
   return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
 }
 
+/* Render a fake preview of a path template using representative
+ * sample values. Mirrors the placeholders `paths.js` supports so the
+ * Settings panel matches what will actually get committed. */
+function examplePath(tpl, rollup = false) {
+  const d = new Date();
+  const y = String(d.getUTCFullYear());
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const vars = {
+    eventCode: 'FESTIVAL',
+    eventCodeLower: 'festival',
+    eventId: 'ev-example',
+    receiptId: 'FESTIVAL-20260822-2327',
+    id: 'FESTIVAL-20260822-2327',
+    contribId: 'c-example',
+    year: y, month: m, day,
+    yearMonth: `${y}-${m}`,
+    date: `${y}-${m}-${day}`,
+    flat: 'B-805',
+    contributor: 'anon',
+    amount: '5101',
+    period: rollup ? 'monthly' : '',
+    periodKey: rollup ? `${y}-${m}` : ''
+  };
+  const raw = String(tpl || '').replace(/\{(\w+)\}/g, (_m, k) => vars[k] != null ? String(vars[k]) : `{${k}}`);
+  return raw.replace(/^\/+/, '').replace(/\.\.+/g, '.') || '(empty)';
+}
+
 async function runBusy(label, fn) {
   return busy.wrap(label, async () => {
     const out = await fn();
@@ -468,6 +496,72 @@ async function renderAttributes(user, canUsersManage) {
     on: { change: (e) => stageAttr('receipts.prefix', e.target.value.trim().toUpperCase().slice(0, 6)) },
     placeholder: 'TA'
   });
+
+  /* --- Receipts archive template controls (TSH-style) ---
+   * Wires perReceiptPath + rollup + language + theme so operators can
+   * tune the archive layout without a code change. All values persist
+   * under `receipts.archive.*` in `society-overrides.json`, which the
+   * archive helpers already consume via `paths.js`. */
+  const archCfg = (rcfg.archive) || {};
+  const rollCfg = (archCfg.rollup) || {};
+  const DEFAULT_PER_PATH   = '{eventCodeLower}/{yearMonth}/{flat}_{receiptId}.pdf';
+  const DEFAULT_ROLLUP_PTH = '{eventCodeLower}/bckp/{period}/{periodKey}.pdf';
+
+  const selArchiveEnabled = el('select', {
+    on: { change: (e) => stageAttr('receipts.archive.enabled', e.target.value === '1', { silent: true }) }
+  },
+    el('option', { value: '1', text: 'Enabled — archive every verified receipt', selected: !!archCfg.enabled }),
+    el('option', { value: '0', text: 'Disabled — on-page receipts only', selected: !archCfg.enabled })
+  );
+
+  const inpArchiveTargetReadOnly = el('input', {
+    type: 'text',
+    value: (rcfg.archive_repo || '') + (rcfg.archive_branch ? ' · ' + rcfg.archive_branch : ' · main'),
+    readOnly: true,
+    style: 'background:#faf3ea;color:var(--muted);cursor:not-allowed'
+  });
+
+  const inpPerReceiptPath = el('input', {
+    type: 'text',
+    value: archCfg.perReceiptPath || DEFAULT_PER_PATH,
+    on: { input: (e) => { stageAttr('receipts.archive.perReceiptPath', e.target.value.trim() || undefined, { silent: true }); previewPerReceiptPath.textContent = examplePath(e.target.value.trim() || DEFAULT_PER_PATH); } }
+  });
+  const previewPerReceiptPath = el('code', { class: 'sub', text: examplePath(archCfg.perReceiptPath || DEFAULT_PER_PATH) });
+
+  const selRollupEnabled = el('select', {
+    on: { change: (e) => stageAttr('receipts.archive.rollup.enabled', e.target.value === '1', { silent: true }) }
+  },
+    el('option', { value: '1', text: 'Enabled — also write a consolidated rollup', selected: rollCfg.enabled !== false }),
+    el('option', { value: '0', text: 'Disabled — per-receipt files only',        selected: rollCfg.enabled === false })
+  );
+  const selRollupPeriod = el('select', {
+    on: { change: (e) => stageAttr('receipts.archive.rollup.period', e.target.value, { silent: true }) }
+  },
+    el('option', { value: 'monthly',   text: 'Monthly',   selected: (rollCfg.period || 'monthly') === 'monthly' }),
+    el('option', { value: 'quarterly', text: 'Quarterly', selected: rollCfg.period === 'quarterly' }),
+    el('option', { value: 'yearly',    text: 'Yearly',    selected: rollCfg.period === 'yearly' })
+  );
+  const inpRollupPath = el('input', {
+    type: 'text',
+    value: rollCfg.path || DEFAULT_ROLLUP_PTH,
+    on: { input: (e) => { stageAttr('receipts.archive.rollup.path', e.target.value.trim() || undefined, { silent: true }); previewRollupPath.textContent = examplePath(e.target.value.trim() || DEFAULT_ROLLUP_PTH, true); } }
+  });
+  const previewRollupPath = el('code', { class: 'sub', text: examplePath(rollCfg.path || DEFAULT_ROLLUP_PTH, true) });
+
+  const selSealLang = el('select', {
+    on: { change: (e) => stageAttr('receipts.seal_language', e.target.value, { silent: true }) }
+  },
+    el('option', { value: 'english',  text: 'English — P.O. 411045',   selected: (rcfg.seal_language || 'english') === 'english' }),
+    el('option', { value: 'marathi',  text: 'Marathi — पो. 411045',    selected: rcfg.seal_language === 'marathi' }),
+    el('option', { value: 'hindi',    text: 'Hindi — पो. 411045',      selected: rcfg.seal_language === 'hindi' })
+  );
+
+  const selTheme = el('select', {
+    on: { change: (e) => stageAttr('receipts.default_theme', e.target.value, { silent: true }) }
+  },
+    el('option', { value: 'default', text: 'Default — letterhead + overlay',                           selected: (rcfg.default_theme || 'default') === 'default' }),
+    el('option', { value: 'minimal', text: 'Minimal — plain A5 (reserved for translations follow-up)', selected: rcfg.default_theme === 'minimal' })
+  );
 
   /* --- Dashboard sub-panel --- */
   const recentN = Number((vm.dashboard && vm.dashboard.recent_n) || 5);
@@ -856,11 +950,20 @@ async function renderAttributes(user, canUsersManage) {
       row('Attach UPI QR image', 'Recommended: upload once here so residents can directly view/save on phone while paying.', qrAttachWrap),
       row('UPI QR image path', 'Optional. Falls back to auto-generated QR from the VPA.', inpQr),
     ),
-    panel('Archive (informational)',
-      'Persistence is handled server-side by the deployed Cloudflare Worker. The Worker holds the GitHub PAT — no credentials are stored in the browser. These fields are informational for operators; changing them locally has no effect until the Worker configuration is updated.',
-      row('Archive repository', 'The archive target committed by the Worker.', inpArchiveRepo),
-      row('Fallback repository', 'Optional secondary target used by the Worker on failure.', inpArchiveFallback),
-      row('Archive branch', 'Usually main.', inpArchiveBranch),
+    panel('Receipts archive',
+      'When a contribution is verified the Worker composes a PDF receipt and pushes it to the private receipts repository. Only Society Managers, Committee and Admins can view archived receipts — residents do not see them. All paths are templates; available placeholders: {eventCode} {eventCodeLower} {receiptId} {id} {year} {month} {day} {yearMonth} {flat} {period} {periodKey}.',
+      row('Enabled', 'If disabled, on-page receipts still work; nothing is pushed to the private repo.', selArchiveEnabled),
+      row('Target repository (from Worker env)', 'Set via GH_ARCHIVE_OWNER / GH_ARCHIVE_REPO / GH_ARCHIVE_BRANCH in wrangler.toml + TVH_ARCHIVE_PAT secret. Displayed read-only here.', inpArchiveTargetReadOnly),
+      row('perReceiptPath', 'Per-receipt PDF location.', el('div', {}, inpPerReceiptPath,
+        el('div', { style: 'margin-top:6px' }, el('small', { class: 'sub', text: 'Example preview: ' }), previewPerReceiptPath)
+      )),
+      row('rollup.enabled', 'Also write a consolidated PDF per period alongside the per-receipt files.', selRollupEnabled),
+      row('rollup.period', 'Granularity of the consolidated rollup.', selRollupPeriod),
+      row('rollup.path', 'Consolidated rollup location.', el('div', {}, inpRollupPath,
+        el('div', { style: 'margin-top:6px' }, el('small', { class: 'sub', text: 'Example preview: ' }), previewRollupPath)
+      )),
+      row('Seal language (default for downloads)', 'Language used for the verified-contribution rubber stamp. Managers see only this default; residents can NOT override per download.', selSealLang),
+      row('Receipt theme (default for downloads)', 'Visual layout used when a resident downloads a receipt. Non-default themes are reserved for the translations follow-up slice.', selTheme),
     ),
     panel('Receipts',
       'Active template drives what the printable receipt looks like. Manage templates in the Receipt templates tab.',

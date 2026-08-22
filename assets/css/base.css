@@ -426,6 +426,17 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 .receipt-stamp-overlay{position:absolute;right:-6px;top:-40px;width:170px;height:170px;background-image:url(../images/TaStampBlue.png);background-repeat:no-repeat;background-size:contain;background-position:center;opacity:.44;transform:rotate(-14deg);z-index:3;pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .receipt-stamp{margin-top:20px;display:flex;justify-content:space-between;align-items:flex-end;gap:14px}
 .receipt-stamp img{width:110px;opacity:.9}
+/* Anti-tamper seal placed *over* the Flat/Unit digit so the value
+ * cannot be altered without disturbing the stamp texture. Kept
+ * intentionally small and rotated slightly so it reads as a
+ * secondary hand-stamp, not a duplicate of the main society seal. */
+.receipt-flat-stamp{
+  position:absolute;left:-16px;top:-18px;
+  width:70px;height:70px;object-fit:contain;
+  opacity:.48;transform:rotate(-11deg);
+  pointer-events:none;z-index:2;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact;
+}
 .receipt-hashgrid{width:64px;height:64px;flex:0 0 64px;border:1px solid var(--line);border-radius:6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .receipt-verify{margin-top:14px;font-size:11px;color:var(--muted);border-top:1px dashed var(--line);padding-top:10px;word-break:break-all}
 .receipt-verify b{color:var(--ink)}

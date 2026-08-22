@@ -86,9 +86,18 @@ async function buildReceiptPdf(r, rec, evt, soc, opts) {
   line('Event', evt ? evt.title : '—');
   line('Purpose', evt ? (evt.purpose || evt.template) : '—');
   line('Contributor', rec.anonymous ? 'Anonymous (record maintained)' : (rec.contributor_name || '—'));
+  /* Capture the Flat row's Y so we can stamp a rubber-seal ring over
+   * it *after* the text renders. Anti-tamper: any digit change to
+   * the flat number visually clashes with the stamp texture. */
+  const flatY = y;
   line('Flat / Unit', rec.anonymous ? '—' : (rec.flat || '—'));
   line('Payment method', rec.method || '—');
   line('Payment reference', rec.ref || '—');
+
+  /* Overlay the anti-tamper stamp ring on the flat cell. Uses a
+   * rotated dashed circle with a shorter inner arc — reads as a
+   * hand-applied stamp without needing to embed an image asset. */
+  drawFlatStamp(doc, 70, flatY - 4);
 
   /* Amount block */
   y += 4;
@@ -137,6 +146,33 @@ async function buildReceiptPdf(r, rec, evt, soc, opts) {
 function pdfFileName(r) {
   const safeId = String(r && r.id || 'receipt').replace(/[^A-Za-z0-9._-]+/g, '_');
   return `receipt_${safeId}.pdf`;
+}
+
+/* Draw a subtle rubber-stamp ring over the given anchor point so the
+ * Flat/Unit digit sits under the seal. Uses jsPDF's vector API — no
+ * image asset needed, PDF stays tiny, and the drawing survives copy-
+ * paste attacks (dashed arcs would smudge under a redraw). */
+function drawFlatStamp(doc, x, y) {
+  const cx = x + 8;
+  const cy = y + 3;
+  const r1 = 9;
+  const r2 = 7;
+  doc.saveGraphicsState();
+  doc.setDrawColor(62, 90, 158);   /* Deep Blue */
+  doc.setLineWidth(0.5);
+  /* Outer ring */
+  doc.circle(cx, cy, r1, 'S');
+  /* Inner ring */
+  doc.circle(cx, cy, r2, 'S');
+  /* Tiny "VERIFIED · TA" text arc — jsPDF has no built-in text-on-path,
+   * so we place the caption horizontally centered inside the ring. */
+  doc.setTextColor(62, 90, 158);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(3.6);
+  doc.text('VERIFIED', cx, cy - 0.6, { align: 'center' });
+  doc.setFontSize(3.2);
+  doc.text('THE ADDRESS', cx, cy + 2.4, { align: 'center' });
+  doc.restoreGraphicsState();
 }
 
 async function downloadReceiptPdf(r, rec, evt, soc, tpl) {
@@ -309,7 +345,7 @@ export async function render(root, { match }) {
       metaRow('Event', (evt ? evt.title : '—')),
       metaRow('Purpose', (evt ? (evt.purpose || evt.template) : '—')),
       metaRow('Contributor', rec.anonymous ? 'Anonymous (record maintained)' : rec.contributor_name),
-      metaRow('Flat / Unit', rec.anonymous ? '—' : (rec.flat || '—')),
+      flatMetaRow(rec.anonymous ? '—' : (rec.flat || '—')),
       metaRow('Payment method', rec.method || '—'),
       metaRow('Payment reference', rec.ref || '—')
     ),
@@ -387,6 +423,24 @@ function microtextLine(id, hash) {
   return chunk.repeat(6);
 }
 function metaRow(k, v) { return el('div', {}, el('small', { text: k }), el('div', {}, el('b', { text: v }))); }
+/* Special flat/unit cell that stamps the society seal *over* the
+ * flat number so a tampering hand cannot alter the digit without
+ * disturbing the stamp texture. Follows the same wet-stamp overlay
+ * pattern already used on the amount block. */
+function flatMetaRow(flat) {
+  return el('div', { class: 'receipt-meta-flat', style: 'position:relative' },
+    el('small', { text: 'Flat / Unit' }),
+    el('div', { style: 'position:relative;display:inline-block' },
+      el('b', { text: flat, style: 'position:relative;z-index:1' }),
+      el('img', {
+        src: 'assets/images/TaStampBlue.png',
+        alt: 'society seal',
+        'aria-hidden': 'true',
+        class: 'receipt-flat-stamp'
+      })
+    )
+  );
+}
 function verifyUrl(id) {
   const base = location.origin + location.pathname.replace(/index\.html$/, '');
   return base + '#/verify/' + encodeURIComponent(id);
