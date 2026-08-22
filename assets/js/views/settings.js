@@ -21,7 +21,7 @@ import { state, cfg, getSociety } from '../store.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { busy } from '../busy.js';
-import { queueAndMaybePushArchive, flushArchiveQueueNow } from '../archive-runtime.js';
+import { queueAndMaybePushArchive, flushArchiveQueueNow, sanitizeForArchive, mergeOverridesWithRemote } from '../archive-runtime.js';
 
 /* ---------- helpers ---------- */
 function pick(obj, path) {
@@ -377,10 +377,13 @@ async function renderAttributes(user, canUsersManage) {
   });
   const inpArchivePat = el('input', {
     type: 'password',
-    value: rcfg.archive_pat || '',
+    value: state.archivePat() || '',
     autocomplete: 'off',
     spellcheck: 'false',
-    on: { input: (e) => stageAttr('receipts.archive_pat', e.target.value.trim(), { silent: true }) },
+    /* PAT stays in the browser secrets bucket. Persist directly to
+     * localStorage — never through the settings draft — so it is
+     * never merged into the JSON we push to the archive repo. */
+    on: { input: (e) => state.saveArchivePat(e.target.value.trim()) },
     placeholder: 'Fine-grained PAT with repo contents read/write'
   });
   const cbArchiveEnabled = el('input', {
@@ -729,20 +732,29 @@ async function renderAttributes(user, canUsersManage) {
       draftReceipts.archive_repo !== undefined ||
       draftReceipts.archive_repo_fallback !== undefined ||
       draftReceipts.archive_branch !== undefined ||
-      draftReceipts.archive_pat !== undefined ||
-      draftArchive.enabled !== undefined
+      draftArchive.enabled !== undefined ||
+      /* PAT changes land in the secrets bucket (never in draft) but
+       * still qualify as archive-config touches for bootstrap. */
+      !!state.archivePat()
     );
     let saveResult = null;
     await runBusy('Saving settings…', async () => {
       const next = mergeDeep(structuredClone(state.societyOverrides() || {}), draft);
       pruneEmpty(next);
       state.saveSocietyOverrides(next);
+      /* Pull the current remote copy and merge OUR local overrides on
+       * top of it so we never overwrite keys another admin or device
+       * set that we don't happen to have locally (prevents the
+       * accidental role-mapping wipe seen in early tests). Then
+       * sanitize to strip secrets before we serialize the payload. */
+      const merged = await mergeOverridesWithRemote(next).catch(() => next);
+      const forRemote = sanitizeForArchive(merged);
       try {
         saveResult = await pushArchiveBatchStrict([
           {
             kind: 'settings',
             path: 'settings/society-overrides.json',
-            content: JSON.stringify(next, null, 2),
+            content: JSON.stringify(forRemote, null, 2),
           }
         ], user.email || user.id || null, `settings: attributes save by ${user.email || user.id || 'unknown'}`, { bootstrapAllowed: archiveConfigTouched });
       } catch (err) {
@@ -922,6 +934,8 @@ async function renderTemplates(user) {
         setAt(o, 'receipts.active_template_id', draftActiveId || undefined);
         pruneEmpty(o);
         state.saveSocietyOverrides(o);
+        const merged = await mergeOverridesWithRemote(o).catch(() => o);
+        const forRemote = sanitizeForArchive(merged);
         try {
           await pushArchiveBatchStrict([
             {
@@ -932,7 +946,7 @@ async function renderTemplates(user) {
             {
               kind: 'settings',
               path: 'settings/society-overrides.json',
-              content: JSON.stringify(o, null, 2),
+              content: JSON.stringify(forRemote, null, 2),
             }
           ], user.email || user.id || null, `settings: templates save by ${user.email || user.id || 'unknown'}`);
         } catch (err) {
@@ -1129,12 +1143,14 @@ async function renderExpensePrefs(user, canAttributes) {
       setAt(o, 'expenses.default_visible_to_residents', draft.default_visible_to_residents ? true : undefined);
       pruneEmpty(o);
       state.saveSocietyOverrides(o);
+      const merged = await mergeOverridesWithRemote(o).catch(() => o);
+      const forRemote = sanitizeForArchive(merged);
       try {
         await pushArchiveBatchStrict([
           {
             kind: 'settings',
             path: 'settings/society-overrides.json',
-            content: JSON.stringify(o, null, 2),
+            content: JSON.stringify(forRemote, null, 2),
           }
         ], user.email || user.id || null, `settings: expense prefs save by ${user.email || user.id || 'unknown'}`);
       } catch (err) {

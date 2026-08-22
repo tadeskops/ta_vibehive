@@ -217,6 +217,39 @@ export const state = {
   },
   saveBugReports(list) { local.set('bug_reports', Array.isArray(list) ? list : []); },
   clearBugReports() { local.remove('bug_reports'); },
+  /* Secrets bucket — kept in a separate localStorage key that is
+   * NEVER included in any archive push. Auto-migrates any legacy
+   * `receipts.archive_pat` that lives in `societyOverrides` (from
+   * older builds) so once an admin loads Settings, the leak is
+   * self-healed. Read via `state.archivePat()`; write via
+   * `state.saveArchivePat(pat)`. */
+  secrets() { return local.get('secrets', {}) || {}; },
+  saveSecrets(o) { local.set('secrets', o && typeof o === 'object' ? o : {}); },
+  archivePat() {
+    const s = local.get('secrets', {}) || {};
+    if (s.archive_pat) return String(s.archive_pat).trim();
+    /* Legacy fallback: read from overrides, then migrate. */
+    const over = local.get('societyOverrides', {}) || {};
+    const legacy = over && over.receipts && over.receipts.archive_pat;
+    if (legacy) {
+      s.archive_pat = String(legacy).trim();
+      local.set('secrets', s);
+      try {
+        delete over.receipts.archive_pat;
+        if (over.receipts && !Object.keys(over.receipts).length) delete over.receipts;
+        local.set('societyOverrides', over);
+      } catch (_e) { /* best-effort */ }
+      return s.archive_pat;
+    }
+    return '';
+  },
+  saveArchivePat(pat) {
+    const s = local.get('secrets', {}) || {};
+    const val = String(pat || '').trim();
+    if (val) s.archive_pat = val;
+    else delete s.archive_pat;
+    local.set('secrets', s);
+  },
   reset() { local.keys().forEach(k => local.remove(k)); },
 };
 

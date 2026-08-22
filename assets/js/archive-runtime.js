@@ -11,6 +11,80 @@
 import { state, getSociety } from './store.js';
 import { pushBatch } from './archive.js';
 
+/** Sanitize an overrides object for archival — strips secrets that
+ *  must never leave the browser. Central so every push flow uses the
+ *  same policy. */
+export function sanitizeForArchive(obj) {
+  if (obj == null || typeof obj !== 'object') return obj;
+  const clone = JSON.parse(JSON.stringify(obj));
+  if (clone.receipts && typeof clone.receipts === 'object') {
+    delete clone.receipts.archive_pat;
+  }
+  return clone;
+}
+
+function mergeDeep(target, src) {
+  if (!src || typeof src !== 'object') return target;
+  for (const [k, v] of Object.entries(src)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      target[k] = mergeDeep(target[k] && typeof target[k] === 'object' ? { ...target[k] } : {}, v);
+    } else if (v !== undefined) {
+      target[k] = v;
+    }
+  }
+  return target;
+}
+
+/** Fetch a JSON file from the configured archive repo. Returns null
+ *  when the file does not exist or archive is not reachable. Used to
+ *  merge remote state with the current local overrides before we
+ *  push, so a fresh browser never overwrites the shared source of
+ *  truth in the archive repo. */
+export async function fetchRemoteJson(path) {
+  const soc = await getSociety().catch(() => null);
+  if (!isArchiveEnabled(soc)) return null;
+  const repoRefs = archiveRepoCandidates(soc);
+  const token = archiveToken(soc);
+  const branch = archiveBranch(soc);
+  if (!repoRefs.length || !token) return null;
+  for (const repoRef of repoRefs) {
+    try {
+      const url = `https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}/contents/${encodeURI(path)}?ref=${encodeURIComponent(branch)}`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        credentials: 'omit',
+      });
+      if (res.status === 404) continue;
+      if (!res.ok) continue;
+      const payload = await res.json();
+      const content = payload && payload.content ? String(payload.content).replace(/\n/g, '') : '';
+      if (!content) return null;
+      const decoded = atob(content);
+      const bytes = Uint8Array.from(decoded, (c) => c.charCodeAt(0));
+      const text = new TextDecoder('utf-8').decode(bytes);
+      try { return JSON.parse(text); } catch (_e) { return null; }
+    } catch (_e) { /* try next repo */ }
+  }
+  return null;
+}
+
+/** Merge the local overrides on top of the remote copy so a partial
+ *  local state never wipes shared config. Returns the merged object
+ *  ready to be sanitized + pushed. */
+export async function mergeOverridesWithRemote(localOverrides, remotePath = 'settings/society-overrides.json') {
+  const remote = await fetchRemoteJson(remotePath).catch(() => null);
+  const localClone = localOverrides && typeof localOverrides === 'object'
+    ? JSON.parse(JSON.stringify(localOverrides))
+    : {};
+  if (!remote || typeof remote !== 'object') return localClone;
+  return mergeDeep(JSON.parse(JSON.stringify(remote)), localClone);
+}
+
 function parseRepo(s) {
   const m = String(s || '').trim().match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
   if (!m) return null;
@@ -45,6 +119,12 @@ function isArchiveEnabled(soc) {
 }
 
 function archiveToken(soc) {
+  /* Secrets bucket first — the PAT lives in `tvh:v1:secrets` and is
+   * NEVER pushed to any repo. Legacy overrides.receipts.archive_pat
+   * is auto-migrated the first time `state.archivePat()` is called
+   * (see store.js). */
+  const fromSecrets = state.archivePat();
+  if (fromSecrets) return fromSecrets;
   const over = state.societyOverrides() || {};
   const overTok = over && over.receipts && over.receipts.archive_pat;
   const baseTok = soc && soc.receipts && soc.receipts.archive_pat;
