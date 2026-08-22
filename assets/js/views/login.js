@@ -1,6 +1,7 @@
 /* Login view.
- * Preferred: real OAuth (Google / Microsoft / Yahoo) via PKCE — one tap
- *   if the user is already signed in with the provider in this browser.
+ * Preferred: real OAuth (Google / Microsoft) via PKCE — one tap if the
+ *   user is already signed in with the provider in this browser. Setup
+ *   guide → docs/AUTH_SETUP.md.
  * Fallback: demo persona picker — used automatically when no provider
  *   has a clientId configured, and always on localhost so contributors
  *   can iterate without an OAuth app registered. */
@@ -41,12 +42,29 @@ export async function render(root, { params }) {
       }, providerGlyph(p), el('span', { text: p.label })))
     );
     parts.push(list);
-    parts.push(el('p', { class: 'sub', style: 'margin-top:10px;font-size:12px', text: 'Redirect URL registered with the provider: ' + redirectUri() }));
+    /* Give admins the copy-paste-ready redirect URI + a link to the
+     * one-time setup guide so a new committee can bring up sign-in
+     * without a developer. Uses the shared `.callout muted` skin so
+     * it reads as helper info, not a warning. */
+    parts.push(el('div', { class: 'callout muted', style: 'margin-top:14px' },
+      el('div', { style: 'flex:1' },
+        el('div', { class: 'lbl', text: 'Provider redirect URI' }),
+        el('code', { class: 'redirect-uri', style: 'display:block;word-break:break-all;background:var(--terra-soft);padding:6px 8px;border-radius:6px;margin:4px 0 8px', text: redirectUri() }),
+        el('small', { class: 'sub', text: 'Paste this exact string into your Google Cloud Console / Microsoft Entra ID console. Setup guide → docs/AUTH_SETUP.md.' })
+      )
+    ));
   } else {
     parts.push(el('div', { class: 'callout gold', style: 'margin-top:12px' },
       el('div', { style: 'flex:1' },
         el('div', { class: 'lbl', text: 'OAuth providers not configured yet' }),
-        el('small', { text: 'Admin: paste a Google / Microsoft / Yahoo OAuth client ID into config/auth.json (or the Admin → Settings tab in the next slice) to enable real sign-in.' })
+        el('small', { text: 'This is a one-time task for the committee. Register the app with Google (and optionally Microsoft), paste the client IDs into ' }),
+        el('code', { text: 'config/auth.json' }),
+        el('small', { text: ', and every resident can then sign in with a single tap. Full step-by-step guide (redirect URIs, consent screen, etc.):' }),
+        el('div', { style: 'margin-top:8px' },
+          el('a', { class: 'btn btn-sm', href: 'docs/AUTH_SETUP.md', target: '_blank', rel: 'noopener' }, 'Open setup guide')
+        ),
+        el('small', { style: 'display:block;margin-top:8px', text: 'Redirect URI to register: ' }),
+        el('code', { class: 'redirect-uri', style: 'display:block;word-break:break-all;background:var(--terra-soft);padding:6px 8px;border-radius:6px;margin-top:4px', text: redirectUri() })
       )
     ));
   }
@@ -73,7 +91,7 @@ export async function render(root, { params }) {
 }
 
 function providerBtnCls(id) {
-  return ({ google: '', microsoft: 'btn-ghost', yahoo: 'btn-sage' })[id] || '';
+  return ({ google: '', microsoft: 'btn-ghost' })[id] || '';
 }
 function providerGlyph(p) {
   return el('span', { class: 'oauth-glyph', text: p.icon || (p.id[0] || '?').toUpperCase() });
