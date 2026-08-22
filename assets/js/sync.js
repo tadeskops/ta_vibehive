@@ -17,7 +17,7 @@
  * viewing work.
  */
 'use strict';
-import { listEvents, listContributions, whoami } from './api.js';
+import { listEvents, listContributions, whoami, readSettings } from './api.js';
 import { state } from './store.js';
 
 let _running = false;
@@ -61,6 +61,20 @@ export async function syncFromWorker() {
     if (Array.isArray(events)) {
       state.saveEvents(events);
     }
+
+    /* Hydrate society-overrides cache — the Worker holds the
+     * authoritative role-mapping / attributes doc. Without this,
+     * saving from a fresh browser (empty local overrides) would
+     * silently clobber server-side edits made from another device
+     * (real bug seen 2026-08-22: role emails vanished after
+     * sign-out + clear-history + sign-in). Requires an authenticated
+     * caller; anonymous callers get 401 and we keep local cache. */
+    try {
+      const settings = await readSettings();
+      if (settings && settings.overrides && typeof settings.overrides === 'object') {
+        state.saveSocietyOverrides(settings.overrides);
+      }
+    } catch (_e) { /* anonymous / offline — keep local cache */ }
 
     /* Hydrate contributions cache — only meaningful when signed in
      * (Worker returns 401 for anonymous). Merges server records with

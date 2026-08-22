@@ -21,7 +21,7 @@ import { state, cfg, getSociety } from '../store.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { busy } from '../busy.js';
-import { queueAndMaybePushArchive, flushArchiveQueueNow, sanitizeForArchive, mergeOverridesWithRemote } from '../archive-runtime.js';
+import { queueAndMaybePushArchive, flushArchiveQueueNow, sanitizeForArchive } from '../archive-runtime.js';
 import * as api from '../api.js';
 
 /* ---------- helpers ---------- */
@@ -70,6 +70,28 @@ function mergeDeep(target, src) {
     }
   }
   return target;
+}
+/**
+ * Fetch the current server-side overrides through the Worker and merge
+ * our local `overrides` on top. Guarantees the payload we push never
+ * accidentally wipes a key another admin (or the same admin on another
+ * device) already committed. Replaces the older PAT-based
+ * `mergeOverridesWithRemote` for every call site that owns a settings
+ * save. Falls back to `overrides` unchanged when the Worker read
+ * fails (anonymous / offline).
+ */
+async function mergeOverridesWithWorker(overrides) {
+  const localClone = overrides && typeof overrides === 'object'
+    ? JSON.parse(JSON.stringify(overrides))
+    : {};
+  try {
+    const remote = await api.readSettings();
+    const remoteDoc = remote && remote.overrides;
+    if (!remoteDoc || typeof remoteDoc !== 'object') return localClone;
+    return mergeDeep(JSON.parse(JSON.stringify(remoteDoc)), localClone);
+  } catch (_e) {
+    return localClone;
+  }
 }
 function slugId(prefix) {
   return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
@@ -747,7 +769,7 @@ async function renderAttributes(user, canUsersManage) {
        * set that we don't happen to have locally (prevents the
        * accidental role-mapping wipe seen in early tests). Then
        * sanitize to strip secrets before we serialize the payload. */
-      const merged = await mergeOverridesWithRemote(next).catch(() => next);
+      const merged = await mergeOverridesWithWorker(next);
       const forRemote = sanitizeForArchive(merged);
       try {
         saveResult = await pushArchiveBatchStrict([
@@ -928,7 +950,7 @@ async function renderTemplates(user) {
         setAt(o, 'receipts.active_template_id', draftActiveId || undefined);
         pruneEmpty(o);
         state.saveSocietyOverrides(o);
-        const merged = await mergeOverridesWithRemote(o).catch(() => o);
+        const merged = await mergeOverridesWithWorker(o);
         const forRemote = sanitizeForArchive(merged);
         try {
           await pushArchiveBatchStrict([
@@ -1137,7 +1159,7 @@ async function renderExpensePrefs(user, canAttributes) {
       setAt(o, 'expenses.default_visible_to_residents', draft.default_visible_to_residents ? true : undefined);
       pruneEmpty(o);
       state.saveSocietyOverrides(o);
-      const merged = await mergeOverridesWithRemote(o).catch(() => o);
+      const merged = await mergeOverridesWithWorker(o);
       const forRemote = sanitizeForArchive(merged);
       try {
         await pushArchiveBatchStrict([
