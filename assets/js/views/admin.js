@@ -74,7 +74,7 @@ async function renderFeatures(user) {
   for (const cluster of cat.clusters) {
     const feats = cat.features.filter(f => f.cluster === cluster.id);
     if (!feats.length) continue;
-    const panel = el('div', { class: 'panel' }, el('h3', { text: cluster.label }));
+    const rows = [];
     for (const f of feats) {
       const on = await isSystemOn(f.id);
       const toggle = el('button', { type: 'button', class: 'toggle' + (on ? ' on' : ''), 'aria-label': 'toggle', title: 'Toggle ' + f.label });
@@ -85,7 +85,7 @@ async function renderFeatures(user) {
         await setSystemOverride(f.id, now, user);
         toast(`${f.label}: ${now ? 'ON' : 'OFF'}`, 'ok');
       });
-      panel.append(el('div', { class: 'feature-row' },
+      rows.push(el('div', { class: 'feature-row' },
         el('div', {},
           el('div', { class: 'name', text: f.label }),
           el('small', { text: `id: ${f.id} · scope: ${f.scope}${(f.depends_on || []).length ? ' · needs: ' + f.depends_on.join(', ') : ''}` })
@@ -93,7 +93,7 @@ async function renderFeatures(user) {
         toggle
       ));
     }
-    container.append(panel);
+    container.append(collapsiblePanel(cluster.label, `${feats.length} feature${feats.length === 1 ? '' : 's'} in this cluster.`, rows));
   }
   return container;
 }
@@ -460,37 +460,29 @@ async function renderSettings(user) {
   refreshMeta();
 
   return mount(container,
-    el('div', { class: 'panel' },
-      el('h3', { text: 'Society identity (read-only)' }),
+    collapsiblePanel('Society identity (read-only)', null, [
       kv('Legal name', shipped.legal_name),
       kv('English name', shipped.english_name),
       kv('Registration', shipped.reg_no + ' · ' + fmtDate(shipped.reg_date)),
       kv('Location', shipped.location),
       kv('Total flats', String(shipped.total_flats)),
       el('p', { class: 'sub', style: 'margin-top:8px', text: 'Identity fields ship in config/society.json. Changes there are git-tracked so the change record is auditable.' })
-    ),
-    el('div', { class: 'panel' },
-      el('h3', { text: 'Receipts archive · Admin only' }),
-      el('p', { class: 'sub', text: 'Where verified receipts/history/report snapshots are pushed for long-term storage. Must be a private GitHub repo owned by the society. Format: owner/name.' }),
+    ]),
+    collapsiblePanel('Receipts archive · Admin only', 'Where verified receipts/history/report snapshots are pushed for long-term storage. Must be a private GitHub repo owned by the society. Format: owner/name.', [
       labeledField(inputs['receipts.archive_repo'].label, inputs['receipts.archive_repo'].input, `Effective: ${effective.receipts && effective.receipts.archive_repo || '(not set)'} · ${overrides.receipts && overrides.receipts.archive_repo ? 'overridden by admin' : 'from shipped defaults'}`),
       labeledField(inputs['receipts.archive_branch'].label, inputs['receipts.archive_branch'].input, 'Git branch to write commits into (default: main).'),
       labeledField(inputs['receipts.archive_pat'].label, inputs['receipts.archive_pat'].input, 'Fine-grained PAT with Contents Read+Write to the archive repo.'),
       labeledField(inputs['receipts.watermark_asset'].label, inputs['receipts.watermark_asset'].input, 'Rendered behind receipt text.'),
-      labeledField(inputs['receipts.stamp_asset'].label,     inputs['receipts.stamp_asset'].input,     'Corner stamp on the receipt.'),
-    ),
-    el('div', { class: 'panel' },
-      el('h3', { text: 'Contact addresses' }),
+      labeledField(inputs['receipts.stamp_asset'].label,     inputs['receipts.stamp_asset'].input,     'Corner stamp on the receipt.')
+    ]),
+    collapsiblePanel('Contact addresses', null, [
       labeledField(inputs['contact.chairman'].label, inputs['contact.chairman'].input, 'Used on receipts and notifications.'),
-      labeledField(inputs['contact.manager'].label,  inputs['contact.manager'].input,  'On-site manager reply-to.'),
-    ),
-    el('div', { class: 'panel' },
-      el('h3', { text: 'Draft & archive queue' }),
-      el('p', { class: 'sub', text: 'Every keystroke above is cached as a draft. "Save all" writes overrides + audit in one atomic step. Receipt/history/report records attempt an immediate push to the archive repo; if it fails, entries stay in outbox and can be retried with flush.' }),
-      el('div', { class: 'row', style: 'gap:8px;margin-top:6px' }, draftCount, dirtyPill, outboxCount)
-    ),
-    el('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap' },
-      saveBtn, discardBtn, flushBtn, resetBtn
-    )
+      labeledField(inputs['contact.manager'].label,  inputs['contact.manager'].input,  'On-site manager reply-to.')
+    ]),
+    collapsiblePanel('Draft & archive queue', 'Every keystroke above is cached as a draft. "Save all" writes overrides + audit in one atomic step. Receipt/history/report records attempt an immediate push to the archive repo; if it fails, entries stay in outbox and can be retried with flush.', [
+      el('div', { class: 'row', style: 'gap:8px;margin-top:6px' }, draftCount, dirtyPill, outboxCount),
+      el('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap;margin-top:10px' }, saveBtn, discardBtn, flushBtn, resetBtn)
+    ], false)
   );
 }
 

@@ -47,6 +47,27 @@ function pruneEmpty(o) {
   }
   return o;
 }
+function flatKeys(obj, prefix = '') {
+  const out = [];
+  if (!obj || typeof obj !== 'object') return out;
+  for (const [k, v] of Object.entries(obj)) {
+    const p = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === 'object' && !Array.isArray(v)) out.push(...flatKeys(v, p));
+    else if (v != null && v !== '') out.push(p);
+  }
+  return out;
+}
+function mergeDeep(target, src) {
+  if (!src || typeof src !== 'object') return target;
+  for (const [k, v] of Object.entries(src)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      target[k] = mergeDeep(target[k] && typeof target[k] === 'object' ? { ...target[k] } : {}, v);
+    } else if (v !== undefined) {
+      target[k] = v;
+    }
+  }
+  return target;
+}
 function slugId(prefix) {
   return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
 }
@@ -171,6 +192,8 @@ export async function render(root, { match }) {
 async function renderAttributes(user, canUsersManage) {
   const soc = await getSociety();
   const overrides = state.societyOverrides() || {};
+  let draft = structuredClone(state.settingsDraft() || {});
+  const vm = mergeDeep(structuredClone(soc || {}), structuredClone(draft || {}));
   const templates = state.receiptTemplates() || [];
   const users = state.users() || [];
   const roleCfg = await cfg.roles();
@@ -178,15 +201,44 @@ async function renderAttributes(user, canUsersManage) {
     .map(r => ({ id: String(r.id || '').trim().toLowerCase(), label: String(r.label || r.id || '').trim() }))
     .filter(r => r.id && r.label);
 
-  /* Small helper — save a single dotted-path attribute back into
-   * societyOverrides. Toast is optional (spammy for range inputs). */
-  function saveAttr(path, value, opts) {
-    const o = state.societyOverrides() || {};
-    setAt(o, path, value);
-    pruneEmpty(o);
-    state.saveSocietyOverrides(o);
-    state.audit({ actor: user.email, action: 'settings.attribute', detail: path + '=' + JSON.stringify(value) });
-    if (!opts || !opts.silent) toast('Saved', 'ok');
+  function clearAtPath(obj, path) {
+    const parts = path.split('.');
+    const stack = [];
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const k = parts[i];
+      if (!cur || typeof cur !== 'object' || !(k in cur)) return;
+      stack.push([cur, k]);
+      cur = cur[k];
+    }
+    if (!cur || typeof cur !== 'object') return;
+    delete cur[parts[parts.length - 1]];
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const [parent, key] = stack[i];
+      if (parent[key] && typeof parent[key] === 'object' && !Array.isArray(parent[key]) && !Object.keys(parent[key]).length) {
+        delete parent[key];
+      }
+    }
+  }
+
+  const unsavedPill = el('span', { class: 'pill pill-muted', text: '' });
+  const livePill = el('span', { class: 'pill pill-muted', text: '' });
+  function refreshDraftMeta() {
+    const unsavedKeys = flatKeys(draft).length;
+    const liveKeys = flatKeys(overrides).length;
+    unsavedPill.textContent = unsavedKeys ? `${unsavedKeys} unsaved` : 'no unsaved edits';
+    unsavedPill.className = 'pill ' + (unsavedKeys ? 'pill-gold' : 'pill-muted');
+    livePill.textContent = liveKeys ? `${liveKeys} override${liveKeys === 1 ? '' : 's'} live` : 'shipped defaults';
+    livePill.className = 'pill ' + (liveKeys ? 'pill-sage' : 'pill-muted');
+  }
+
+  function stageAttr(path, value, opts) {
+    if (value === undefined || value === null || value === '') clearAtPath(draft, path);
+    else setAt(draft, path, value);
+    pruneEmpty(draft);
+    state.saveSettingsDraft(draft);
+    refreshDraftMeta();
+    if (!opts || !opts.silent) toast('Staged', 'ok');
   }
 
   const panel = (title, hint, ...rows) => el('div', { class: 'panel' },
@@ -212,38 +264,38 @@ async function renderAttributes(user, canUsersManage) {
 
   /* --- Branding sub-panel --- */
   const inpShort = el('input', {
-    type: 'text', value: soc.short_name || '',
-    on: { change: (e) => saveAttr('short_name', e.target.value.trim()) },
+    type: 'text', value: vm.short_name || '',
+    on: { change: (e) => stageAttr('short_name', e.target.value.trim()) },
     placeholder: 'e.g. The Address'
   });
   const inpLoc = el('input', {
-    type: 'text', value: soc.location || '',
-    on: { change: (e) => saveAttr('location', e.target.value.trim()) },
+    type: 'text', value: vm.location || '',
+    on: { change: (e) => stageAttr('location', e.target.value.trim()) },
     placeholder: 'e.g. Baner, Pune'
   });
   const inpIg = el('input', {
-    type: 'url', value: (soc.social && soc.social.instagram) || '',
-    on: { change: (e) => saveAttr('social.instagram', e.target.value.trim()) },
+    type: 'url', value: (vm.social && vm.social.instagram) || '',
+    on: { change: (e) => stageAttr('social.instagram', e.target.value.trim()) },
     placeholder: 'https://www.instagram.com/…'
   });
   /* Handle text shown alongside the Instagram link (e.g. "@theaddress_society")
    * — read/written to `social.label` so header + footer pills update. */
   const inpIgHandle = el('input', {
-    type: 'text', value: (soc.social && soc.social.label) || '',
-    on: { change: (e) => saveAttr('social.label', e.target.value.trim()) },
+    type: 'text', value: (vm.social && vm.social.label) || '',
+    on: { change: (e) => stageAttr('social.label', e.target.value.trim()) },
     placeholder: '@theaddress_society'
   });
 
   /* --- Payment sub-panel --- */
-  const pay = (soc && soc.payment) || {};
+  const pay = (vm && vm.payment) || {};
   const inpVpa = el('input', {
     type: 'text', value: pay.upi_vpa || '',
-    on: { change: (e) => saveAttr('payment.upi_vpa', e.target.value.trim()) },
+    on: { change: (e) => stageAttr('payment.upi_vpa', e.target.value.trim()) },
     placeholder: 'e.g. theaddress@hdfcbank'
   });
   const inpQr = el('input', {
     type: 'text', value: pay.qr_asset_url || '',
-    on: { change: (e) => saveAttr('payment.qr_asset_url', e.target.value.trim()) },
+    on: { change: (e) => stageAttr('payment.qr_asset_url', e.target.value.trim()) },
     placeholder: 'assets/images/upi-qr.png (optional)'
   });
   let qrDataUrl = (pay.qr_data_url || '').trim();
@@ -267,8 +319,8 @@ async function renderAttributes(user, canUsersManage) {
       qrPreview.src = next;
       qrPreview.style.display = 'block';
       qrStatus.textContent = `Attached ${f.name} · ~${Math.round((next.length * 0.75) / 1024)} KB (re-encoded)`;
-      saveAttr('payment.qr_data_url', next, { silent: true });
-      toast('QR attached', 'ok');
+      stageAttr('payment.qr_data_url', next, { silent: true });
+      toast('QR staged', 'ok');
     } catch (e) {
       qrInp.value = '';
       qrStatus.textContent = e.message || 'Could not attach that file.';
@@ -282,90 +334,91 @@ async function renderAttributes(user, canUsersManage) {
     qrPreview.src = '';
     qrPreview.style.display = 'none';
     qrStatus.textContent = 'Attached QR removed. Asset path fallback (if set) will be used.';
-    saveAttr('payment.qr_data_url', undefined, { silent: true });
-    toast('Attached QR removed', 'ok');
+    stageAttr('payment.qr_data_url', undefined, { silent: true });
+    toast('Attached QR removal staged', 'ok');
   });
   const qrAttachWrap = el('div', {}, qrInp, qrStatus, qrPreview, el('div', { style: 'margin-top:8px' }, qrRemoveBtn));
 
   /* --- Receipt sub-panel — active template picker --- */
-  const activeId = pick(overrides, 'receipts.active_template_id') || '';
+  const activeId = pick(vm, 'receipts.active_template_id') || '';
   const tplSelect = el('select', {
-    on: { change: (e) => saveAttr('receipts.active_template_id', e.target.value || undefined) }
+    on: { change: (e) => stageAttr('receipts.active_template_id', e.target.value || undefined) }
   },
     el('option', { value: '', text: '— Default (shipped template) —', selected: !activeId }),
     ...templates.map(t => el('option', { value: t.id, text: t.name || t.id, selected: t.id === activeId }))
   );
   const inpPrefix = el('input', {
-    type: 'text', value: (soc.receipts && soc.receipts.prefix) || 'TA',
+    type: 'text', value: (vm.receipts && vm.receipts.prefix) || 'TA',
     maxlength: 6,
-    on: { change: (e) => saveAttr('receipts.prefix', e.target.value.trim().toUpperCase().slice(0, 6)) },
+    on: { change: (e) => stageAttr('receipts.prefix', e.target.value.trim().toUpperCase().slice(0, 6)) },
     placeholder: 'TA'
   });
 
   /* --- Dashboard sub-panel --- */
-  const recentN = Number((soc.dashboard && soc.dashboard.recent_n) || 5);
+  const recentN = Number((vm.dashboard && vm.dashboard.recent_n) || 5);
   const selRecent = el('select', {
-    on: { change: (e) => saveAttr('dashboard.recent_n', Number(e.target.value)) }
+    on: { change: (e) => stageAttr('dashboard.recent_n', Number(e.target.value)) }
   },
     ...[5, 10, 20, 50].map(n => el('option', { value: n, text: n + ' rows', selected: n === recentN }))
   );
 
   /* --- Event flow sub-panel — approval toggle --- */
-  const requireApproval = !!(soc.events && soc.events.require_approval);
+  const requireApproval = !!(vm.events && vm.events.require_approval);
   const cbApproval = el('input', {
     type: 'checkbox', checked: requireApproval,
-    on: { change: (e) => saveAttr('events.require_approval', e.target.checked ? true : undefined) }
+    on: { change: (e) => stageAttr('events.require_approval', e.target.checked ? true : undefined) }
   });
 
   /* --- Contribution defaults sub-panel --- */
-  const defAnon = !!(soc.contributions && soc.contributions.default_anonymous);
+  const defAnon = !!(vm.contributions && vm.contributions.default_anonymous);
   const cbAnon = el('input', {
     type: 'checkbox', checked: defAnon,
-    on: { change: (e) => saveAttr('contributions.default_anonymous', e.target.checked ? true : undefined) }
+    on: { change: (e) => stageAttr('contributions.default_anonymous', e.target.checked ? true : undefined) }
   });
-  const defHide = !!(soc.contributions && soc.contributions.default_hide_amount);
+  const defHide = !!(vm.contributions && vm.contributions.default_hide_amount);
   const cbHide = el('input', {
     type: 'checkbox', checked: defHide,
-    on: { change: (e) => saveAttr('contributions.default_hide_amount', e.target.checked ? true : undefined) }
+    on: { change: (e) => stageAttr('contributions.default_hide_amount', e.target.checked ? true : undefined) }
   });
 
   /* --- Desktop footer visibility controls --- */
-  const showFooterSocial = !!(((soc.footer || {}).desktop || {}).show_social);
-  const showFooterBug = !!(((soc.footer || {}).desktop || {}).show_bug_report);
-  const showFooterVerify = !!((soc.navigation || {}).show_verify);
-  const showFooterBrandSource = !!(((soc.footer || {}).desktop || {}).show_brand_source);
-  const showFooterBrandBuild = !!(((soc.footer || {}).desktop || {}).show_brand_build);
+  const showFooterSocial = !!(((vm.footer || {}).desktop || {}).show_social);
+  const showFooterBug = !!(((vm.footer || {}).desktop || {}).show_bug_report);
+  const showFooterVerify = !!((vm.navigation || {}).show_verify);
+  const showFooterBrandSource = !!(((vm.footer || {}).desktop || {}).show_brand_source);
+  const showFooterBrandBuild = !!(((vm.footer || {}).desktop || {}).show_brand_build);
   const cbFootSocial = el('input', {
     type: 'checkbox', checked: showFooterSocial,
-    on: { change: (e) => saveAttr('footer.desktop.show_social', e.target.checked ? true : undefined) }
+    on: { change: (e) => stageAttr('footer.desktop.show_social', e.target.checked ? true : undefined) }
   });
   const cbFootBug = el('input', {
     type: 'checkbox', checked: showFooterBug,
-    on: { change: (e) => saveAttr('footer.desktop.show_bug_report', e.target.checked ? true : undefined) }
+    on: { change: (e) => stageAttr('footer.desktop.show_bug_report', e.target.checked ? true : undefined) }
   });
   const cbFootVerify = el('input', {
     type: 'checkbox', checked: showFooterVerify,
-    on: { change: (e) => saveAttr('navigation.show_verify', e.target.checked ? true : undefined) }
+    on: { change: (e) => stageAttr('navigation.show_verify', e.target.checked ? true : undefined) }
   });
   const cbFootBrandSource = el('input', {
     type: 'checkbox', checked: showFooterBrandSource,
-    on: { change: (e) => saveAttr('footer.desktop.show_brand_source', e.target.checked ? true : undefined) }
+    on: { change: (e) => stageAttr('footer.desktop.show_brand_source', e.target.checked ? true : undefined) }
   });
   const cbFootBrandBuild = el('input', {
     type: 'checkbox', checked: showFooterBrandBuild,
-    on: { change: (e) => saveAttr('footer.desktop.show_brand_build', e.target.checked ? true : undefined) }
+    on: { change: (e) => stageAttr('footer.desktop.show_brand_build', e.target.checked ? true : undefined) }
   });
 
   /* --- Resident email governance (gmail only for now) --- */
-  const currentAllowed = (((soc.residents || {}).allowed_gmail) || []).slice();
+  const currentAllowed = (((vm.residents || {}).allowed_gmail) || []).slice();
   const allowedSet = new Set(currentAllowed.map(v => String(v || '').trim().toLowerCase()).filter(Boolean));
   const gmailOnly = (v) => /^[a-z0-9._%+-]+@gmail\.com$/i.test(String(v || '').trim());
   const canEditRoleMap = !!canUsersManage;
   const canEditAdminRoleMap = user.role === 'admin';
   const roleIds = roleDefs.map(r => r.id);
-  const roleMap = ((((overrides || {}).access || {}).email_roles) || {});
-  const roleEmailsRaw = ((((overrides || {}).access || {}).role_emails) || {});
-  const tierRaw = ((((overrides || {}).access || {}).role_tiers) || []);
+  const accessCfg = (((vm || {}).access) || {});
+  const roleMap = ((accessCfg.email_roles) || {});
+  const roleEmailsRaw = ((accessCfg.role_emails) || {});
+  const tierRaw = ((accessCfg.role_tiers) || []);
   const defaultTiers = roleDefs.map((r, i) => ({
     id: r.id,
     label: r.label,
@@ -516,7 +569,7 @@ async function renderAttributes(user, canUsersManage) {
   });
   const btnAddBulk = el('button', { class: 'btn btn-sm', type: 'button' }, 'Parse and add');
   const btnClearAllowed = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Clear list');
-  const btnSaveRoleMap = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: !canEditRoleMap }, 'Save role mapping');
+  const btnSaveRoleMap = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: !canEditRoleMap }, 'Stage role mapping');
   btnSaveRoleMap.addEventListener('click', () => {
     if (!canEditRoleMap) {
       toast('Only Admin, Secretary, and Management Committee can edit role mappings.', 'warn');
@@ -569,16 +622,12 @@ async function renderAttributes(user, canUsersManage) {
       if (!nextRoleEmails[k].length) delete nextRoleEmails[k];
     });
 
-    const o = state.societyOverrides() || {};
-    setAt(o, 'access.role_tiers', normalizedTiers.length ? normalizedTiers : undefined);
-    setAt(o, 'access.role_emails', Object.keys(nextRoleEmails).length ? nextRoleEmails : undefined);
-    setAt(o, 'access.email_roles', Object.keys(nextEmailRoles).length ? nextEmailRoles : undefined);
-    pruneEmpty(o);
-    state.saveSocietyOverrides(o);
-    state.audit({ actor: user.email, action: 'settings.role_map.save', detail: `tiers=${normalizedTiers.length};roles=${Object.keys(nextRoleEmails).length};emails=${Object.keys(nextEmailRoles).length}` });
+    stageAttr('access.role_tiers', normalizedTiers.length ? normalizedTiers : undefined, { silent: true });
+    stageAttr('access.role_emails', Object.keys(nextRoleEmails).length ? nextRoleEmails : undefined, { silent: true });
+    stageAttr('access.email_roles', Object.keys(nextEmailRoles).length ? nextEmailRoles : undefined, { silent: true });
 
     const total = Object.keys(nextEmailRoles).length;
-    toast(`Saved ${total} mapped email ID(s)${invalid ? `, skipped ${invalid} invalid` : ''}${duplicate ? `, skipped ${duplicate} duplicate` : ''}.`, total ? 'ok' : 'warn');
+    toast(`Staged ${total} mapped email ID(s)${invalid ? `, skipped ${invalid} invalid` : ''}${duplicate ? `, skipped ${duplicate} duplicate` : ''}. Click Save all settings changes.`, total ? 'ok' : 'warn');
   });
   btnAddBulk.addEventListener('click', () => {
     const raw = String(taEmailBulk.value || '');
@@ -597,7 +646,7 @@ async function renderAttributes(user, canUsersManage) {
       }
     }
     const next = Array.from(allowedSet).sort();
-    saveAttr('residents.allowed_gmail', next.length ? next : undefined, { silent: true });
+    stageAttr('residents.allowed_gmail', next.length ? next : undefined, { silent: true });
     taEmailBulk.value = '';
     allowedPreview.textContent = `${next.length} verified resident email(s) configured.`;
     toast(`Added ${good} gmail ID(s)${bad ? `, skipped ${bad} invalid/non-gmail` : ''}.`, good ? 'ok' : 'warn');
@@ -605,7 +654,7 @@ async function renderAttributes(user, canUsersManage) {
   btnClearAllowed.addEventListener('click', () => {
     if (!confirm('Clear all verified resident emails?')) return;
     allowedSet.clear();
-    saveAttr('residents.allowed_gmail', undefined, { silent: true });
+    stageAttr('residents.allowed_gmail', undefined, { silent: true });
     allowedPreview.textContent = 'No verified resident emails configured yet.';
     toast('Verified resident email list cleared.', 'ok');
   });
@@ -618,6 +667,38 @@ async function renderAttributes(user, canUsersManage) {
     }))
     .filter(r => r.email)
     .sort((a, b) => a.email.localeCompare(b.email));
+
+  const saveAllBtn = el('button', { class: 'btn', type: 'button' }, 'Save all settings changes');
+  saveAllBtn.addEventListener('click', () => {
+    if (!flatKeys(draft).length) {
+      toast('No staged settings changes.', 'warn');
+      return;
+    }
+    const next = mergeDeep(structuredClone(state.societyOverrides() || {}), draft);
+    pruneEmpty(next);
+    state.saveSocietyOverrides(next);
+    state.audit({ actor: user.email, action: 'settings.attributes.save_all', detail: flatKeys(draft).join(',') });
+    state.clearSettingsDraft();
+    draft = {};
+    refreshDraftMeta();
+    toast('Settings saved in one consolidated write.', 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  });
+
+  const discardDraftBtn = el('button', { class: 'btn btn-ghost', type: 'button' }, 'Discard staged changes');
+  discardDraftBtn.addEventListener('click', () => {
+    if (!flatKeys(draft).length) {
+      toast('No staged settings changes.', 'warn');
+      return;
+    }
+    state.clearSettingsDraft();
+    draft = {};
+    refreshDraftMeta();
+    toast('Staged settings draft discarded.', 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  });
+
+  refreshDraftMeta();
 
   return el('div', {},
     panel('Society branding',
@@ -698,6 +779,11 @@ async function renderAttributes(user, canUsersManage) {
             : [el('tr', {}, el('td', { colspan: 3, text: 'No signed-in users yet.', style: 'text-align:center;color:var(--muted)' }))]))
         )
       )
+    ),
+    panel('Pending settings changes',
+      'Edits in this tab are staged first. Save once to publish all changes together.',
+      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, unsavedPill, livePill),
+      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:10px' }, saveAllBtn, discardDraftBtn)
     )
   );
 }

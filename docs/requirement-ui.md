@@ -95,6 +95,7 @@ Core UI files:
 
 Implemented:
 - Society settings page with grouped sections (branding, payment, receipts, dashboard, event flow, privacy defaults).
+- Attributes-tab changes are staged first and applied through one consolidated "Save all settings changes" action.
 - Desktop footer visibility toggles.
 - Footer brand-row chips (`source` and build/version tag) are configurable and default to hidden, leaving only society brand text visible.
 - Resident email governance tools:
@@ -112,7 +113,7 @@ Core UI files:
 ## 7) Admin UX
 
 Implemented:
-- Grid/table-heavy sections in Admin (roles, permission matrix, users, audit, bug reports) are collapsed by default.
+- Grid/table-heavy sections in Admin (feature clusters, roles, permission matrix, users, audit, bug reports, admin settings panels) are collapsed by default.
 - Sections expand inline without navigation, preserving existing permissions.
 - Roles and permissions presentation is transposed to role-first cards for readability on narrow screens.
 

@@ -59,6 +59,7 @@ Implemented:
 - Role-to-email mapping supports one-or-more email IDs per role.
 - TSH-style access-tier lists are supported in Settings (add/remove tier, tier label, rank, base-role profile, assigned emails).
 - Backward-compatible email-to-role index is maintained for runtime lookup.
+- Attributes-tab settings edits are staged and committed through one consolidated "Save all settings changes" action.
 - Governance guardrails:
   - Admin can add/remove/modify mappings for all roles.
   - Secretary and Management Committee can add/remove/modify mappings for non-admin roles.
@@ -168,7 +169,7 @@ Not included in this implemented-state document:
 ## 12) Admin and Settings Dense Grid Defaults
 
 Implemented:
-- Grid-heavy sections in Admin are rendered as collapsible panels and start collapsed by default.
+- Grid-heavy sections in Admin are rendered as collapsible panels and start collapsed by default (including Feature registry clusters and Admin settings sections).
 - Resident email governance grid section in Settings starts collapsed by default.
 - Sections remain expandable on demand without changing role/permission behavior.
 - Roles and permission matrix in Admin are rendered in transposed role-first form for improved readability.
