@@ -34,12 +34,28 @@ export async function render(root) {
   };
   const all = state.events().slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
   const myEmail = user && user.email;
+  const myId = user && user.id;
+  /* Owner check: an event is "mine" when I proposed it OR when I
+   * created it. Compare against both id and email so events survive
+   * a role change (e.g. the account that created a draft as admin
+   * later signs in via Google and provisions as resident). */
+  const isMine = (e) => {
+    if (!e) return false;
+    const owners = [e.created_by, e.proposed_by, e.approved_by].map(v => String(v || '').toLowerCase());
+    const meVals = [String(myId || '').toLowerCase(), String(myEmail || '').toLowerCase()].filter(Boolean);
+    return owners.some(o => o && meVals.includes(o));
+  };
+  const publicList = publicEvents();
   const events = canSeeAll
     ? all
-    : [
-      ...publicEvents(),
-      ...all.filter(e => norm(e.status) === STATUS.REVIEW && myEmail && e.proposed_by === myEmail)
-    ];
+    : dedupe([
+      ...publicList,
+      /* My drafts / reviews / archived — always visible to the owner
+       * regardless of their current role. Prevents the "events
+       * disappear after sign-in" bug when a creator's role downgrades
+       * (e.g. admin persona → Google resident sign-in). */
+      ...all.filter(e => isMine(e)),
+    ]);
 
   const head = el('div', { class: 'row row-between', style: 'margin-bottom:18px' },
     el('div', {},
@@ -76,6 +92,16 @@ export async function render(root) {
     el('h3', { text: 'No events yet.' }),
     el('p', { class: 'sub', text: canCreate ? 'Click "New event" to pick a template.' : 'Ask a committee member to create the first event.' })
   ));
+
+  /* Non-admin roles that have some events in storage but none matching
+   * their filter: gently confirm data is intact so they don't think
+   * their events "disappeared" after a role change or sign-out cycle. */
+  if (!canSeeAll && !events.length && all.length) {
+    sections.push(el('div', { class: 'card card-pad', style: 'margin-top:16px' },
+      el('h3', { text: 'Some events are hidden with your current role' }),
+      el('p', { class: 'sub', text: `${all.length} event(s) are on record but only Published / Closed events (or ones you created / proposed) are visible for your role. Sign in with the account that created them to see the full pipeline.` })
+    ));
+  }
 
   mount(root, head, ...sections);
 
@@ -131,6 +157,18 @@ function groupBy(items, keyFn) {
     map.get(k).push(it);
   }
   return map;
+}
+
+function dedupe(items) {
+  const seen = new Set();
+  const out = [];
+  for (const it of items) {
+    if (!it || !it.id) continue;
+    if (seen.has(it.id)) continue;
+    seen.add(it.id);
+    out.push(it);
+  }
+  return out;
 }
 
 async function openTemplatePicker(user, opts) {
