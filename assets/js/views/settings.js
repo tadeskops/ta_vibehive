@@ -22,6 +22,7 @@ import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { busy } from '../busy.js';
 import { queueAndMaybePushArchive, flushArchiveQueueNow, sanitizeForArchive, mergeOverridesWithRemote } from '../archive-runtime.js';
+import * as api from '../api.js';
 
 /* ---------- helpers ---------- */
 function pick(obj, path) {
@@ -99,31 +100,30 @@ function archiveErrorText(res) {
   return 'Archive push failed.';
 }
 
-async function pushArchiveBatchStrict(entries, actor, message, opts) {
-  for (const e of entries) {
-    await queueAndMaybePushArchive(e, { actor, immediate: false, message });
+/**
+ * Persist a batch of settings entries through the Worker. Entries with
+ * `path === 'settings/society-overrides.json'` are written via
+ * `api.writeSettings`. Other paths (e.g. receipt templates) are skipped
+ * for now — they remain in local cache until a follow-up slice adds a
+ * dedicated Worker route. Returns { ok, bootstrapped, reason, detail }
+ * so existing call sites keep working unchanged.
+ */
+async function pushArchiveBatchStrict(entries) {
+  const overridesEntry = (entries || []).find((e) => e && e.path === 'settings/society-overrides.json');
+  if (!overridesEntry) return { ok: true, skipped: true };
+  let payload;
+  try {
+    payload = JSON.parse(String(overridesEntry.content || '{}'));
+  } catch (_e) {
+    payload = {};
   }
-  const out = await flushArchiveQueueNow({ actor, message });
-  if (!out || !out.ok) {
-    /* Bootstrap allowance: when the caller is saving archive
-     * configuration itself, keep the local write on any archive-side
-     * failure. Without this, the first save of the PAT can never
-     * persist because either:
-     *   - archive is not yet reachable (not_configured/disabled), OR
-     *   - the push fails with the exact credentials being installed
-     *     (push_failed with 401/404), and rollback wipes the PAT the
-     *     user is trying to correct.
-     * We still surface the real error so the operator can fix it. */
-    const reason = out && out.reason;
-    if (opts && opts.bootstrapAllowed) {
-      const detail = reason === 'push_failed' && out.error && out.error.message
-        ? out.error.message
-        : archiveErrorText(out);
-      return { ok: true, bootstrapped: true, reason, detail };
-    }
-    throw new Error(archiveErrorText(out));
+  try {
+    await api.writeSettings(payload);
+    return { ok: true };
+  } catch (err) {
+    const msg = err && err.message ? err.message : 'Worker save failed.';
+    throw new Error(msg);
   }
-  return out;
 }
 
 const QR_ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -809,17 +809,11 @@ async function renderAttributes(user, canUsersManage) {
       row('Attach UPI QR image', 'Recommended: upload once here so residents can directly view/save on phone while paying.', qrAttachWrap),
       row('UPI QR image path', 'Optional. Falls back to auto-generated QR from the VPA.', inpQr),
     ),
-    panel('Archive persistence (required for Save)',
-      'Event/settings saves are blocked when archive is not configured. Configure these once, then Save all settings changes.',
-      row('Archive repository', 'Private target where event/receipt/report snapshots are committed.', inpArchiveRepo),
-      row('Fallback repository', 'Optional secondary target if primary push fails.', inpArchiveFallback),
+    panel('Archive (informational)',
+      'Persistence is handled server-side by the deployed Cloudflare Worker. The Worker holds the GitHub PAT — no credentials are stored in the browser. These fields are informational for operators; changing them locally has no effect until the Worker configuration is updated.',
+      row('Archive repository', 'The archive target committed by the Worker.', inpArchiveRepo),
+      row('Fallback repository', 'Optional secondary target used by the Worker on failure.', inpArchiveFallback),
       row('Archive branch', 'Usually main.', inpArchiveBranch),
-      row('Archive PAT', 'Fine-grained token (Contents read/write) for the archive repo.', inpArchivePat),
-      el('label', { class: 'row', style: 'gap:8px;margin-top:14px;cursor:pointer' },
-        cbArchiveEnabled,
-        el('span', { text: 'Enable archive writes' }),
-      ),
-      el('small', { class: 'sub', style: 'display:block;margin-top:6px', text: 'Without this configuration, create/edit/publish and settings Save actions are intentionally blocked to avoid local-only drift.' })
     ),
     panel('Receipts',
       'Active template drives what the printable receipt looks like. Manage templates in the Receipt templates tab.',

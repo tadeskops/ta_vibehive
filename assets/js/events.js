@@ -7,7 +7,7 @@
 import { cfg, state } from './store.js';
 import { catalog } from './features.js';
 import { emit as notifyEmit } from './notify.js';
-import { queueAndMaybePushArchive } from './archive-runtime.js';
+import * as api from './api.js';
 
 export const STATUS = Object.freeze({
   DRAFT: 'draft', REVIEW: 'review', PUBLISHED: 'published',
@@ -50,46 +50,13 @@ function appendHistory(evt, actor, action, detail) {
     detail,
   };
   state.addEventHistory(row);
-  try {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    queueAndMaybePushArchive({
-      kind: 'history',
-      path: `history/${sanitizeForPath(evt.slug || evt.id || 'event')}/${ts}.json`,
-      content: JSON.stringify({ ...row, ts: new Date().toISOString() }, null, 2),
-      eventId: evt.id,
-    }, {
-      actor: actor && (actor.email || actor.id) || null,
-      message: `history: ${evt.id} ${action}`,
-    }).catch(() => {});
-  } catch (_e) { /* best-effort */ }
+  /* History archival is now piggybacked on the event save through the
+   * Worker (event.json embeds a rolling history array in a follow-up
+   * slice). Local audit remains authoritative for now. */
 }
 
 function sanitizeForPath(v) {
   return String(v || '').replace(/[^a-z0-9_.-]+/gi, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '') || 'event';
-}
-
-function archiveErrorFromResult(res) {
-  if (!res) return { code: 'ARCHIVE_PUSH_FAILED', message: 'Archive push failed.' };
-  if (res.reason === 'archive_not_configured') {
-    return {
-      code: 'ARCHIVE_NOT_CONFIGURED',
-      message: 'Archive repo/PAT not configured. Save cannot continue until archive is configured.'
-    };
-  }
-  if (res.reason === 'archive_disabled') {
-    return {
-      code: 'ARCHIVE_DISABLED',
-      message: 'Archive is disabled. Enable archive in settings to save events.'
-    };
-  }
-  if (res.reason === 'push_failed') {
-    const friendly = res.friendly
-      || (res.error && res.error.friendly)
-      || (res.error && res.error.message)
-      || 'Archive push failed.';
-    return { code: 'ARCHIVE_PUSH_FAILED', message: friendly };
-  }
-  return { code: 'ARCHIVE_PUSH_FAILED', message: 'Archive push failed.' };
 }
 
 export async function canViewEventDetailedReport(evt, user, canPermission) {
@@ -155,31 +122,29 @@ export async function saveEvent(evt, actor) {
     throw new Error('Could not save event locally. Browser storage is full or blocked.');
   }
 
-  const payload = {
-    ...evt,
-    _archive_meta: {
-      kind: 'event',
-      saved_at: new Date().toISOString(),
-      actor: actor ? (actor.email || actor.id || null) : null,
-      prior_status: priorStatus,
-    },
-  };
-  const archiveRes = await queueAndMaybePushArchive({
-    kind: 'event',
-    path: `events/${sanitizeForPath(evt.slug || evt.id || 'event')}/event.json`,
-    content: JSON.stringify(payload, null, 2),
-    eventId: evt.id,
-  }, {
-    actor: actor ? (actor.email || actor.id) : null,
-    message: `event: ${evt.id} ${priorStatus || 'new'} -> ${evt.status || 'unknown'}`,
-  });
-  if (!archiveRes || !archiveRes.ok) {
+  /* Persist through the Worker — GitHub is the source of truth. The
+   * Worker stamps `updated_by`, so the response is the authoritative
+   * shape we mirror into the local cache. */
+  let saved;
+  try {
+    const slug = sanitizeForPath(evt.slug || evt.id || 'event');
+    const res = await api.writeEvent(slug, evt);
+    saved = (res && res.event) || evt;
+  } catch (err) {
     state.saveEvents(before);
-    const info = archiveErrorFromResult(archiveRes);
-    const err = new Error(info.message);
-    err.code = info.code;
-    throw err;
+    const msg = err && err.message ? err.message : 'Could not save event to server.';
+    const wrapped = new Error(msg);
+    wrapped.code = 'WORKER_WRITE_FAILED';
+    throw wrapped;
   }
+
+  /* Reflect the server-stamped copy in the local cache so
+   * subsequent reads see the same values (updated_by, updated_at). */
+  const evtsAfter = state.events();
+  const j = evtsAfter.findIndex((e) => e.id === saved.id);
+  if (j >= 0) evtsAfter[j] = saved; else evtsAfter.push(saved);
+  state.saveEvents(evtsAfter);
+  evt = saved;
 
   state.audit({ actor: actor ? actor.id : null, action: 'event.save', event: evt.id, status: evt.status });
   if (actor) {
