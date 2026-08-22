@@ -53,8 +53,21 @@ export async function pushBatch({ owner, repo, branch, token, entries, message }
 
   const enc = safeRepoPath;
 
-  /* 1 · head ref */
-  const ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(branch)}`);
+  /* 1 · head ref
+   * Empty repos return 409 "Git Repository is empty". Bootstrap once
+   * via the Contents API (creates README + default branch), then
+   * retry to get the real head sha. */
+  let ref;
+  try {
+    ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(branch)}`);
+  } catch (err) {
+    if (err && err.status === 409 && isEmptyRepoError(err)) {
+      await bootstrapEmptyRepo(token, owner, repo, branch);
+      ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(branch)}`);
+    } else {
+      throw err;
+    }
+  }
   const headSha = ref.object && ref.object.sha;
   if (!headSha) throw new Error('archive: head ref has no sha');
 
@@ -119,4 +132,31 @@ function toBase64Utf8(s) {
  *  branches use letters/digits/dash/dot/underscore — safe by default. */
 function safeRepoPath(seg) {
   return String(seg || '').replace(/[^A-Za-z0-9_.-\/]/g, '');
+}
+
+/** Detect GitHub's "Git Repository is empty." 409 payload so we can
+ *  bootstrap it once instead of hard-failing forever. */
+function isEmptyRepoError(err) {
+  if (!err) return false;
+  const body = err.body;
+  const msg = typeof body === 'string'
+    ? body
+    : (body && body.message) ? String(body.message) : '';
+  return /repository is empty/i.test(msg);
+}
+
+/** Create an initial README.md via the Contents API. This succeeds on
+ *  an empty repo, sets the default branch to `branch`, and gives us a
+ *  head sha to build subsequent commits on. */
+async function bootstrapEmptyRepo(token, owner, repo, branch) {
+  const enc = safeRepoPath;
+  const path = 'README.md';
+  const content = toBase64Utf8(
+    `# ${owner}/${repo}\n\nInitialised automatically by VibeHive archive writer.\n`
+  );
+  await gh(token, 'PUT', `/repos/${enc(owner)}/${enc(repo)}/contents/${path}`, {
+    message: 'chore: initialise archive repository',
+    content,
+    branch,
+  });
 }
