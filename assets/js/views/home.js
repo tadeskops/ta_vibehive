@@ -215,8 +215,7 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
       const amt = c.hide_amount ? '—' : fmtINR(Number(c.amount || 0));
       const stCls = c.status === 'verified' ? 'ok' : 'warn';
       const dateShort = (c.created_at || '').slice(0, 10);
-      const showReceipt = c.status === 'verified' && !canRoleReceiptView && ownedByMe(c);
-      const showRoleReceiptIcon = c.status === 'verified' && canRoleReceiptView;
+      const showReceiptIcon = c.status === 'verified' && canReceiptDownload && (canRoleReceiptView || ownedByMe(c));
       const showVerifyIcon = canVerifyContrib && c.status === 'pending';
       return el('div', { class: 'row row-between', style: 'gap:10px;padding:10px 0;border-top:1px solid var(--line)' },
         el('div', { style: 'min-width:0;flex:1' },
@@ -227,10 +226,9 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
           el('div', { style: 'font-weight:800', text: amt }),
           el('div', { class: 'row', style: 'gap:6px;align-items:center;justify-content:flex-end' },
             el('small', { class: 'pill ' + stCls, text: c.status }),
-            showRoleReceiptIcon ? receiptViewIconLink(c.id) : null,
+            showReceiptIcon ? receiptViewIconLink(c.id) : null,
             showVerifyIcon ? verifyContribIconBtn(c, user, evt) : null
-          ),
-          showReceipt ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/receipt/${c.id}`, style: 'margin-top:2px' }, '🧾 Receipt') : null
+          )
         )
       );
     });

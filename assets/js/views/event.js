@@ -228,13 +228,17 @@ async function renderPublicBoard(evt, hideAmount, user) {
   const canReceiptDownload = user ? await can(user, 'receipts.download') : false;
   const userEmail = user && user.email ? String(user.email).toLowerCase() : '';
   const userId = user && user.id ? String(user.id).toLowerCase() : '';
+  const userName = user && user.name ? String(user.name).trim().toLowerCase() : '';
   const canOpenReceipt = (r) => {
-    if (!user || !canReceiptDownload || !r.hasReceipt || !r.contribId) return false;
+    if (!user || !canReceiptDownload || !r.contribId) return false;
     if (user.role !== 'resident') return true;
     const rowIds = [r.contributorEmail, r.contributor, r.createdBy, r.filledByEmail]
       .map((v) => String(v || '').toLowerCase())
       .filter(Boolean);
-    return (userEmail && rowIds.includes(userEmail)) || (userId && rowIds.includes(userId));
+    const rowName = String(r.name || '').trim().toLowerCase();
+    return (userEmail && rowIds.includes(userEmail))
+      || (userId && rowIds.includes(userId))
+      || (userName && rowName && userName === rowName);
   };
   const body = el('table', { class: 'table' },
     el('thead', {}, el('tr', {},
