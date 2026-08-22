@@ -100,8 +100,29 @@ async function openTemplatePicker(user) {
   const tpls = await listTemplates();
   const back = el('div', { class: 'modal-back' });
   const close = () => back.remove();
+  /* Guard against a double-click / rapid-fire tap creating two draft
+   * events for the same template. Without this the picker fires
+   * `newEventFromTemplate` twice (Date.now() is only ms-precision so
+   * the two drafts share a slug), which shows up on the dashboard as
+   * mysteriously duplicated tiles. */
+  let creating = false;
   const cards = el('div', { class: 'grid grid-2', style: 'margin-top:8px' },
-    ...tpls.map(t => el('button', { class: 'card card-content', style: 'text-align:left;cursor:pointer', on: { click: async () => { const evt = await newEventFromTemplate(t.id, user); saveEvent(evt, user); close(); toast('Draft created', 'ok'); navigate('/e/' + evt.id + '/edit'); } } },
+    ...tpls.map(t => el('button', { class: 'card card-content', style: 'text-align:left;cursor:pointer', on: { click: async (e) => {
+      if (creating) return;
+      creating = true;
+      try {
+        const btn = e.currentTarget;
+        if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+        const evt = await newEventFromTemplate(t.id, user);
+        saveEvent(evt, user);
+        close();
+        toast('Draft created', 'ok');
+        navigate('/e/' + evt.id + '/edit');
+      } catch (err) {
+        creating = false;
+        toast(err && err.message ? err.message : 'Could not create draft', 'err');
+      }
+    } } },
       el('div', { class: 'row', style: 'font-size:32px' }, t.glyph),
       el('h3', { class: 'card-title', text: t.label }),
       el('p', { class: 'card-sub', text: (t.examples || []).slice(0, 3).join(' · ') })

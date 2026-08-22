@@ -50,14 +50,28 @@ export async function render(root) {
         el('p', { class: 'sub', text: 'Committee members can create one from the Events page.' })
       );
 
+  /* Contributors KPI counts unique residents (by contributor id when
+   * signed-in, or by "flat · name" fingerprint for anonymous / open
+   * submissions) across every currently-visible event. The old code
+   * relied on a `contribUsers(eid)` stub that always returned `[]`,
+   * so the KPI was permanently zero even after real donations. */
+  const visibleEventIds = new Set(events.map(e => e.id));
+  const contributorKeys = new Set();
+  for (const c of state.contribs()) {
+    if (c.status === 'void') continue;
+    if (!visibleEventIds.has(c.event)) continue;
+    const key = c.contributor
+      || `${String(c.flat || '').trim().toLowerCase()}::${String(c.contributor_name || '').trim().toLowerCase()}`;
+    if (key && key !== '::') contributorKeys.add(key);
+  }
   const stats = el('div', { class: 'grid grid-4' },
     stat('Events', String(events.length), null),
-    stat('Contributors', String(new Set(events.flatMap(e => contribUsers(e.id))).size), 'unique residents'),
+    stat('Contributors', String(contributorKeys.size), 'unique residents'),
     stat('Collected', fmtINR(events.reduce((s, e) => s + totalFor(e.id), 0)), 'across community'),
     stat('Committee', 'Cultural · Sports · Volunteers', null)
   );
 
-  const latest = await renderLatestContribsCard(user);
+  const latest = await renderLatestContribsCard(user, visibleEventIds);
 
   mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, latest);
 }
@@ -70,7 +84,7 @@ export async function render(root) {
  * between the choices in `RECENT_N_CHOICES`. Anonymous / hide_amount
  * flags are honoured — the widget never leaks a name/amount the
  * contributor asked to keep private. */
-async function renderLatestContribsCard(user) {
+async function renderLatestContribsCard(user, visibleEventIds) {
   const soc = await getSociety();
   const rawN = Number((soc.dashboard && soc.dashboard.recent_n) || RECENT_N_CHOICES[0]);
   const N = RECENT_N_CHOICES.includes(rawN) ? rawN : RECENT_N_CHOICES[0];
@@ -80,6 +94,10 @@ async function renderLatestContribsCard(user) {
   const eventById = new Map(allEvents.map(e => [e.id, e]));
   const rows = state.contribs()
     .filter(c => c.status !== 'void')
+    /* Hide orphaned contributions whose event was deduped-out of the
+     * dashboard (e.g. two same-slug drafts collided) — otherwise the
+     * widget shows near-identical rows and confuses residents. */
+    .filter(c => !visibleEventIds || visibleEventIds.has(c.event))
     .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
     .slice(0, N)
     .map(c => {
@@ -144,8 +162,11 @@ function stat(k, v, d) {
   );
 }
 
-function contribUsers(eid) {
-  return []; // preserved for future public directory
+function contribUsers(_eid) {
+  /* Deprecated. Contributors are counted directly in `render()` using
+   * `state.contribs()` cross-referenced with visible event IDs; kept
+   * only so any lingering imports don't throw. */
+  return [];
 }
 
 function totalPublicSum(events) {
