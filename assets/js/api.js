@@ -35,22 +35,54 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method, path, body) {
-  const headers = { 'Accept': 'application/json' };
+async function ensureFreshToken() {
+  if (typeof window === 'undefined' || !window.Auth) return null;
   const token = currentToken();
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const res = await fetch(baseUrl() + path, {
-    method,
-    headers,
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    credentials: 'omit',
-    mode: 'cors',
-  });
+  if (token) return token;
+  /* Google Identity Services usually silently refreshes the ID token
+   * on `signIn()` if the user already granted consent to this origin.
+   * Only when consent was never given (or was revoked) will a UI
+   * prompt appear. */
+  try {
+    if (typeof window.Auth.signIn === 'function') {
+      await window.Auth.signIn({ silent: true }).catch(() => window.Auth.signIn());
+    }
+  } catch (_e) { /* re-sign-in cancelled — caller sees 401 */ }
+  return currentToken();
+}
+
+async function request(method, path, body) {
+  const doFetch = async (token) => {
+    const headers = { 'Accept': 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    return fetch(baseUrl() + path, {
+      method,
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      credentials: 'omit',
+      mode: 'cors',
+    });
+  };
+
+  let token = currentToken();
+  let res = await doFetch(token);
+  if (res.status === 401 && !token) {
+    /* No fresh token in memory — try to get one silently, then retry. */
+    token = await ensureFreshToken();
+    if (token) res = await doFetch(token);
+  }
+
   let payload = null;
   try { payload = await res.json(); } catch (_e) { /* empty body */ }
   if (!res.ok || !payload || payload.ok !== true) {
     const msg = payload && payload.error && payload.error.message ? payload.error.message : `HTTP ${res.status}`;
+    /* Rewrite the classic 401 message so operators see a next step
+     * ("sign in again") instead of a bare "sign in required" toast on
+     * flows where the user thinks they are already signed in. */
+    if (res.status === 401) {
+      throw new ApiError(401, 'Your session expired. Please sign in again and retry.');
+    }
     throw new ApiError(res.status, msg);
   }
   return payload.data;
