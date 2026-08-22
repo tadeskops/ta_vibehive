@@ -133,7 +133,44 @@ export async function render(root, { match }) {
     )
     : null;
 
-  mount(root, hero, stats, progress, board, reportCard);
+  /* Public expense ledger — shown only when the society-level toggle
+   * `expenses.residents_can_see` is ON, and only the rows the
+   * treasurer flagged `visible_to_residents`. Keeps outflows opaque
+   * by default so committee retains discretion. */
+  const publicExpenses = await renderPublicExpensesCard(evt, user);
+
+  mount(root, hero, stats, progress, board, publicExpenses, reportCard);
+}
+
+async function renderPublicExpensesCard(evt, user) {
+  try {
+    const soc = await getSociety().catch(() => null);
+    const cfgExp = (soc && soc.expenses) || {};
+    if (!cfgExp.residents_can_see) return null;
+    const rows = state.expenses()
+      .filter(x => x && x.event_id === evt.id && x.visible_to_residents)
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    if (!rows.length) return null;
+    const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
+      el('h3', { text: 'Community expenses' }),
+      el('p', { class: 'sub', text: `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'} · ${fmtINR(total)} spent so far.` }),
+      el('table', { class: 'table', style: 'margin-top:8px' },
+        el('thead', {}, el('tr', {},
+          el('th', { text: 'When' }),
+          el('th', { text: 'Category' }),
+          el('th', { text: 'Description' }),
+          el('th', { class: 'num', text: 'Amount' }),
+        )),
+        el('tbody', {}, ...rows.map(r => el('tr', {},
+          el('td', { text: fmtDate(r.created_at) }),
+          el('td', { text: r.category || '—' }),
+          el('td', { style: 'max-width:320px;white-space:normal', text: r.description || '' }),
+          el('td', { class: 'num', text: fmtINR(r.amount) })
+        )))
+      )
+    );
+  } catch (_e) { return null; }
 }
 
 function heroBg(evt) {
@@ -518,9 +555,183 @@ async function renderManage(root, evt, user, caps) {
     el('tbody', {}, ...(items.length ? items.map(c => contribRow(c, evt, user, caps)) : [el('tr', {}, el('td', { colspan: 8, text: 'No contributions yet.', style: 'text-align:center;color:var(--muted)' }))]))
   );
   const sections = [head, el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' }, tbl)];
+  const canRecordExpense = await can(user, 'expenses.record');
+  const canViewExpense   = await can(user, 'expenses.view');
+  if (canViewExpense) sections.push(await renderExpensesPanel(evt, user, { canRecord: canRecordExpense, caps }));
   if (caps && caps.canHistoryView) sections.push(renderHistoryPanel(evt));
   mount(root, ...sections);
 }
+
+/* ---------- expenses (per-event outflows) ----------
+ * Committee / manager record cash-out entries against an event
+ * (e.g. mandap booking, prasad, decorations). Each row optionally
+ * carries a receipt URL and a per-row "Visible to residents" toggle
+ * whose default is seeded from Settings → Expense preferences.
+ * Rows show up in Reports alongside contributions so the treasurer
+ * can produce net-cash reports for a campaign. */
+async function renderExpensesPanel(evt, user, { canRecord, caps }) {
+  const soc = await getSociety().catch(() => null);
+  const expenseCfg = (soc && soc.expenses) || {};
+  const defaultVisible = !!expenseCfg.default_visible_to_residents;
+  const rows = state.expenses().filter(x => x && x.event_id === evt.id)
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const collected = totalFor(evt.id);
+  const net = collected - total;
+
+  const head = el('div', { class: 'row row-between', style: 'padding:16px 16px 8px;flex-wrap:wrap;gap:8px' },
+    el('div', {},
+      el('h3', { style: 'margin:0', text: 'Expenses' }),
+      el('small', { class: 'sub', text: `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'} · ${fmtINR(total)} spent · ${fmtINR(net)} net (collected − spent)` })
+    ),
+    canRecord ? el('button', { class: 'btn btn-sm', on: { click: () => openExpenseDialog(evt, user, null, defaultVisible, () => renderManage(document.getElementById('main'), evt, user, caps)) } }, '＋ Add expense') : null
+  );
+
+  const tbl = el('table', { class: 'table' },
+    el('thead', {}, el('tr', {},
+      el('th', { text: 'When' }),
+      el('th', { text: 'Category' }),
+      el('th', { text: 'Description' }),
+      el('th', { text: 'Receipt' }),
+      el('th', { class: 'num', text: 'Amount' }),
+      el('th', { text: 'Visible to residents' }),
+      canRecord ? el('th', { text: 'Actions' }) : null
+    )),
+    el('tbody', {}, ...(rows.length ? rows.map(r => expenseRow(r, evt, user, canRecord, caps)) : [
+      el('tr', {}, el('td', { colspan: canRecord ? 7 : 6, text: canRecord ? 'No expenses recorded yet. Tap "Add expense" to record the first one.' : 'No expenses recorded yet.', style: 'text-align:center;color:var(--muted);padding:14px' }))
+    ]))
+  );
+
+  return el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' }, head, tbl);
+}
+
+function expenseRow(r, evt, user, canRecord, caps) {
+  const visToggle = el('input', {
+    type: 'checkbox',
+    checked: !!r.visible_to_residents,
+    disabled: !canRecord,
+    on: { change: (e) => {
+      const list = state.expenses();
+      const rec = list.find(x => x && x.id === r.id);
+      if (!rec) return;
+      rec.visible_to_residents = !!e.target.checked;
+      rec.updated_at = new Date().toISOString();
+      state.saveExpenses(list);
+      state.audit({ actor: user && user.email || null, action: 'expense.visibility', expense: rec.id, event: evt.id, detail: rec.visible_to_residents ? 'shown' : 'hidden' });
+      toast(rec.visible_to_residents ? 'Now visible to residents' : 'Hidden from residents', 'ok');
+    } }
+  });
+  return el('tr', {},
+    el('td', { text: fmtDate(r.created_at) }),
+    el('td', { text: r.category || '—' }),
+    el('td', { style: 'max-width:280px;white-space:normal', text: r.description || '' }),
+    el('td', {}, r.receipt_url
+      ? el('a', { class: 'btn btn-sm btn-ghost', href: r.receipt_url, target: '_blank', rel: 'noopener' }, '🧾 Open')
+      : el('span', { class: 'sub', text: '—' })
+    ),
+    el('td', { class: 'num', text: fmtINR(r.amount) }),
+    el('td', {}, visToggle),
+    canRecord ? el('td', {}, el('div', { class: 'row' },
+      el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openExpenseDialog(evt, user, r, !!r.visible_to_residents, () => renderManage(document.getElementById('main'), evt, user, caps)) } }, 'Edit'),
+      el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => confirmDeleteExpense(r, evt, user, caps) } }, 'Delete')
+    )) : null
+  );
+}
+
+function openExpenseDialog(evt, user, existing, defaultVisible, onDone) {
+  const isEdit = !!existing;
+  const inpAmount = el('input', { type: 'number', min: '0', step: '1', value: existing ? String(existing.amount || '') : '', placeholder: '2500', required: true });
+  const inpCategory = el('input', { type: 'text', maxlength: '48', value: existing ? (existing.category || '') : '', placeholder: 'mandap · prasad · decor · rent · vendor …' });
+  const inpDescription = el('textarea', { rows: 2, maxlength: '240', placeholder: 'What was this spent on?', value: existing ? (existing.description || '') : '' });
+  const inpReceiptUrl = el('input', { type: 'url', maxlength: '400', value: existing ? (existing.receipt_url || '') : '', placeholder: 'https:// (optional link to invoice / receipt)' });
+  const cbVisible = el('input', { type: 'checkbox' });
+  cbVisible.checked = existing ? !!existing.visible_to_residents : !!defaultVisible;
+  const field = (label, help, ctrl) => el('div', { class: 'field', style: 'margin-top:10px' },
+    el('label', { class: 'lbl', text: label }),
+    help ? el('small', { class: 'sub', style: 'display:block;margin-bottom:4px', text: help }) : null,
+    ctrl
+  );
+  const body = el('div', {},
+    field('Amount (₹)', 'Whole rupees. This event will be debited by this amount for treasury reporting.', inpAmount),
+    field('Category', 'Short tag, free text. Used for grouping in reports.', inpCategory),
+    field('Description', 'Optional note the treasurer will see later.', inpDescription),
+    field('Receipt / invoice URL', 'Optional link to the vendor invoice or paid receipt.', inpReceiptUrl),
+    el('label', { class: 'row', style: 'gap:8px;margin-top:12px;cursor:pointer' }, cbVisible,
+      el('span', {}, el('div', { class: 'name', text: 'Visible to residents' }),
+        el('small', { class: 'sub', text: 'When ON, residents see this row on the public expense list (subject to the society-level "residents_can_see" setting).' })
+      )
+    )
+  );
+  modal({
+    title: isEdit ? 'Edit expense' : 'Add expense',
+    body,
+    actions: [
+      { label: 'Cancel', close: true },
+      { label: isEdit ? 'Save' : 'Add expense', kind: '', onClick: (close) => {
+        const amount = Number(inpAmount.value);
+        if (!(amount > 0)) { toast('Amount must be a positive number.', 'err'); return; }
+        const category = String(inpCategory.value || '').trim();
+        if (!category) { toast('Category is required.', 'err'); return; }
+        const description = String(inpDescription.value || '').trim();
+        const receipt_url = String(inpReceiptUrl.value || '').trim();
+        if (receipt_url && !/^https?:\/\//i.test(receipt_url)) { toast('Receipt URL must start with http(s)://', 'err'); return; }
+        const list = state.expenses();
+        const nowIso = new Date().toISOString();
+        if (isEdit) {
+          const rec = list.find(x => x && x.id === existing.id);
+          if (rec) {
+            rec.amount = amount;
+            rec.category = category;
+            rec.description = description;
+            rec.receipt_url = receipt_url || '';
+            rec.visible_to_residents = !!cbVisible.checked;
+            rec.updated_at = nowIso;
+            state.saveExpenses(list);
+            state.audit({ actor: user && user.email || null, action: 'expense.update', expense: rec.id, event: evt.id, amount });
+            toast('Expense updated.', 'ok');
+          }
+        } else {
+          const rec = {
+            id: 'exp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+            event_id: evt.id,
+            amount,
+            category,
+            description,
+            receipt_url: receipt_url || '',
+            visible_to_residents: !!cbVisible.checked,
+            created_at: nowIso,
+            created_by: user && (user.email || user.id) || 'unknown',
+            updated_at: nowIso,
+          };
+          list.push(rec);
+          state.saveExpenses(list);
+          state.audit({ actor: user && user.email || null, action: 'expense.create', expense: rec.id, event: evt.id, amount });
+          toast('Expense recorded.', 'ok');
+        }
+        close();
+        if (typeof onDone === 'function') onDone();
+      } }
+    ]
+  });
+}
+
+function confirmDeleteExpense(r, evt, user, caps) {
+  modal({
+    title: 'Delete this expense?',
+    body: el('p', { text: `This removes ${fmtINR(r.amount)} · ${r.category || 'expense'} from the event ledger. The audit trail keeps a record. This action cannot be undone.` }),
+    actions: [
+      { label: 'Cancel', close: true },
+      { label: 'Delete', kind: 'btn-emerg', onClick: (close) => {
+        const list = state.expenses().filter(x => x && x.id !== r.id);
+        state.saveExpenses(list);
+        state.audit({ actor: user && user.email || null, action: 'expense.delete', expense: r.id, event: evt.id, amount: r.amount });
+        close(); toast('Expense removed.', 'ok');
+        renderManage(document.getElementById('main'), evt, user, caps);
+      } }
+    ]
+  });
+}
+
 
 function renderHistoryPanel(evt) {
   const rows = state.eventHistory()

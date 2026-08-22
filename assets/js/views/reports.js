@@ -349,6 +349,14 @@ export async function render(root, { match } = {}) {
     const eventsInRows = new Set(rows.map(c => c.event)).size;
     const verifiedTotal = verified.reduce((s, c) => s + Number(c.amount || 0), 0);
 
+    /* Expense side of the ledger — same event scope as the currently
+     * displayed contribution rows so the treasurer sees inflows and
+     * outflows for the exact selection they filtered. */
+    const scopedEventIds = new Set(rows.map(c => c.event));
+    const expenses = state.expenses().filter(x => x && (scopedEventIds.size === 0 || scopedEventIds.has(x.event_id)));
+    const expenseTotal = expenses.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const net = verifiedTotal - expenseTotal;
+
     const stats = el('div', { class: 'grid grid-4' },
       stat('Total ₹', fmtINR(total), `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}`),
       stat('Verified ₹', fmtINR(verifiedTotal), `${verified.length} verified · ${pending.length} pending${voided.length ? ' · ' + voided.length + ' invalid' : ''}`),
@@ -372,6 +380,35 @@ export async function render(root, { match } = {}) {
             el('td', { text: g.label }),
             el('td', { text: String(g.count) }),
             el('td', { text: fmtINR(g.verified) }),
+            el('td', { text: fmtINR(g.total) }),
+          )))
+        )
+      ));
+    }
+    /* Expenses ledger — only rendered when there is at least one
+     * expense in the current scope so the section doesn't dead-space
+     * blank reports. */
+    if (expenses.length) {
+      const expenseGroups = new Map();
+      for (const x of expenses) {
+        const k = String(x.category || 'uncategorised').toLowerCase();
+        const g = expenseGroups.get(k) || { key: k, label: x.category || 'Uncategorised', count: 0, total: 0 };
+        g.count += 1;
+        g.total += Number(x.amount || 0);
+        expenseGroups.set(k, g);
+      }
+      const expBuckets = [...expenseGroups.values()].sort((a, b) => b.total - a.total);
+      summaryNodes.push(el('div', { style: 'margin-top:14px' },
+        el('div', { class: 'lbl', style: 'font-weight:600;margin-bottom:6px', text: `Expenses in scope (${expenses.length} row${expenses.length === 1 ? '' : 's'} · ${fmtINR(expenseTotal)} spent · ${fmtINR(net)} net)` }),
+        el('table', { class: 'table' },
+          el('thead', {}, el('tr', {},
+            el('th', { text: 'Category' }),
+            el('th', { text: 'Entries' }),
+            el('th', { text: 'Total ₹' }),
+          )),
+          el('tbody', {}, ...expBuckets.map(g => el('tr', {},
+            el('td', { text: g.label }),
+            el('td', { text: String(g.count) }),
             el('td', { text: fmtINR(g.total) }),
           )))
         )
@@ -517,6 +554,12 @@ export async function render(root, { match } = {}) {
     const uniqContribs = new Set(
       rows.map(c => String(c.contributor_email || c.contributor || '').trim().toLowerCase()).filter(Boolean)
     ).size;
+    /* Expense side — mirrors the on-screen summary logic so PDF and
+     * screen show identical net-cash figures for the same scope. */
+    const scopedEventIds = new Set(rows.map(c => c.event));
+    const scopedExpenses = state.expenses().filter(x => x && (scopedEventIds.size === 0 || scopedEventIds.has(x.event_id)));
+    const expenseRupees = scopedExpenses.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const netRupees = verifiedRupees - expenseRupees;
     /* Plain-ASCII rupee prefix — jsPDF's default helvetica doesn't ship
      * the ₹ glyph and renders it as a placeholder. Use "Rs." in the PDF
      * body only; the on-screen HTML report keeps the ₹ symbol. */
@@ -538,6 +581,17 @@ export async function render(root, { match } = {}) {
       10,
       19
     );
+    /* Second summary line — only rendered when the treasurer has
+     * recorded outflows for the scope so the header stays compact
+     * for contribution-only reports. */
+    if (scopedExpenses.length) {
+      doc.text(
+        `Expenses ${scopedExpenses.length}  ·  Spent ${rs(expenseRupees)}  ·  Net ${rs(netRupees)}`,
+        pageW - 10,
+        19,
+        { align: 'right' }
+      );
+    }
 
     const head = [cols.map(c => c.label)];
     const body = rows.map(r => cols.map(c => String(fmtCell(c.id, r) || '')));
@@ -545,8 +599,7 @@ export async function render(root, { match } = {}) {
       head,
       body,
       startY: 26,
-      theme: 'grid',
-      margin: { left: 8, right: 8 },
+      theme: 'grid',      margin: { left: 8, right: 8 },
       styles: { fontSize: 8, cellPadding: 1.4, overflow: 'linebreak', valign: 'top' },
       headStyles: { fillColor: [30, 41, 59], textColor: [252, 211, 77], fontStyle: 'bold', fontSize: 8 },
       alternateRowStyles: { fillColor: [248, 250, 252] },
