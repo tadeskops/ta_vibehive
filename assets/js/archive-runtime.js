@@ -130,10 +130,12 @@ export async function flushArchiveQueueNow(opts = {}) {
     action: 'archive.push.fail',
     detail: (lastErr && lastErr.message) ? lastErr.message.slice(0, 220) : 'unknown error',
   });
+  const friendly = lastErr && lastErr.friendly ? lastErr.friendly : null;
   return {
     ok: false,
     reason: 'push_failed',
     error: lastErr,
+    friendly,
     count: drained.length,
     triedRepos: repoRefs.map(r => `${r.owner}/${r.repo}`),
   };

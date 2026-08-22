@@ -1,76 +1,103 @@
 /* archive.js — push queued receipt archive entries to the private records
  * repo as ONE commit via the GitHub Trees + Commits REST API.
  *
- * Flow (one push == one atomic commit for N files):
- *   1. GET  /repos/:owner/:repo/git/ref/heads/:branch     → head sha
- *   2. GET  /repos/:owner/:repo/git/commits/:head         → base tree sha
- *   3. POST /repos/:owner/:repo/git/blobs        (× N)    → blob shas
- *   4. POST /repos/:owner/:repo/git/trees                 → new tree sha (base_tree=base)
- *   5. POST /repos/:owner/:repo/git/commits                → new commit sha
- *   6. PATCH /repos/:owner/:repo/git/refs/heads/:branch    → move ref
+ * Design goals (versatile writer):
+ *   - One atomic commit per push (N files).
+ *   - Handles transient failures with jittered exponential backoff:
+ *       429 / secondary rate limit, 5xx, and network errors.
+ *   - Auto-bootstraps empty repos with a first README commit so the
+ *     archive can begin on a freshly created target.
+ *   - Falls back to the repo's real default branch when the configured
+ *     branch does not exist (404 on ref).
+ *   - Retries "not a fast forward" (422) races by rebuilding the
+ *     commit on top of a freshly fetched head sha.
+ *   - Converts each terminal GitHub error into a friendly, actionable
+ *     message (`GhError.friendly`) so the caller can toast something
+ *     the operator can act on.
  *
- * PAT scope: a fine-grained PAT with `Contents: Read+Write` on the target
- * private repo only. NEVER a classic PAT. The PAT lives in localStorage
- * under the client's societyOverrides area — the browser is the ONLY
- * place it appears; nothing is proxied through a server.
+ * PAT scope: a fine-grained PAT with `Contents: Read+Write` on the
+ * target private repo only. NEVER a classic PAT. The PAT lives in
+ * browser localStorage under the society overrides area — the browser
+ * is the ONLY place it appears; nothing is proxied through a server.
  */
 'use strict';
 
 const API = 'https://api.github.com';
+const MAX_ATTEMPTS = 5;
+const BASE_BACKOFF_MS = 250;
+const MAX_BACKOFF_MS = 4000;
 
 class GhError extends Error {
   constructor(status, url, body) {
-    super(`GitHub ${status} on ${url}: ${typeof body === 'string' ? body.slice(0, 200) : (body && body.message) || 'unknown'}`);
-    this.status = status; this.body = body;
+    const raw = typeof body === 'string' ? body.slice(0, 200) : (body && body.message) || 'unknown';
+    super(`GitHub ${status} on ${url}: ${raw}`);
+    this.status = status;
+    this.body = body;
+    this.url = url;
+    this.friendly = friendlyMessageFor(status, body, url);
   }
 }
 
 async function gh(token, method, path, body) {
-  const res = await fetch(API + path, {
-    method,
-    headers: {
-      'Authorization': 'Bearer ' + token,
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-    },
-    credentials: 'omit',
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
+  let res;
+  try {
+    res = await fetch(API + path, {
+      method,
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
+      credentials: 'omit',
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch (netErr) {
+    const err = new GhError(0, path, netErr && netErr.message ? netErr.message : 'network error');
+    err.transient = true;
+    throw err;
+  }
   if (!res.ok) {
     let payload;
     try { payload = await res.json(); } catch { payload = await res.text().catch(() => ''); }
-    throw new GhError(res.status, path, payload);
+    const err = new GhError(res.status, path, payload);
+    err.transient = isTransientStatus(res.status, payload, res.headers);
+    throw err;
   }
   return res.json();
 }
 
 /** Push N archive entries as ONE commit. Returns { commitSha, treeSha, url }.
- *  Rejects with GhError on any REST failure (caller re-enqueues + retries).
- *  On "not a fast forward" (422), the commit is rebuilt on top of the
- *  fresh head sha and the ref update is retried a bounded number of
- *  times. */
+ *  On terminal failure throws GhError (with `.friendly` set for UI toasts).
+ *  On transient failure retries with jittered exponential backoff. */
 export async function pushBatch({ owner, repo, branch, token, entries, message }) {
   if (!owner || !repo || !branch || !token) throw new Error('archive.pushBatch: missing owner/repo/branch/token');
   if (!Array.isArray(entries) || !entries.length) throw new Error('archive.pushBatch: no entries');
 
   const enc = safeRepoPath;
-  const MAX_ATTEMPTS = 4;
+  let currentBranch = String(branch || 'main').trim() || 'main';
   let lastErr = null;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      /* 1 · head ref
-       * Empty repos return 409 "Git Repository is empty". Bootstrap
-       * once via the Contents API (creates README + default branch),
-       * then retry to get the real head sha. */
+      /* 1 · head ref (with empty-repo bootstrap + default-branch fallback) */
       let ref;
       try {
-        ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(branch)}`);
+        ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(currentBranch)}`);
       } catch (err) {
         if (err && err.status === 409 && isEmptyRepoError(err)) {
-          await bootstrapEmptyRepo(token, owner, repo, branch);
-          ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(branch)}`);
+          await bootstrapEmptyRepo(token, owner, repo, currentBranch);
+          ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(currentBranch)}`);
+        } else if (err && err.status === 404) {
+          /* Configured branch doesn't exist — fall back to the repo's
+           * real default branch (handles master, trunk, etc.). */
+          const fallback = await defaultBranchOf(token, owner, repo);
+          if (fallback && fallback !== currentBranch) {
+            currentBranch = fallback;
+            ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(currentBranch)}`);
+          } else {
+            throw err;
+          }
         } else {
           throw err;
         }
@@ -113,8 +140,10 @@ export async function pushBatch({ owner, repo, branch, token, entries, message }
         parents: [headSha],
       });
 
-      /* 6 · move ref */
-      await gh(token, 'PATCH', `/repos/${enc(owner)}/${enc(repo)}/git/refs/heads/${enc(branch)}`, {
+      /* 6 · move ref (fast-forward). If someone advanced main during
+       * this attempt, we get a 422 which triggers a retry with a
+       * fresh head sha on the outer loop. */
+      await gh(token, 'PATCH', `/repos/${enc(owner)}/${enc(repo)}/git/refs/heads/${enc(currentBranch)}`, {
         sha: commit.sha,
         force: false,
       });
@@ -124,15 +153,15 @@ export async function pushBatch({ owner, repo, branch, token, entries, message }
         treeSha: tree.sha,
         url: `https://github.com/${owner}/${repo}/commit/${commit.sha}`,
         fileCount: blobs.length,
+        branch: currentBranch,
       };
     } catch (err) {
       lastErr = err;
-      if (err && err.status === 422 && isNonFastForwardError(err) && attempt < MAX_ATTEMPTS - 1) {
-        /* Ref moved under us — someone (or a previous auto-bootstrap
-         * call) advanced main. Re-fetch head sha and rebuild the
-         * commit on top of it. Short jittered backoff to avoid busy
-         * retry loops. */
-        await new Promise(r => setTimeout(r, 120 + Math.floor(Math.random() * 180)));
+      const canRetry = attempt < MAX_ATTEMPTS - 1;
+      const nonFastForward = err && err.status === 422 && isNonFastForwardError(err);
+      const transient = err && err.transient === true;
+      if (canRetry && (nonFastForward || transient)) {
+        await sleepBackoff(attempt);
         continue;
       }
       throw err;
@@ -155,26 +184,58 @@ function safeRepoPath(seg) {
   return String(seg || '').replace(/[^A-Za-z0-9_.-\/]/g, '');
 }
 
-/** Detect GitHub's "Git Repository is empty." 409 payload so we can
- *  bootstrap it once instead of hard-failing forever. */
+/** Detect GitHub's "Git Repository is empty." 409 payload. */
 function isEmptyRepoError(err) {
-  if (!err) return false;
-  const body = err.body;
-  const msg = typeof body === 'string'
-    ? body
-    : (body && body.message) ? String(body.message) : '';
+  const msg = errBodyMessage(err);
   return /repository is empty/i.test(msg);
 }
 
-/** Detect GitHub's "Update is not a fast forward" 422 payload so the
- *  writer can rebuild the commit on top of the fresh head sha. */
+/** Detect GitHub's "Update is not a fast forward" 422 payload. */
 function isNonFastForwardError(err) {
-  if (!err) return false;
+  const msg = errBodyMessage(err);
+  return /not a fast forward/i.test(msg);
+}
+
+/** Detect GitHub's secondary rate limit / abuse detection payload. */
+function isSecondaryRateLimit(payload) {
+  const msg = payload && (payload.message || payload) ? String(payload.message || payload) : '';
+  return /secondary rate limit|abuse detection/i.test(msg);
+}
+
+function errBodyMessage(err) {
+  if (!err) return '';
   const body = err.body;
-  const msg = typeof body === 'string'
+  return typeof body === 'string'
     ? body
     : (body && body.message) ? String(body.message) : '';
-  return /not a fast forward/i.test(msg);
+}
+
+function isTransientStatus(status, payload, headers) {
+  if (status === 0) return true;                      // network
+  if (status >= 500 && status <= 599) return true;    // server error
+  if (status === 429) return true;                    // rate limit
+  if (status === 403 && isSecondaryRateLimit(payload)) return true;
+  /* Optional: honour retry-after when GitHub asks us to wait. */
+  if (headers && (headers.get('retry-after') || headers.get('Retry-After'))) return true;
+  return false;
+}
+
+async function sleepBackoff(attempt) {
+  const base = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * Math.pow(2, attempt));
+  const jitter = Math.floor(Math.random() * base * 0.4);
+  await new Promise(r => setTimeout(r, base + jitter));
+}
+
+/** Look up the repo's real default branch. Used to fall back when the
+ *  configured branch does not exist (returns 404 on ref lookup). */
+async function defaultBranchOf(token, owner, repo) {
+  const enc = safeRepoPath;
+  try {
+    const info = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}`);
+    return String(info && info.default_branch || '').trim() || null;
+  } catch (_e) {
+    return null;
+  }
 }
 
 /** Create an initial README.md via the Contents API. This succeeds on
@@ -191,4 +252,38 @@ async function bootstrapEmptyRepo(token, owner, repo, branch) {
     content,
     branch,
   });
+}
+
+/** Translate a GitHub REST failure into a short, actionable message
+ *  the UI can toast. */
+function friendlyMessageFor(status, body, url) {
+  const msg = typeof body === 'string' ? body : (body && body.message) || '';
+  if (status === 0) {
+    return `Could not reach GitHub (${msg || 'network error'}). Check connectivity and CSP.`;
+  }
+  if (status === 401) {
+    return 'Archive PAT was rejected by GitHub (Bad credentials). Generate a fresh fine-grained PAT and paste it in Settings.';
+  }
+  if (status === 403) {
+    if (/rate limit/i.test(msg)) return 'GitHub rate limit hit. Wait a minute and try again.';
+    if (/resource not accessible/i.test(msg)) return 'Archive PAT is missing "Contents: Read and write" permission on the target repo.';
+    return 'GitHub blocked the request (403). Check PAT scopes and org access rules.';
+  }
+  if (status === 404) {
+    if (/git\/ref\/heads/i.test(url)) return 'Configured archive branch does not exist. The writer will fall back to the repo default branch — save again to retry.';
+    return 'Archive repository not found. Verify owner/repo and that the PAT has access to it.';
+  }
+  if (status === 409 && /repository is empty/i.test(msg)) {
+    return 'Archive repository is empty. The writer bootstrapped it with README.md — save again to complete the first archive commit.';
+  }
+  if (status === 422 && /not a fast forward/i.test(msg)) {
+    return 'Archive branch advanced during push. Save again — the writer will rebase and retry.';
+  }
+  if (status === 422) {
+    return `GitHub rejected the archive update: ${msg || 'validation failed'}.`;
+  }
+  if (status >= 500 && status <= 599) {
+    return `GitHub server error (${status}). Try again shortly.`;
+  }
+  return `Archive push failed: GitHub ${status}${msg ? ` — ${msg}` : ''}.`;
 }

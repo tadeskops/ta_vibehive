@@ -84,6 +84,7 @@ async function runBusy(label, fn) {
 
 function archiveErrorText(res) {
   if (!res) return 'Archive push failed.';
+  if (res.friendly) return res.friendly;
   if (res.reason === 'archive_not_configured') {
     return 'Archive repo/PAT is not configured. This save is blocked to avoid local-only drift.';
   }
@@ -91,8 +92,9 @@ function archiveErrorText(res) {
     return 'Archive is disabled. Enable archive in settings before saving.';
   }
   if (res.reason === 'push_failed') {
-    const msg = res.error && res.error.message ? ` ${res.error.message}` : '';
-    return `Archive push failed.${msg}`.trim();
+    const msg = res.error && res.error.friendly ? res.error.friendly
+      : (res.error && res.error.message ? ` ${res.error.message}` : '');
+    return typeof msg === 'string' && msg.trim() ? msg : 'Archive push failed.';
   }
   return 'Archive push failed.';
 }

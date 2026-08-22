@@ -83,8 +83,11 @@ function archiveErrorFromResult(res) {
     };
   }
   if (res.reason === 'push_failed') {
-    const detail = res.error && res.error.message ? ` ${res.error.message}` : '';
-    return { code: 'ARCHIVE_PUSH_FAILED', message: `Archive push failed.${detail}`.trim() };
+    const friendly = res.friendly
+      || (res.error && res.error.friendly)
+      || (res.error && res.error.message)
+      || 'Archive push failed.';
+    return { code: 'ARCHIVE_PUSH_FAILED', message: friendly };
   }
   return { code: 'ARCHIVE_PUSH_FAILED', message: 'Archive push failed.' };
 }
