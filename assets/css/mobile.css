@@ -23,6 +23,10 @@
    rule does NOT apply, letting each element's own display win. */
 @media (min-width: 641px) {
   [data-tvh-mobile-only] { display: none !important; }
+  /* The daily-visit card on the home page is redundant on desktop
+   * because the footer chip already shows the same figure. Hide it
+   * on wide screens to keep the layout tidy. */
+  .tvh-visit-card-wrap { display: none !important; }
 }
 
 /* ============================================================

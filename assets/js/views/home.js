@@ -7,6 +7,7 @@ import { navigate } from '../router.js';
 import { isEventOn, isSystemOn } from '../features.js';
 import { getSociety, state } from '../store.js';
 import { can } from '../rbac.js';
+import { renderVisitCard } from '../visit-counter.js';
 
 /* Community Warmth · v0.1 -- privacy.public_mask
  *
@@ -142,7 +143,14 @@ export async function render(root) {
   const canVerifyExpense = user ? await can(user, 'expenses.verify') : false;
   const pendingExpenses = user && !masked ? renderPendingExpensesCard(user, visibleEventIds, canVerifyExpense) : null;
 
-  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, latest, pendingExpenses);
+  /* Mobile-first daily visit tile — desktop viewers already see the
+   * same figure in the footer chip so we hide this card on wide
+   * screens via CSS. Renders asynchronously so the rest of the
+   * dashboard paints first. */
+  const visitCardWrap = el('div', { class: 'tvh-visit-card-wrap', style: 'margin-top:12px' });
+  renderVisitCard(visitCardWrap).catch(() => { /* silent */ });
+
+  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, latest, pendingExpenses, visitCardWrap);
 }
 
 /* Latest contributions widget. Shows the top-N most recent

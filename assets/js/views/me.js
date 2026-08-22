@@ -128,6 +128,12 @@ export async function render(root) {
       )),
       el('tbody', {}, ...(expenses.length ? expenses.map(x => {
         const evt = eventsById.get(x.event_id);
+        const proofCell = (x.receipt_url || x.proof_data_url)
+          ? el('div', { style: 'display:flex;flex-direction:column;gap:4px;align-items:flex-start' },
+              x.receipt_url ? el('a', { class: 'btn btn-sm btn-ghost', href: x.receipt_url, target: '_blank', rel: 'noopener' }, '🔗 URL') : null,
+              x.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openMyProof(x) } }, '🖼 View proof') : null
+            )
+          : el('span', { class: 'sub', text: '—' });
         return el('tr', {},
           el('td', { text: fmtDate(x.created_at) }),
           el('td', {}, evt ? el('a', { href: `#/e/${evt.id}`, text: evt.title || evt.id }) : el('span', { class: 'sub', text: x.event_id || '—' })),
@@ -135,13 +141,42 @@ export async function render(root) {
           el('td', { style: 'max-width:280px;white-space:normal', text: x.description || '' }),
           el('td', { class: 'num', text: fmtINR(x.amount) }),
           el('td', {}, el('span', { class: statusPillCls(x.status), text: statusPillText(x.status) })),
-          el('td', {}, x.receipt_url ? el('a', { class: 'btn btn-sm btn-ghost', href: x.receipt_url, target: '_blank', rel: 'noopener' }, '🧾 Open') : el('span', { class: 'sub', text: '—' }))
+          el('td', {}, proofCell)
         );
       }) : [el('tr', {}, el('td', { colspan: 7, text: 'No expenses submitted yet. Open an event and tap "＋ Submit expense".', style: 'text-align:center;color:var(--muted);padding:14px' }))]))
     )
   );
 
   mount(root, hero, contribSection, expenseSection);
+}
+
+/* Local proof-viewer used by the "Your submitted expenses" table.
+ * Kept inline because we don't share the event-page's modal helper
+ * across views by design (each view owns its own dialog copy). */
+function openMyProof(x) {
+  const back = el('div', { class: 'modal-back' });
+  const close = () => back.remove();
+  const isImg = /^data:image\//.test(x.proof_data_url);
+  const box = el('div', { class: 'modal' },
+    el('div', { class: 'modal-head' },
+      el('h3', { text: 'Expense proof · ' + (x.category || 'expense') }),
+      el('button', { class: 'x-close', 'aria-label': 'Close', on: { click: close } }, '×')
+    ),
+    el('div', { class: 'modal-body' },
+      el('div', { class: 'sub', style: 'margin-bottom:8px' },
+        (x.proof_name ? x.proof_name + ' · ' : '') + (x.proof_size ? '~' + Math.round(x.proof_size / 1024) + ' KB' : '')
+      ),
+      isImg
+        ? el('img', { src: x.proof_data_url, alt: 'expense proof', style: 'max-width:100%;max-height:60vh;border:1px solid var(--line);border-radius:6px' })
+        : el('a', { class: 'btn', href: x.proof_data_url, target: '_blank', rel: 'noopener' }, 'Open attachment in new tab')
+    ),
+    el('div', { class: 'modal-foot' },
+      el('button', { class: 'btn btn-ghost', on: { click: close } }, 'Close')
+    )
+  );
+  back.append(box);
+  back.addEventListener('click', (e) => { if (e.target === back) close(); });
+  document.body.append(back);
 }
 
 function stat(k, v, sub) {

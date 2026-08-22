@@ -672,8 +672,11 @@ function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
     el('td', { text: fmtDate(r.created_at) }),
     el('td', { text: r.category || '—' }),
     el('td', { style: 'max-width:280px;white-space:normal', text: (r.description || '') + (r.created_by && !canVerify ? '' : (r.created_by ? ` · by ${r.created_by}` : '')) }),
-    el('td', {}, r.receipt_url
-      ? el('a', { class: 'btn btn-sm btn-ghost', href: r.receipt_url, target: '_blank', rel: 'noopener' }, '🧾 Open')
+    el('td', {}, r.receipt_url || r.proof_data_url
+      ? el('div', { style: 'display:flex;flex-direction:column;gap:4px;align-items:flex-start' },
+          r.receipt_url ? el('a', { class: 'btn btn-sm btn-ghost', href: r.receipt_url, target: '_blank', rel: 'noopener' }, '🔗 URL') : null,
+          r.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openExpenseProof(r) } }, '🖼 View proof') : null
+        )
       : el('span', { class: 'sub', text: '—' })
     ),
     el('td', { class: 'num', text: fmtINR(r.amount) }),
@@ -710,6 +713,71 @@ function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDo
   const inpReceiptUrl = el('input', { type: 'url', maxlength: '400', value: existing ? (existing.receipt_url || '') : '', placeholder: 'https:// (optional link to invoice / receipt)' });
   const cbVisible = el('input', { type: 'checkbox' });
   cbVisible.checked = existing ? !!existing.visible_to_residents : !!defaultVisible;
+  /* Proof upload — the submitter can attach an image / PDF of the
+   * paid receipt. Stored inline as a data URL so the moderator can
+   * review it before verifying (same pattern used for contribution
+   * proof screenshots). Accepted MIME whitelist matches the guard
+   * in `readExpenseProof()` below. */
+  const PROOF_MAX_BYTES = 900 * 1024; /* ~700 KB raw pre base64-encode */
+  const proofState = {
+    data_url: existing && existing.proof_data_url ? String(existing.proof_data_url) : '',
+    name:     existing && existing.proof_name     ? String(existing.proof_name)     : '',
+    size:     existing && existing.proof_size     ? Number(existing.proof_size)     : 0,
+  };
+  const inpProof = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,application/pdf' });
+  const proofStatus = el('small', { class: 'sub', style: 'display:block;margin-top:6px',
+    text: proofState.data_url
+      ? `Attached: ${proofState.name || 'receipt'} · ${(proofState.size ? Math.round(proofState.size / 1024) + ' KB' : '?')}`
+      : 'Optional. Image (PNG/JPEG/WebP/HEIC) or PDF up to ~700 KB.'
+  });
+  const proofPreview = el('img', {
+    src: proofState.data_url && /^data:image\//.test(proofState.data_url) ? proofState.data_url : '',
+    alt: 'expense proof preview',
+    style: 'display:' + (proofState.data_url && /^data:image\//.test(proofState.data_url) ? 'block' : 'none') + ';max-width:220px;max-height:180px;margin-top:6px;border:1px solid var(--line);border-radius:6px'
+  });
+  const proofRemoveBtn = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', style: 'margin-top:6px' }, 'Remove attached proof');
+  proofRemoveBtn.hidden = !proofState.data_url;
+  proofRemoveBtn.style.display = proofState.data_url ? '' : 'none';
+  proofRemoveBtn.addEventListener('click', () => {
+    proofState.data_url = ''; proofState.name = ''; proofState.size = 0;
+    inpProof.value = '';
+    proofPreview.src = ''; proofPreview.style.display = 'none';
+    proofRemoveBtn.hidden = true; proofRemoveBtn.style.display = 'none';
+    proofStatus.textContent = 'Attached proof removed.';
+  });
+  inpProof.addEventListener('change', async () => {
+    const f = inpProof.files && inpProof.files[0];
+    if (!f) return;
+    try {
+      if (f.size > PROOF_MAX_BYTES) throw new Error('File is too large (>' + Math.round(PROOF_MAX_BYTES / 1024) + ' KB). Try a smaller image or PDF.');
+      if (!/^(image\/(png|jpeg|webp|gif|heic|heif)|application\/pdf)$/i.test(f.type)) throw new Error('Only image or PDF files are accepted.');
+      const dataUrl = await new Promise((ok, ko) => {
+        const r = new FileReader();
+        r.onload = () => ok(String(r.result || ''));
+        r.onerror = () => ko(new Error('Could not read the file.'));
+        r.readAsDataURL(f);
+      });
+      proofState.data_url = dataUrl;
+      proofState.name = f.name;
+      proofState.size = f.size;
+      proofStatus.textContent = `Attached: ${f.name} · ${Math.round(f.size / 1024)} KB`;
+      if (/^data:image\//.test(dataUrl)) {
+        proofPreview.src = dataUrl;
+        proofPreview.style.display = 'block';
+      } else {
+        proofPreview.src = '';
+        proofPreview.style.display = 'none';
+      }
+      proofRemoveBtn.hidden = false;
+      proofRemoveBtn.style.display = '';
+    } catch (e) {
+      inpProof.value = '';
+      proofStatus.textContent = (e && e.message) || 'Could not attach that file.';
+      toast(proofStatus.textContent, 'err');
+    }
+  });
+  const proofField = el('div', {}, inpProof, proofStatus, proofPreview, proofRemoveBtn);
+
   const field = (label, help, ctrl) => el('div', { class: 'field', style: 'margin-top:10px' },
     el('label', { class: 'lbl', text: label }),
     help ? el('small', { class: 'sub', style: 'display:block;margin-bottom:4px', text: help }) : null,
@@ -721,6 +789,7 @@ function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDo
     field('Amount (₹)', 'Whole rupees. This event will be debited by this amount for treasury reporting.', inpAmount),
     field('Category', 'Short tag, free text. Used for grouping in reports.', inpCategory),
     field('Description', 'Optional note the treasurer will see later.', inpDescription),
+    field('Attach proof (image / PDF)', 'Optional. Committee reviews the attachment before verifying.', proofField),
     field('Receipt / invoice URL', 'Optional link to the vendor invoice or paid receipt.', inpReceiptUrl),
     el('label', { class: 'row', style: 'gap:8px;margin-top:12px;cursor:pointer' }, cbVisible,
       el('span', {}, el('div', { class: 'name', text: 'Visible to residents' }),
@@ -750,6 +819,9 @@ function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDo
             rec.category = category;
             rec.description = description;
             rec.receipt_url = receipt_url || '';
+            rec.proof_data_url = proofState.data_url || '';
+            rec.proof_name = proofState.name || '';
+            rec.proof_size = proofState.size || 0;
             rec.visible_to_residents = !!cbVisible.checked;
             rec.updated_at = nowIso;
             state.saveExpenses(list);
@@ -765,6 +837,9 @@ function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDo
             category,
             description,
             receipt_url: receipt_url || '',
+            proof_data_url: proofState.data_url || '',
+            proof_name: proofState.name || '',
+            proof_size: proofState.size || 0,
             visible_to_residents: !!cbVisible.checked,
             status: initialStatus,
             created_at: nowIso,
@@ -896,6 +971,27 @@ function openProof(c) {
   );
   modal({
     title: 'Payment proof · ' + (c.contributor_name || '—'),
+    body,
+    actions: [{ label: 'Close', close: true }]
+  });
+}
+
+/* Modal viewer for an expense proof (image or PDF), mirroring
+ * `openProof` for contributions. Committee uses this to review the
+ * attachment before verifying the expense. */
+function openExpenseProof(x) {
+  const isImg = /^data:image\//.test(x.proof_data_url);
+  const body = el('div', {},
+    el('div', { class: 'sub', style: 'margin-bottom:8px' },
+      x.proof_name ? x.proof_name + ' · ' : '',
+      x.proof_size ? '~' + Math.round(x.proof_size / 1024) + ' KB' : ''
+    ),
+    isImg
+      ? el('img', { src: x.proof_data_url, alt: 'expense proof', style: 'max-width:100%;max-height:60vh;border:1px solid var(--line);border-radius:6px' })
+      : el('a', { class: 'btn', href: x.proof_data_url, target: '_blank', rel: 'noopener' }, 'Open attachment in new tab')
+  );
+  modal({
+    title: 'Expense proof · ' + (x.category || 'expense'),
     body,
     actions: [{ label: 'Close', close: true }]
   });
