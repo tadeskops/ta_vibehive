@@ -125,7 +125,6 @@ export async function render(root, { match }) {
   ) : null;
 
   const board = showBoard ? renderPublicBoard(evt, hideAmount) : null;
-  const featurePanel = await renderEnabledFeaturePanel(evt);
   const reportCard = canOpenDetailedReport
     ? el('section', { class: 'card card-pad', style: 'margin-top:16px' },
       el('h3', { text: 'Contribution report' }),
@@ -134,7 +133,7 @@ export async function render(root, { match }) {
     )
     : null;
 
-  mount(root, hero, stats, progress, featurePanel, board, reportCard);
+  mount(root, hero, stats, progress, board, reportCard);
 }
 
 function heroBg(evt) {
