@@ -146,6 +146,22 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
 
   const allEvents = state.events();
   const eventById = new Map(allEvents.map(e => [e.id, e]));
+  /* Ownership check for the row: matches the resident's own submissions
+   * (contributor email/id) OR on-behalf submissions they filed. Used to
+   * expose the Receipt link inline so verified contributors can grab
+   * their receipt without hunting through the event page. */
+  const myEmail = user && user.email ? String(user.email).toLowerCase() : '';
+  const myId    = user && user.id    ? String(user.id) : '';
+  const ownedByMe = (c) => {
+    if (!user) return false;
+    const cE  = String(c.contributor_email || '').toLowerCase();
+    const cId = String(c.contributor || '').toLowerCase();
+    const cCB = String(c.created_by || '').toLowerCase();
+    const cFE = String(c.filled_by_email || '').toLowerCase();
+    if (myEmail && (cE === myEmail || cId === myEmail || cCB === myEmail || cFE === myEmail)) return true;
+    if (myId && (cId === myId.toLowerCase() || cCB === myId.toLowerCase())) return true;
+    return false;
+  };
   const rows = state.contribs()
     .filter(c => c.status !== 'void')
     /* Hide orphaned contributions whose event was deduped-out of the
@@ -160,14 +176,16 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
       const amt = c.hide_amount ? '—' : fmtINR(Number(c.amount || 0));
       const stCls = c.status === 'verified' ? 'ok' : 'warn';
       const dateShort = (c.created_at || '').slice(0, 10);
+      const showReceipt = c.status === 'verified' && ownedByMe(c);
       return el('div', { class: 'row row-between', style: 'gap:10px;padding:10px 0;border-top:1px solid var(--line)' },
         el('div', { style: 'min-width:0;flex:1' },
           el('div', { style: 'font-weight:700', text: `${nm}${c.flat ? ' · Flat ' + c.flat : ''}` }),
           el('small', { class: 'sub', style: 'display:block', text: `${(evt && evt.title) || 'Event'} · ${fmtDate(dateShort) || dateShort}` })
         ),
-        el('div', { style: 'text-align:right;flex-shrink:0' },
+        el('div', { style: 'text-align:right;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px' },
           el('div', { style: 'font-weight:800', text: amt }),
-          el('small', { class: 'pill ' + stCls, text: c.status })
+          el('small', { class: 'pill ' + stCls, text: c.status }),
+          showReceipt ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/receipt/${c.id}`, style: 'margin-top:2px' }, '🧾 Receipt') : null
         )
       );
     });

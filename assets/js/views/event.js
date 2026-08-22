@@ -502,7 +502,7 @@ async function renderManage(root, evt, user, caps) {
   const items = contribsFor(evt.id);
   const head = el('section', { class: 'card card-pad' },
     el('h2', { text: 'Manage · ' + evt.title }),
-    el('p', { class: 'sub', text: 'Verify or void contributions. Verified contributions immediately mint a stamped receipt.' })
+    el('p', { class: 'sub', text: 'Verify or mark invalid. Verified contributions immediately mint a stamped receipt.' })
   );
   const tbl = el('table', { class: 'table' },
     el('thead', {}, el('tr', {},
@@ -565,7 +565,7 @@ function contribRow(c, evt, user, caps) {
     el('td', { text: c.method || '—' }),
     proofCell,
     el('td', { class: 'num', text: fmtINR(c.amount) }),
-    el('td', {}, el('span', { class: 'pill ' + (c.status === 'verified' ? 'pill-sage' : c.status === 'void' ? 'pill-muted' : ''), text: c.status })),
+    el('td', {}, el('span', { class: 'pill ' + (c.status === 'verified' ? 'pill-sage' : c.status === 'void' ? 'pill-muted' : ''), text: c.status === 'void' ? 'invalid' : c.status })),
     el('td', {}, el('div', { class: 'row' },
       c.status === 'pending' ? el('button', { class: 'btn btn-sm', on: { click: async () => {
         try {
@@ -580,19 +580,19 @@ function contribRow(c, evt, user, caps) {
       } } }, 'Verify') : null,
       c.status !== 'void' ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => {
         modal({
-          title: 'Void contribution?',
-          body: el('p', { text: 'This marks the record as void. The receipt (if any) will be invalidated.' }),
+          title: 'Mark contribution invalid?',
+          body: el('p', { text: 'This marks the record as invalid (e.g. duplicate or bad reference). The receipt (if any) will be invalidated. Use this instead of deleting so the audit trail stays intact.' }),
           actions: [
             { label: 'Cancel', close: true },
-            { label: 'Void', kind: 'btn-emerg', onClick: async (close) => {
+            { label: 'Mark invalid', kind: 'btn-emerg', onClick: async (close) => {
               const mod = await import('../events.js');
               mod.voidContribution(c.id, user, 'manual');
-              close(); toast('Voided', 'ok');
+              close(); toast('Marked invalid', 'ok');
               renderManage(document.getElementById('main'), evt, user, caps);
             } }
           ]
         });
-      } } }, 'Void') : null,
+      } } }, 'Invalid') : null,
       c.receipt ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/receipt/${c.id}` }, 'Receipt') : null
     ))
   );
