@@ -1,6 +1,6 @@
 /* SPA bootstrap — wire chrome, register routes, dispatch. */
 'use strict';
-import { $, el, clear } from './dom.js';
+import { $, el, clear, modal, toast } from './dom.js';
 import * as router from './router.js';
 import { session, bindGis, logout } from './auth.js';
 import { can } from './rbac.js';
@@ -139,6 +139,74 @@ function iconSpan(svg) {
   return s;
 }
 
+/* Header-icon shortcut for generating a report:
+ * opens a lightweight event picker so admins can jump straight to a
+ * scoped PDF report without opening the full Reports view first.
+ * The picker writes the chosen scope into the same localStorage key
+ * (`tvh:v1:reports:filters`) that `views/reports.js` reads on mount,
+ * so the reports page renders with the events pre-selected. */
+const REPORTS_FILTER_KEY = 'tvh:v1:reports:filters';
+function openReportScopeModal() {
+  const events = [...state.events()].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+  /* Load the current filter blob so we preserve every other setting
+   * (statuses / columns / groupBy) and only overwrite scope+eventIds. */
+  let current = {};
+  try { current = JSON.parse(localStorage.getItem(REPORTS_FILTER_KEY) || '{}') || {}; } catch (_e) { /* ignore */ }
+  const preselected = new Set(Array.isArray(current.eventIds) ? current.eventIds : []);
+  const picks = new Set(preselected);
+  const groupLabel = (e) => ({ published: 'Live', closed: 'Closed', archived: 'Archived', draft: 'Drafts', review: 'Pending approval' })[e.status] || 'Other';
+  const grouped = new Map();
+  for (const e of events) {
+    const g = groupLabel(e);
+    if (!grouped.has(g)) grouped.set(g, []);
+    grouped.get(g).push(e);
+  }
+  const list = el('div', { style: 'display:flex;flex-direction:column;gap:10px;max-height:52vh;overflow-y:auto' });
+  for (const [group, items] of grouped) {
+    const groupWrap = el('div', {},
+      el('div', { class: 'lbl', style: 'font-weight:700;margin:0 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)', text: group }),
+      ...items.map((e) => {
+        const cb = el('input', { type: 'checkbox' });
+        cb.checked = picks.has(e.id);
+        cb.addEventListener('change', () => {
+          if (cb.checked) picks.add(e.id); else picks.delete(e.id);
+        });
+        return el('label', { style: 'display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px;cursor:pointer' },
+          cb,
+          el('span', {},
+            el('div', { style: 'font-weight:600', text: `${e.glyph || '📌'} ${e.title || e.id}` }),
+            el('small', { class: 'sub', text: `${e.template || 'event'} · ${e.status || 'draft'}` })
+          )
+        );
+      })
+    );
+    list.append(groupWrap);
+  }
+  const summaryLine = el('p', { class: 'sub', style: 'margin:0 0 8px', text: `${events.length} event${events.length === 1 ? '' : 's'} on record. Tick the ones to include in the PDF.` });
+  const emptyNote = !events.length ? el('p', { class: 'sub', text: 'No events on record yet — create one first.' }) : null;
+  modal({
+    title: '↓ Generate report — pick events',
+    body: el('div', {}, summaryLine, emptyNote || list),
+    actions: [
+      { label: 'All published events', kind: 'btn-ghost', onClick: (close) => {
+        const blob = { ...current, scope: 'published', eventIds: [] };
+        try { localStorage.setItem(REPORTS_FILTER_KEY, JSON.stringify(blob)); } catch (_e) { /* quota */ }
+        close();
+        location.hash = '#/reports';
+      } },
+      { label: 'Cancel', close: true },
+      { label: 'Open report →', kind: '', onClick: (close) => {
+        const chosen = Array.from(picks);
+        if (!chosen.length) { toast('Pick at least one event, or use "All published events".', 'warn'); return; }
+        const blob = { ...current, scope: 'events', eventIds: chosen };
+        try { localStorage.setItem(REPORTS_FILTER_KEY, JSON.stringify(blob)); } catch (_e) { /* quota */ }
+        close();
+        location.hash = '#/reports';
+      } }
+    ]
+  });
+}
+
 async function renderChrome() {
   const nav = $('#topnav');
   const whoami = $('#whoami');
@@ -202,8 +270,8 @@ async function renderChrome() {
       btn.append(buildSvgIcon('download'));
       btn.addEventListener('click', (ev) => {
         ev.preventDefault();
-        try { location.hash = '#/reports'; }
-        catch (e) { console.error('[export] failed', e); }
+        try { openReportScopeModal(); }
+        catch (e) { console.error('[export] failed', e); location.hash = '#/reports'; }
       });
       whoami.append(btn);
     }
