@@ -101,5 +101,44 @@ export async function syncFromWorker() {
     console.warn('[sync] worker fetch failed — using local cache', e && e.message ? e.message : e);
   } finally {
     _running = false;
+    _lastRunAt = Date.now();
   }
+}
+
+/* --- Auto-refresh choreography ---------------------------------
+ *
+ * Two lightweight signals drive background refresh so the UI feels
+ * "live" without any polling storm:
+ *
+ *   1. `visibilitychange` fires whenever the tab is refocused. We
+ *      trigger a sync so a user coming back after a while sees the
+ *      committee's latest verify / new contribution instantly.
+ *   2. `setInterval` runs every AUTO_REFRESH_MS while the tab is
+ *      visible. The throttle guarantees we never fire more than once
+ *      per MIN_GAP_MS window even if multiple triggers coincide.
+ *
+ * Every fetch also drives the topbar golden shimmer via
+ * `installFetchWrapper` (already wired in app.js), so users get a
+ * subtle glow-progress cue during background updates without a
+ * dedicated spinner. */
+const AUTO_REFRESH_MS = 60_000;
+const MIN_GAP_MS      = 20_000;
+let   _lastRunAt      = 0;
+function _throttledSync(reason) {
+  if (typeof document === 'undefined') return;
+  if (document.hidden) return;                     /* skip while tab in background */
+  if (Date.now() - _lastRunAt < MIN_GAP_MS) return; /* respect the min-gap window   */
+  syncFromWorker().catch((e) => {
+    // eslint-disable-next-line no-console
+    console.warn(`[sync/${reason}] failed`, e && e.message ? e.message : e);
+  });
+}
+export function installAutoRefresh() {
+  if (typeof window === 'undefined') return;
+  if (installAutoRefresh._wired) return;
+  installAutoRefresh._wired = true;
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _throttledSync('visibility');
+  });
+  setInterval(() => _throttledSync('interval'), AUTO_REFRESH_MS);
 }

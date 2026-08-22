@@ -7,7 +7,7 @@ import { can } from './rbac.js';
 import { getSociety, state } from './store.js';
 import { installFetchWrapper, busy } from './busy.js';
 import { mountBell as mountNotifyBell } from './notify.js';
-import { syncFromWorker } from './sync.js';
+import { syncFromWorker, installAutoRefresh } from './sync.js';
 
 /* Global background-activity tracker: wraps window.fetch so every network
  * call (Google Identity Services, GitHub archive push, config load, …)
@@ -20,6 +20,12 @@ installFetchWrapper();
  * event list, not just what their own browser last cached). Fire-and-
  * forget — never blocks the first paint. See assets/js/sync.js. */
 syncFromWorker();
+/* Auto-refresh: pull /events + /contributions + /settings again when
+ * the tab returns to the foreground and once every 60 s while
+ * visible. Throttled to at most one call per 20 s. Provides the
+ * "background glow-progress" the user asked for via the existing
+ * topbar shimmer that fires on every fetch. */
+installAutoRefresh();
 
 /* Bootstrap Google Identity Services (GIS). Mirrors the ta-society-helpdesk
  * pattern (docs/index.html → Auth.init). If TVH_GOOGLE_CLIENT_ID isn't set
@@ -48,6 +54,7 @@ const views = {
   receipt:    () => import('./views/receipt.js'),
   verify:     () => import('./views/verify.js'),
   login:      () => import('./views/login.js'),
+  me:         () => import('./views/me.js'),
 };
 
 async function mountView(loader, ctx) {
@@ -80,6 +87,7 @@ router.register('/receipt/:id',               (ctx) => mountView(views.receipt, 
 router.register('/verify',                    (ctx) => mountView(views.verify, ctx));
 router.register('/verify/:id',                (ctx) => mountView(views.verify, ctx));
 router.register('/login',                     (ctx) => mountView(views.login, ctx));
+router.register('/me',                        (ctx) => mountView(views.me, ctx));
 router.fallback(                              (ctx) => mountView(views.home, ctx));
 
 /* Auth icons intentionally mirror TSH semantics:
@@ -276,7 +284,9 @@ async function renderChrome() {
       whoami.append(btn);
     }
     const roleLabel = ({ admin: 'Admin', secretary: 'Secretary', mgmt: 'MC', committee: 'Committee', manager: 'Manager', resident: 'Resident' })[user.role] || user.role;
-    whoami.append(el('span', { class: 'whoami' },
+    /* Persona chip doubles as the entry point to the user's own
+     * activity view (contributions + expenses + receipt links). */
+    whoami.append(el('a', { class: 'whoami', href: '#/me', title: 'Your contributions & expenses', style: 'text-decoration:none' },
       el('span', { class: 'avatar', text: (user.name || '?').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase() }),
       el('span', { class: 'whoami-name', text: user.name.split(' ')[0] }),
       el('span', { class: 'role-badge ' + ({ admin: '', secretary: 'sec', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[user.role], text: roleLabel }),
@@ -366,7 +376,7 @@ function syncMobileTabbar(user, showVerify) {
   const me = document.getElementById('tvhTabMe');
   if (me) {
     if (user && (user.role === 'admin' || user.role === 'mgmt')) me.href = '#/admin';
-    else if (user) me.href = '#/login';
+    else if (user) me.href = '#/me';
     /* Anonymous visitors: hide the "Me" tab entirely so the header
      * sign-in button is the single entry point to authentication. */
     if (!user) { me.hidden = true; me.style.display = 'none'; }

@@ -152,13 +152,30 @@ export async function render(root, { match }) {
     )
     : null;
 
-  /* Public expense ledger — shown only when the society-level toggle
-   * `expenses.residents_can_see` is ON, and only the rows the
-   * treasurer flagged `visible_to_residents`. Keeps outflows opaque
-   * by default so committee retains discretion. */
+  /* Public expense ledger — shown when the society-level toggle
+   * `expenses.residents_can_see` is ON, and only rows the treasurer
+   * both verified AND flagged `visible_to_residents`. Keeps unverified
+   * or opaque outflows out of the resident-facing view by default. */
   const publicExpenses = await renderPublicExpensesCard(evt, user);
+  /* Signed-in users can submit expenses against the event (e.g.
+   * volunteers who advanced petty cash). Committee verifies later. */
+  const canSubmitExpense = user ? await can(user, 'expenses.record') : false;
+  const submitExpenseCard = canSubmitExpense ? el('section', { class: 'card card-pad', style: 'margin-top:16px' },
+    el('div', { class: 'row row-between', style: 'flex-wrap:wrap;gap:8px' },
+      el('div', {},
+        el('h3', { style: 'margin:0', text: 'Report an expense you paid' }),
+        el('small', { class: 'sub', text: 'Volunteers can log petty-cash spends. Committee verifies before it counts on the dashboard.' })
+      ),
+      el('button', { class: 'btn', on: { click: () => openExpenseDialog(evt, user, null, false, 'pending', async () => {
+        toast('Expense submitted for verification.', 'ok');
+        mountEventView();
+      }) } }, '＋ Submit expense')
+    )
+  ) : null;
 
-  mount(root, hero, stats, progress, board, publicExpenses, reportCard);
+  const mountEventView = () => location.reload();
+
+  mount(root, hero, stats, progress, board, publicExpenses, submitExpenseCard, reportCard);
 }
 
 async function renderPublicExpensesCard(evt, user) {
@@ -167,13 +184,13 @@ async function renderPublicExpensesCard(evt, user) {
     const cfgExp = (soc && soc.expenses) || {};
     if (!cfgExp.residents_can_see) return null;
     const rows = state.expenses()
-      .filter(x => x && x.event_id === evt.id && x.visible_to_residents)
-      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+      .filter(x => x && x.event_id === evt.id && x.visible_to_residents && x.status === 'verified')
+      .sort((a, b) => String(b.verified_at || b.created_at || '').localeCompare(String(a.verified_at || a.created_at || '')));
     if (!rows.length) return null;
     const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
     return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
       el('h3', { text: 'Community expenses' }),
-      el('p', { class: 'sub', text: `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'} · ${fmtINR(total)} spent so far.` }),
+      el('p', { class: 'sub', text: `${rows.length} verified entr${rows.length === 1 ? 'y' : 'ies'} · ${fmtINR(total)} spent so far.` }),
       el('table', { class: 'table', style: 'margin-top:8px' },
         el('thead', {}, el('tr', {},
           el('th', { text: 'When' }),
@@ -182,7 +199,7 @@ async function renderPublicExpensesCard(evt, user) {
           el('th', { class: 'num', text: 'Amount' }),
         )),
         el('tbody', {}, ...rows.map(r => el('tr', {},
-          el('td', { text: fmtDate(r.created_at) }),
+          el('td', { text: fmtDate(r.verified_at || r.created_at) }),
           el('td', { text: r.category || '—' }),
           el('td', { style: 'max-width:320px;white-space:normal', text: r.description || '' }),
           el('td', { class: 'num', text: fmtINR(r.amount) })
@@ -592,18 +609,22 @@ async function renderExpensesPanel(evt, user, { canRecord, caps }) {
   const soc = await getSociety().catch(() => null);
   const expenseCfg = (soc && soc.expenses) || {};
   const defaultVisible = !!expenseCfg.default_visible_to_residents;
+  const canVerify = await can(user, 'expenses.verify');
   const rows = state.expenses().filter(x => x && x.event_id === evt.id)
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const verified = rows.filter(r => r.status === 'verified');
+  const pendingRows = rows.filter(r => r.status === 'pending' || !r.status);
+  const verifiedTotal = verified.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const pendingTotal  = pendingRows.reduce((s, r) => s + Number(r.amount || 0), 0);
   const collected = totalFor(evt.id);
-  const net = collected - total;
+  const net = collected - verifiedTotal;
 
   const head = el('div', { class: 'row row-between', style: 'padding:16px 16px 8px;flex-wrap:wrap;gap:8px' },
     el('div', {},
       el('h3', { style: 'margin:0', text: 'Expenses' }),
-      el('small', { class: 'sub', text: `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'} · ${fmtINR(total)} spent · ${fmtINR(net)} net (collected − spent)` })
+      el('small', { class: 'sub', text: `${verified.length} verified (${fmtINR(verifiedTotal)}) · ${pendingRows.length} pending (${fmtINR(pendingTotal)}) · ${fmtINR(net)} net (collected − verified)` })
     ),
-    canRecord ? el('button', { class: 'btn btn-sm', on: { click: () => openExpenseDialog(evt, user, null, defaultVisible, () => renderManage(document.getElementById('main'), evt, user, caps)) } }, '＋ Add expense') : null
+    canRecord ? el('button', { class: 'btn btn-sm', on: { click: () => openExpenseDialog(evt, user, null, defaultVisible, canVerify ? 'verified' : 'pending', () => renderManage(document.getElementById('main'), evt, user, caps)) } }, '＋ Add expense') : null
   );
 
   const tbl = el('table', { class: 'table' },
@@ -613,22 +634,27 @@ async function renderExpensesPanel(evt, user, { canRecord, caps }) {
       el('th', { text: 'Description' }),
       el('th', { text: 'Receipt' }),
       el('th', { class: 'num', text: 'Amount' }),
+      el('th', { text: 'Status' }),
       el('th', { text: 'Visible to residents' }),
-      canRecord ? el('th', { text: 'Actions' }) : null
+      (canRecord || canVerify) ? el('th', { text: 'Actions' }) : null
     )),
-    el('tbody', {}, ...(rows.length ? rows.map(r => expenseRow(r, evt, user, canRecord, caps)) : [
-      el('tr', {}, el('td', { colspan: canRecord ? 7 : 6, text: canRecord ? 'No expenses recorded yet. Tap "Add expense" to record the first one.' : 'No expenses recorded yet.', style: 'text-align:center;color:var(--muted);padding:14px' }))
+    el('tbody', {}, ...(rows.length ? rows.map(r => expenseRow(r, evt, user, { canRecord, canVerify, caps })) : [
+      el('tr', {}, el('td', { colspan: (canRecord || canVerify) ? 8 : 7, text: canRecord ? 'No expenses recorded yet. Tap "Add expense" to record the first one.' : 'No expenses recorded yet.', style: 'text-align:center;color:var(--muted);padding:14px' }))
     ]))
   );
 
   return el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' }, head, tbl);
 }
 
-function expenseRow(r, evt, user, canRecord, caps) {
+function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
+  const isOwn = r.created_by && user && String(r.created_by).toLowerCase() === String(user.email || user.id || '').toLowerCase();
+  const status = r.status || 'pending';
+  const canEditThis = canRecord && (canVerify || isOwn);
+  const canDeleteThis = canRecord && (canVerify || (isOwn && status !== 'verified'));
   const visToggle = el('input', {
     type: 'checkbox',
     checked: !!r.visible_to_residents,
-    disabled: !canRecord,
+    disabled: !canVerify,
     on: { change: (e) => {
       const list = state.expenses();
       const rec = list.find(x => x && x.id === r.id);
@@ -640,24 +666,43 @@ function expenseRow(r, evt, user, canRecord, caps) {
       toast(rec.visible_to_residents ? 'Now visible to residents' : 'Hidden from residents', 'ok');
     } }
   });
+  const pillCls = status === 'verified' ? 'pill pill-sage' : status === 'void' ? 'pill pill-muted' : 'pill';
+  const pillText = status === 'void' ? 'invalid' : status;
   return el('tr', {},
     el('td', { text: fmtDate(r.created_at) }),
     el('td', { text: r.category || '—' }),
-    el('td', { style: 'max-width:280px;white-space:normal', text: r.description || '' }),
+    el('td', { style: 'max-width:280px;white-space:normal', text: (r.description || '') + (r.created_by && !canVerify ? '' : (r.created_by ? ` · by ${r.created_by}` : '')) }),
     el('td', {}, r.receipt_url
       ? el('a', { class: 'btn btn-sm btn-ghost', href: r.receipt_url, target: '_blank', rel: 'noopener' }, '🧾 Open')
       : el('span', { class: 'sub', text: '—' })
     ),
     el('td', { class: 'num', text: fmtINR(r.amount) }),
+    el('td', {}, el('span', { class: pillCls, text: pillText })),
     el('td', {}, visToggle),
-    canRecord ? el('td', {}, el('div', { class: 'row' },
-      el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openExpenseDialog(evt, user, r, !!r.visible_to_residents, () => renderManage(document.getElementById('main'), evt, user, caps)) } }, 'Edit'),
-      el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => confirmDeleteExpense(r, evt, user, caps) } }, 'Delete')
+    (canRecord || canVerify) ? el('td', {}, el('div', { class: 'row' },
+      (canVerify && status === 'pending') ? el('button', { class: 'btn btn-sm', on: { click: () => verifyExpense(r, evt, user, caps) } }, 'Verify') : null,
+      canEditThis ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openExpenseDialog(evt, user, r, !!r.visible_to_residents, status, () => renderManage(document.getElementById('main'), evt, user, caps)) } }, 'Edit') : null,
+      canDeleteThis ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => confirmDeleteExpense(r, evt, user, caps) } }, 'Delete') : null
     )) : null
   );
 }
 
-function openExpenseDialog(evt, user, existing, defaultVisible, onDone) {
+function verifyExpense(r, evt, user, caps) {
+  const list = state.expenses();
+  const rec = list.find(x => x && x.id === r.id);
+  if (!rec) return;
+  const nowIso = new Date().toISOString();
+  rec.status = 'verified';
+  rec.verified_at = nowIso;
+  rec.verified_by = user && (user.email || user.id) || 'unknown';
+  rec.updated_at = nowIso;
+  state.saveExpenses(list);
+  state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: rec.id, event: evt.id, amount: rec.amount });
+  toast('Expense verified. Now counts in the ledger.', 'ok');
+  renderManage(document.getElementById('main'), evt, user, caps);
+}
+
+function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDone) {
   const isEdit = !!existing;
   const inpAmount = el('input', { type: 'number', min: '0', step: '1', value: existing ? String(existing.amount || '') : '', placeholder: '2500', required: true });
   const inpCategory = el('input', { type: 'text', maxlength: '48', value: existing ? (existing.category || '') : '', placeholder: 'mandap · prasad · decor · rent · vendor …' });
@@ -670,23 +715,25 @@ function openExpenseDialog(evt, user, existing, defaultVisible, onDone) {
     help ? el('small', { class: 'sub', style: 'display:block;margin-bottom:4px', text: help }) : null,
     ctrl
   );
+  const willBePending = (statusHint === 'pending');
   const body = el('div', {},
+    willBePending ? el('p', { class: 'sub', style: 'margin:0 0 6px', text: '📝 Your submission goes to the committee for verification. Once verified it counts on the event dashboard.' }) : null,
     field('Amount (₹)', 'Whole rupees. This event will be debited by this amount for treasury reporting.', inpAmount),
     field('Category', 'Short tag, free text. Used for grouping in reports.', inpCategory),
     field('Description', 'Optional note the treasurer will see later.', inpDescription),
     field('Receipt / invoice URL', 'Optional link to the vendor invoice or paid receipt.', inpReceiptUrl),
     el('label', { class: 'row', style: 'gap:8px;margin-top:12px;cursor:pointer' }, cbVisible,
       el('span', {}, el('div', { class: 'name', text: 'Visible to residents' }),
-        el('small', { class: 'sub', text: 'When ON, residents see this row on the public expense list (subject to the society-level "residents_can_see" setting).' })
+        el('small', { class: 'sub', text: 'When ON, verified rows appear on the public expense list (subject to the society-level "residents_can_see" setting).' })
       )
     )
   );
   modal({
-    title: isEdit ? 'Edit expense' : 'Add expense',
+    title: isEdit ? 'Edit expense' : (willBePending ? 'Submit expense for verification' : 'Add expense'),
     body,
     actions: [
       { label: 'Cancel', close: true },
-      { label: isEdit ? 'Save' : 'Add expense', kind: '', onClick: (close) => {
+      { label: isEdit ? 'Save' : (willBePending ? 'Submit for verification' : 'Add expense'), kind: '', onClick: (close) => {
         const amount = Number(inpAmount.value);
         if (!(amount > 0)) { toast('Amount must be a positive number.', 'err'); return; }
         const category = String(inpCategory.value || '').trim();
@@ -710,6 +757,7 @@ function openExpenseDialog(evt, user, existing, defaultVisible, onDone) {
             toast('Expense updated.', 'ok');
           }
         } else {
+          const initialStatus = willBePending ? 'pending' : 'verified';
           const rec = {
             id: 'exp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
             event_id: evt.id,
@@ -718,14 +766,17 @@ function openExpenseDialog(evt, user, existing, defaultVisible, onDone) {
             description,
             receipt_url: receipt_url || '',
             visible_to_residents: !!cbVisible.checked,
+            status: initialStatus,
             created_at: nowIso,
             created_by: user && (user.email || user.id) || 'unknown',
             updated_at: nowIso,
+            verified_at: initialStatus === 'verified' ? nowIso : null,
+            verified_by: initialStatus === 'verified' ? (user && (user.email || user.id) || 'unknown') : null,
           };
           list.push(rec);
           state.saveExpenses(list);
-          state.audit({ actor: user && user.email || null, action: 'expense.create', expense: rec.id, event: evt.id, amount });
-          toast('Expense recorded.', 'ok');
+          state.audit({ actor: user && user.email || null, action: initialStatus === 'verified' ? 'expense.create' : 'expense.submit', expense: rec.id, event: evt.id, amount });
+          toast(initialStatus === 'verified' ? 'Expense recorded.' : 'Expense submitted for verification.', 'ok');
         }
         close();
         if (typeof onDone === 'function') onDone();

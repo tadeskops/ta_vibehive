@@ -734,6 +734,26 @@ async function renderAttributes(user, canUsersManage) {
     .sort((a, b) => a.email.localeCompare(b.email));
 
   const saveAllBtn = el('button', { class: 'btn', type: 'button' }, 'Save all settings changes');
+  /* Inline processing ring shown next to the button during save so
+   * the user sees local progress even when the topbar shimmer isn't
+   * visible (e.g. focused on the tab body). Removed on completion. */
+  const saveAllStatus = el('span', { class: 'tvh-saving-ring', 'aria-live': 'polite', hidden: true, style: 'display:none;margin-left:8px;vertical-align:middle' }, '');
+  const setSaving = (on) => {
+    if (on) {
+      saveAllBtn.disabled = true;
+      saveAllBtn.dataset.originalLabel = saveAllBtn.textContent || 'Save all settings changes';
+      saveAllBtn.textContent = 'Saving…';
+      saveAllStatus.hidden = false;
+      saveAllStatus.style.display = 'inline-block';
+    } else {
+      saveAllBtn.disabled = false;
+      if (saveAllBtn.dataset.originalLabel) {
+        saveAllBtn.textContent = saveAllBtn.dataset.originalLabel;
+      }
+      saveAllStatus.hidden = true;
+      saveAllStatus.style.display = 'none';
+    }
+  };
   saveAllBtn.addEventListener('click', async () => {
     /* Role editor uses local UI state. Auto-stage it here so users can
      * simply click Save without needing a separate Stage click first. */
@@ -744,6 +764,8 @@ async function renderAttributes(user, canUsersManage) {
       toast('No staged settings changes.', 'warn');
       return;
     }
+    setSaving(true);
+    try {
     const beforeOverrides = structuredClone(state.societyOverrides() || {});
     /* Detect archive-config changes: when present, allow bootstrap
      * save so the very first PAT / repo / enable-toggle configuration
@@ -800,6 +822,9 @@ async function renderAttributes(user, canUsersManage) {
       toast('Settings saved in one consolidated write.', 'ok');
     }
     window.dispatchEvent(new HashChangeEvent('hashchange'));
+    } finally {
+      setSaving(false);
+    }
   });
 
   const discardDraftBtn = el('button', { class: 'btn btn-ghost', type: 'button' }, 'Discard staged changes');
@@ -906,7 +931,7 @@ async function renderAttributes(user, canUsersManage) {
     panel('Pending settings changes',
       'Edits in this tab are staged first. Save once to publish all changes together.',
       el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, unsavedPill, livePill),
-      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:10px' }, saveAllBtn, discardDraftBtn)
+      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:10px' }, saveAllBtn, saveAllStatus, discardDraftBtn)
     )
   );
 }

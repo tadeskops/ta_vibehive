@@ -353,7 +353,7 @@ export async function render(root, { match } = {}) {
      * displayed contribution rows so the treasurer sees inflows and
      * outflows for the exact selection they filtered. */
     const scopedEventIds = new Set(rows.map(c => c.event));
-    const expenses = state.expenses().filter(x => x && (scopedEventIds.size === 0 || scopedEventIds.has(x.event_id)));
+    const expenses = state.expenses().filter(x => x && x.status === 'verified' && (scopedEventIds.size === 0 || scopedEventIds.has(x.event_id)));
     const expenseTotal = expenses.reduce((s, x) => s + Number(x.amount || 0), 0);
     const net = verifiedTotal - expenseTotal;
 
@@ -557,7 +557,7 @@ export async function render(root, { match } = {}) {
     /* Expense side — mirrors the on-screen summary logic so PDF and
      * screen show identical net-cash figures for the same scope. */
     const scopedEventIds = new Set(rows.map(c => c.event));
-    const scopedExpenses = state.expenses().filter(x => x && (scopedEventIds.size === 0 || scopedEventIds.has(x.event_id)));
+    const scopedExpenses = state.expenses().filter(x => x && x.status === 'verified' && (scopedEventIds.size === 0 || scopedEventIds.has(x.event_id)));
     const expenseRupees = scopedExpenses.reduce((s, x) => s + Number(x.amount || 0), 0);
     const netRupees = verifiedRupees - expenseRupees;
     /* Plain-ASCII rupee prefix — jsPDF's default helvetica doesn't ship

@@ -43,6 +43,14 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
   0%{background-position:200% 0}
   100%{background-position:-100% 0}
 }
+/* Inline processing ring for save buttons — pure CSS so no image
+ * asset ships. 14px circle, gold border with a transparent segment
+ * that spins. Reduced-motion mode swaps the spin for a static dot. */
+.tvh-saving-ring{width:14px;height:14px;border-radius:50%;border:2px solid var(--gold,#c78f2a);border-top-color:transparent;animation:tvh-saving-spin 0.9s linear infinite}
+@keyframes tvh-saving-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){
+  .tvh-saving-ring{animation:none;background:var(--gold,#c78f2a);border:none}
+}
 @media (prefers-reduced-motion:reduce){
   body.is-busy .topbar::after{animation:none;background:linear-gradient(90deg,transparent 0%,rgba(199,143,42,.55) 50%,transparent 100%);background-size:100% 100%;background-position:0 0}
 }
