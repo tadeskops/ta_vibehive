@@ -36,14 +36,24 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Show environment
+        run: |
+          node --version
+          npm --version
+          echo "--- wrangler.toml ---"
+          cat wrangler.toml
+
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund --loglevel=error
+
+      - name: Show wrangler version
+        run: npx wrangler --version
 
       - name: Typecheck
         run: npx tsc --noEmit
 
       - name: Publish to Cloudflare Workers
-        run: npx wrangler deploy --minify
+        run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
