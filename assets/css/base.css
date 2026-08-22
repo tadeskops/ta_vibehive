@@ -421,6 +421,26 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 .panel.panel-collapsible .panel-body{border-top:1px solid var(--line);padding:14px 18px 18px}
 .panel.panel-collapsible .panel-body .sub:first-child{margin-top:0}
 
+/* Settings: role-email mapping accordion */
+.role-map-stack{gap:10px}
+.panel.role-map-accordion{margin:0;border-color:#ead9bd;background:#fffaf2}
+.panel.role-map-accordion>summary{padding:12px 14px;background:linear-gradient(180deg,#fffdf9 0%,#fff8ec 100%)}
+.panel.role-map-accordion .panel-summary-title{gap:8px;flex-wrap:wrap}
+.role-map-title{font-weight:800}
+.role-map-id{color:var(--muted);font-size:12px}
+.role-map-count{display:inline-block;padding:2px 8px;border-radius:999px;background:#efe4d0;color:var(--muted);font-size:11px;font-weight:700}
+.role-map-lock{display:inline-block;padding:2px 8px;border-radius:999px;background:#fde6e1;color:#9c3a24;font-size:11px;font-weight:700}
+.role-map-icon{display:inline-block;width:10px;height:10px;border-radius:999px;box-shadow:0 0 0 2px #fff, 0 0 0 3px rgba(0,0,0,.06)}
+.role-map-icon-admin{background:#a34328}
+.role-map-icon-sec{background:#7f5a20}
+.role-map-icon-mgmt{background:#486b35}
+.role-map-icon-cmt{background:#3f5c34}
+.role-map-icon-mgr{background:#54718f}
+.role-map-icon-res{background:#7b7f89}
+.panel.role-map-accordion[open]{border-color:#ddb98b;box-shadow:0 4px 16px rgba(160,108,43,.10)}
+.panel.role-map-accordion .panel-body{background:#fff}
+.panel.role-map-accordion textarea{min-height:92px}
+
 /* Roles tab — transposed, role-first cards for compact readability. */
 .role-hierarchy-list,.perm-matrix-by-role{display:grid;gap:10px}
 .role-hierarchy-card,.perm-role-card{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px}

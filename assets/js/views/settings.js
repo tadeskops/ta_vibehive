@@ -453,12 +453,29 @@ async function renderAttributes(user, canUsersManage) {
   roleIds.forEach((id) => { roleEmailState[id] = Array.from(new Set(roleEmailState[id] || [])).sort(); });
   const initialRoleEmailState = structuredClone(roleEmailState);
 
-  const roleEditorWrap = el('div', { class: 'stack' });
+  const roleEditorWrap = el('div', { class: 'stack role-map-stack' });
   function renderRoleEditors() {
     roleEditorWrap.replaceChildren();
+    const accordions = [];
+    const roleTone = {
+      admin: 'admin',
+      secretary: 'sec',
+      mgmt: 'mgmt',
+      committee: 'cmt',
+      manager: 'mgr',
+      resident: 'res',
+    };
     roleDefs.forEach((r) => {
       const isAdminRole = r.id === 'admin';
       const locked = !canEditRoleMap || (!canEditAdminRoleMap && isAdminRole);
+      const tone = roleTone[r.id] || 'res';
+      const setCountText = (countEl, list) => {
+        const n = Array.isArray(list) ? list.length : 0;
+        countEl.textContent = `${n} member${n === 1 ? '' : 's'}`;
+      };
+      const countEl = el('span', { class: 'role-map-count', text: '' });
+      setCountText(countEl, roleEmailState[r.id] || []);
+
       const area = el('textarea', {
         rows: 3,
         placeholder: `${r.label} gmail IDs. Comma, semicolon, newline, or spaces supported.`,
@@ -467,23 +484,41 @@ async function renderAttributes(user, canUsersManage) {
         readOnly: locked,
       });
       area.addEventListener('input', () => {
-        roleEmailState[r.id] = String(area.value || '')
+        const next = String(area.value || '')
           .split(/[\s,;]+/)
           .map(v => String(v || '').trim().toLowerCase())
           .filter(Boolean);
+        roleEmailState[r.id] = Array.from(new Set(next));
+        setCountText(countEl, roleEmailState[r.id]);
       });
-      roleEditorWrap.append(
-        el('div', { class: 'panel', style: 'margin-top:8px' },
-          el('div', { class: 'field', style: 'margin-top:10px' },
-            el('label', { class: 'lbl', text: `${r.label} (${r.id})` }),
-            !canEditAdminRoleMap && isAdminRole
+      const details = el('details', { class: 'panel panel-collapsible role-map-accordion' },
+        el('summary', {},
+          el('span', { class: 'panel-summary-title' },
+            el('span', { class: `role-map-icon role-map-icon-${tone}`, 'aria-hidden': 'true' }),
+            el('span', { class: 'role-map-title', text: r.label }),
+            el('span', { class: 'role-map-id', text: `(${r.id})` }),
+            countEl,
+            locked ? el('span', { class: 'role-map-lock', text: 'Read only' }) : null
+          )
+        ),
+        el('div', { class: 'panel-body' },
+          !canEditAdminRoleMap && isAdminRole
             ? el('small', { class: 'sub', text: 'Admin role list is locked for your role.' })
             : null,
+          el('div', { class: 'field', style: 'margin-top:0' },
+            el('label', { class: 'lbl', text: 'Email IDs' }),
             area
           )
         )
       );
+      details.addEventListener('toggle', () => {
+        if (!details.open) return;
+        accordions.forEach((node) => { if (node !== details) node.open = false; });
+      });
+      accordions.push(details);
+      roleEditorWrap.append(details);
     });
+    if (accordions.length) accordions[0].open = true;
   }
   renderRoleEditors();
   const taEmailBulk = el('textarea', {
