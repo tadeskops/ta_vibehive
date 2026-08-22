@@ -51,6 +51,7 @@
     { "id": "reporting.expenses",    "cluster": "reporting",      "label": "Expense summary transparency",    "scope": "event",     "default": false },
     { "id": "reporting.event_detail_signedin","cluster": "reporting", "label": "Signed-in users can view event contribution list", "scope": "event", "default": false },
     { "id": "reporting.audit_log",   "cluster": "reporting",      "label": "Tamper-evident audit log",        "scope": "system",    "default": true,  "requires_role": "admin" },
+    { "id": "metrics.visitor_counter","cluster": "reporting",     "label": "Show daily visit counter in footer","scope": "system",   "default": false, "requires_role": "admin" },
     { "id": "notify.event_created",  "cluster": "notification",   "label": "New event notification",          "scope": "system",    "default": true },
     { "id": "notify.reminder",       "cluster": "notification",   "label": "Contribution reminder",           "scope": "event",     "default": false },
     { "id": "notify.receipt_ready",  "cluster": "notification",   "label": "Receipt-ready email",             "scope": "system",    "default": true },

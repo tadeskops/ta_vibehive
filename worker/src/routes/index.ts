@@ -3,6 +3,7 @@ import { whoami } from './whoami.ts';
 import { getSettings, putSettings } from './settings.ts';
 import { listEvents, getEvent, putEvent } from './events.ts';
 import { createContribution, verifyContribution, listContributions } from './contributions.ts';
+import { getVisitCount, incrementVisitCount } from './metrics.ts';
 
 export function buildRouter(): Router {
   const r = new Router();
@@ -23,6 +24,10 @@ export function buildRouter(): Router {
   r.get('/contributions', listContributions);
   r.post('/contributions', createContribution);
   r.post('/contributions/:year/:month/:id/verify', verifyContribution);
+
+  // Metrics — anonymous visit counter (feature-flag gated on the client)
+  r.get('/metrics/visit', getVisitCount);
+  r.post('/metrics/visit', incrementVisitCount);
 
   return r;
 }

@@ -200,6 +200,19 @@
     min-height: 48px;
   }
   .tvh-tabbar a .ico { font-size: 18px; line-height: 1; }
+  /* Role chip appended to the mobile "Me" tab so signed-in users see
+   * their role without opening the persona page. Kept intentionally
+   * tiny so it doesn't crowd the tab-bar. */
+  .tvh-tabbar a .tvh-tab-role {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    line-height: 1.4;
+    border-radius: 4px;
+    margin-top: 1px;
+  }
   .tvh-tabbar a[aria-current="page"],
   .tvh-tabbar a.is-active { color: var(--terra); }
   .tvh-tabbar a[aria-current="page"] .ico,

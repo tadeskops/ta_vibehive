@@ -8,6 +8,7 @@ import { getSociety, state } from './store.js';
 import { installFetchWrapper, busy } from './busy.js';
 import { mountBell as mountNotifyBell } from './notify.js';
 import { syncFromWorker, installAutoRefresh } from './sync.js';
+import { mountVisitCounter } from './visit-counter.js';
 
 /* Global background-activity tracker: wraps window.fetch so every network
  * call (Google Identity Services, GitHub archive push, config load, …)
@@ -26,6 +27,26 @@ syncFromWorker();
  * "background glow-progress" the user asked for via the existing
  * topbar shimmer that fires on every fetch. */
 installAutoRefresh();
+/* Footer visit-count chip — anonymous, best-effort. No-op when the
+ * `metrics.visitor_counter` system flag is OFF (default). */
+mountVisitCounter();
+
+/* Global "return to previous view after sign-in" — any anchor pointing
+ * at `#/login` (without an explicit `next`) is intercepted so the
+ * current hash is preserved. The login page already honours `?next=`.
+ * Uses capture phase so it wins over router link handling. */
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (ev) => {
+    const a = ev.target && ev.target.closest && ev.target.closest('a[href]');
+    if (!a) return;
+    const href = String(a.getAttribute('href') || '');
+    if (href !== '#/login' && href !== '#/login/') return;
+    const cur = location.hash || '#/';
+    if (cur === '#/login' || cur.startsWith('#/login')) return;
+    ev.preventDefault();
+    location.hash = '#/login?next=' + encodeURIComponent(cur);
+  }, true);
+}
 
 /* Bootstrap Google Identity Services (GIS). Mirrors the ta-society-helpdesk
  * pattern (docs/index.html → Auth.init). If TVH_GOOGLE_CLIENT_ID isn't set
@@ -381,6 +402,26 @@ function syncMobileTabbar(user, showVerify) {
      * sign-in button is the single entry point to authentication. */
     if (!user) { me.hidden = true; me.style.display = 'none'; }
     else       { me.hidden = false; me.style.display = ''; }
+  }
+  /* Mobile tab-bar role chip — mirrors the header persona chip so the
+   * signed-in role stays visible on small screens. */
+  const meLabel = document.getElementById('tvhTabMeLabel');
+  const meRole  = document.getElementById('tvhTabMeRole');
+  if (meLabel && meRole) {
+    if (user) {
+      const roleLabelShort = ({ admin: 'Admin', secretary: 'Sec', mgmt: 'MC', committee: 'Cmt', manager: 'Mgr', resident: 'Res' })[user.role] || 'Res';
+      const roleTone = ({ admin: '', secretary: 'sec', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[user.role] || 'res';
+      meLabel.textContent = (user.name || user.email || 'Me').split(' ')[0];
+      meRole.textContent = roleLabelShort;
+      meRole.className = 'tvh-tab-role role-badge ' + roleTone;
+      meRole.hidden = false;
+      meRole.style.display = '';
+    } else {
+      meLabel.textContent = 'Me';
+      meRole.textContent = '';
+      meRole.hidden = true;
+      meRole.style.display = 'none';
+    }
   }
   const anchors = tabbar.querySelectorAll('a[data-tab]');
   anchors.forEach(a => {

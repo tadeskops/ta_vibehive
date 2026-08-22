@@ -94,6 +94,11 @@
         <span aria-hidden="true">🔎</span>
         <span>Verify a receipt</span>
       </a>
+      <span class="footpad-dot" id="footpad-visits-dot" aria-hidden="true" hidden style="display:none">·</span>
+      <span class="footpad-action" id="footpad-visits" data-tvh-visits hidden style="display:none" title="Daily visits · updated live">
+        <span aria-hidden="true">👁</span>
+        <span><span data-tvh-visits-total>0</span> visits</span>
+      </span>
     </div>
     <!-- Right zone: legal meta on top, branded build stamp below.
          Two-line layout gives the © line + reg number room to breathe
@@ -138,7 +143,7 @@
   <a href="#/events" data-tab="events"><span class="ico" aria-hidden="true">🎉</span><span>Events</span></a>
   <button type="button" class="tvh-fab" id="tvhFab" aria-label="Quick actions" aria-haspopup="dialog" aria-expanded="false">+</button>
   <a href="#/verify" data-tab="verify"><span class="ico" aria-hidden="true">🔎</span><span>Verify</span></a>
-  <a href="#/login" data-tab="me" id="tvhTabMe"><span class="ico" aria-hidden="true">👤</span><span>Me</span></a>
+  <a href="#/login" data-tab="me" id="tvhTabMe"><span class="ico" aria-hidden="true">👤</span><span id="tvhTabMeLabel">Me</span><span class="tvh-tab-role role-badge res" id="tvhTabMeRole" hidden style="display:none"></span></a>
 </nav>
 <div class="tvh-sheet-back" id="tvhSheetBack" data-tvh-mobile-only hidden></div>
 <aside class="tvh-sheet" id="tvhSheet" data-tvh-mobile-only role="dialog" aria-labelledby="tvhSheetTitle" aria-hidden="true" hidden>

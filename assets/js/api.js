@@ -165,3 +165,17 @@ export async function verifyContribution(contribPath) {
   const [, year, month, id] = m;
   return request('POST', `/contributions/${year}/${month}/${encodeURIComponent(id)}/verify`);
 }
+
+/* ---------- Metrics ---------- */
+
+/** Read the site-wide visit counter (`{ total, today }`). Anonymous
+ *  callers are allowed — used by the footer visit-count chip. */
+export async function readVisitCount() {
+  return request('GET', '/metrics/visit');
+}
+
+/** Increment the visit counter (once per browser per UTC day —
+ *  callers are expected to dedup client-side). */
+export async function bumpVisitCount() {
+  return request('POST', '/metrics/visit');
+}
