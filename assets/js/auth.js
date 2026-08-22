@@ -18,6 +18,15 @@ function normalizeEmail(v) {
 }
 function roleFromEmailMap(email) {
   const over = state.societyOverrides() || {};
+  const tiers = pick(over, 'access.role_tiers') || [];
+  if (Array.isArray(tiers) && tiers.length) {
+    for (const tier of tiers) {
+      const baseRole = String(tier && tier.base_role || '').trim().toLowerCase();
+      const list = Array.isArray(tier && tier.emails) ? tier.emails : [];
+      if (!baseRole || !list.length) continue;
+      if (list.map(normalizeEmail).includes(email)) return baseRole;
+    }
+  }
   const roleEmails = pick(over, 'access.role_emails') || {};
   const roleOrder = ['admin', 'secretary', 'mgmt', 'committee', 'manager', 'resident'];
   for (const role of roleOrder) {

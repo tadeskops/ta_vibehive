@@ -10,6 +10,13 @@ export const STATUS = Object.freeze({
   CLOSED: 'closed', ARCHIVED: 'archived'
 });
 
+function normalizeStatus(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === STATUS.DRAFT || s === STATUS.REVIEW || s === STATUS.PUBLISHED || s === STATUS.CLOSED || s === STATUS.ARCHIVED) return s;
+  if (s === 'live') return STATUS.PUBLISHED;
+  return STATUS.DRAFT;
+}
+
 export function slugify(s) {
   return String(s).toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
 }
@@ -109,6 +116,7 @@ export async function newEventFromTemplate(templateId, actor) {
 
 export function saveEvent(evt, actor) {
   const evts = state.events();
+  evt.status = normalizeStatus(evt.status);
   const priorStatus = (evts.find(e => e.id === evt.id) || {}).status || null;
   evt.updated_at = new Date().toISOString();
   const i = evts.findIndex(e => e.id === evt.id);
@@ -145,7 +153,10 @@ export function publicEvents() {
    * from another draft (or a stale localStorage carryover) from
    * showing the same tile twice on the home dashboard. */
   const filtered = state.events()
-    .filter(e => e.status === STATUS.PUBLISHED || e.status === STATUS.CLOSED);
+    .filter(e => {
+      const st = normalizeStatus(e.status);
+      return st === STATUS.PUBLISHED || st === STATUS.CLOSED;
+    });
   const byKey = new Map();
   const keyOf = e => (e.slug || (e.title || '').toLowerCase().trim() || e.id);
   for (const e of filtered) {

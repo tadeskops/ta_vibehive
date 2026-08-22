@@ -2,7 +2,7 @@
 'use strict';
 import { el, mount, fmtDate, fmtINR } from '../dom.js';
 import { state } from '../store.js';
-import { totalFor, verifiedCount, listTemplates, newEventFromTemplate, saveEvent, STATUS } from '../events.js';
+import { totalFor, verifiedCount, listTemplates, newEventFromTemplate, saveEvent, STATUS, publicEvents } from '../events.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { navigate } from '../router.js';
@@ -26,13 +26,20 @@ export async function render(root) {
    * create-or-verify access sees everything so the pipeline is
    * discoverable. */
   const canSeeAll = canCreate || canVerify;
+  const norm = (raw) => {
+    const s = String(raw || '').trim().toLowerCase();
+    if (s === STATUS.PUBLISHED || s === STATUS.CLOSED || s === STATUS.REVIEW || s === STATUS.DRAFT || s === STATUS.ARCHIVED) return s;
+    if (s === 'live') return STATUS.PUBLISHED;
+    return STATUS.DRAFT;
+  };
   const all = state.events().slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
   const myEmail = user && user.email;
   const events = canSeeAll
     ? all
-    : all.filter(e => e.status === STATUS.PUBLISHED
-      || e.status === STATUS.CLOSED
-      || (e.status === STATUS.REVIEW && myEmail && e.proposed_by === myEmail));
+    : [
+      ...publicEvents(),
+      ...all.filter(e => norm(e.status) === STATUS.REVIEW && myEmail && e.proposed_by === myEmail)
+    ];
 
   const head = el('div', { class: 'row row-between', style: 'margin-bottom:18px' },
     el('div', {},

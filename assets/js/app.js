@@ -102,12 +102,14 @@ async function renderChrome() {
   const nav = $('#topnav');
   const whoami = $('#whoami');
   const user = session();
+  const soc = await getSociety();
+  const showVerify = !!(((soc || {}).navigation || {}).show_verify);
 
   const links = [
     { href: '#/', text: 'Home' },
     { href: '#/events', text: 'Events' },
-    { href: '#/verify', text: 'Verify receipt' },
   ];
+  if (showVerify) links.push({ href: '#/verify', text: 'Verify receipt' });
   /* IMPORTANT: this call is async → concurrent invocations of renderChrome
    * (router.start + DOMContentLoaded + first hashchange) can otherwise
    * race and each append after the await, tripling the visible nav.
@@ -190,7 +192,7 @@ async function renderChrome() {
   }
 
   /* Mobile tab-bar: highlight the active tab + adjust the "Me" link. */
-  syncMobileTabbar(user);
+  syncMobileTabbar(user, showVerify);
   await applyFooterDesktopVisibility();
 }
 
@@ -198,6 +200,7 @@ async function applyFooterDesktopVisibility() {
   try {
     const soc = await getSociety();
     const desk = ((soc.footer || {}).desktop) || {};
+    const showVerify = !!(((soc || {}).navigation || {}).show_verify);
     const isDesktop = window.matchMedia && window.matchMedia('(min-width: 641px)').matches;
     const setFoot = (id, show) => {
       const n = document.getElementById(id);
@@ -211,7 +214,7 @@ async function applyFooterDesktopVisibility() {
     };
     setFoot('footpad-social', desk.show_social !== false);
     setFoot('footpad-report-btn', desk.show_bug_report !== false);
-    setFoot('footpad-verify-link', desk.show_verify !== false);
+    setAny('footpad-verify-link', showVerify);
     /* Legal line remains desktop-hidden by policy. Brand row remains
      * visible and its optional chips (source/build) are configurable. */
     setFoot('footpad-legal-line', isDesktop ? false : (desk.show_legal !== false));
@@ -237,10 +240,12 @@ async function applyFooterDesktopVisibility() {
 /* Mark the mobile tab that matches the current hash. Also swaps the
  * "Me" tab between #/login and #/admin depending on role, so admins
  * one-tap into the admin console from the tab-bar. */
-function syncMobileTabbar(user) {
+function syncMobileTabbar(user, showVerify) {
   const hash = location.hash || '#/';
   const tabbar = document.getElementById('tvhTabbar');
   if (!tabbar) return;
+  const verify = tabbar.querySelector('a[data-tab="verify"]');
+  if (verify) verify.hidden = !showVerify;
   const me = document.getElementById('tvhTabMe');
   if (me) {
     if (user && (user.role === 'admin' || user.role === 'mgmt')) me.href = '#/admin';

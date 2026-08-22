@@ -57,6 +57,7 @@ Core implementation:
 Implemented:
 - Gmail allowlist parser accepts newline/comma/semicolon/space separators.
 - Role-to-email mapping supports one-or-more email IDs per role.
+- TSH-style access-tier lists are supported in Settings (add/remove tier, tier label, rank, base-role profile, assigned emails).
 - Backward-compatible email-to-role index is maintained for runtime lookup.
 - Governance guardrails:
   - Admin can add/remove/modify mappings for all roles.
@@ -74,6 +75,7 @@ Implemented:
 - Desktop footer visibility toggles are available for social, bug report, verify link, legal line, and source line.
 - Runtime footer reflects configured toggles.
 - Footer brand row keeps society name visible, while source/build chips are independently configurable and disabled by default.
+- Verify receipt entry points are configuration-driven and default to disabled (`navigation.show_verify = false`).
 
 Current enforced behavior:
 - Desktop legal/source meta lines are intentionally suppressed from the end-user footer UI.
@@ -94,6 +96,8 @@ Implemented:
 - Quick-action stack popup UI is currently disabled (kept in code), and tapping `+` directly routes to event creation flow.
 - Contribution payment UX currently runs in manual UPI mode:
   - Configured UPI ID is displayed for external app payment.
+  - Society can attach a UPI QR image from Settings (stored inline) in addition to path-based QR fallback.
+  - Residents can view and save the payment QR to phone directly from the contribute flow.
   - Resident submits UTR/proof for committee verification.
   - Auto-capture from UPI apps and auto-receipt on payment callback is not relied on in current static flow.
 - Resident-facing help note is shown for manager/committee assisted upload/update intent.

@@ -51,6 +51,42 @@ function slugId(prefix) {
   return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
 }
 
+const QR_ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const QR_MAX_BYTES = 350 * 1024;
+async function readQrDataUrl(file) {
+  if (!file) throw new Error('No file selected');
+  if (!QR_ALLOWED_MIME.has(file.type)) throw new Error('QR must be a PNG, JPEG, or WebP image (SVG not allowed)');
+  if (/\.svg$/i.test(file.name || '')) throw new Error('SVG QR codes are not allowed');
+  if (file.size > 4 * 1024 * 1024) throw new Error('QR image too large (>4 MB)');
+  const raw = await new Promise((ok, ko) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result || ''));
+    r.onerror = () => ko(new Error('Could not read file'));
+    r.readAsDataURL(file);
+  });
+  const img = new Image();
+  await new Promise((ok, ko) => {
+    img.onload = ok;
+    img.onerror = () => ko(new Error('Image decode failed'));
+    img.src = raw;
+  });
+  const MAX_DIM = 600;
+  const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  cv.getContext('2d').drawImage(img, 0, 0, w, h);
+  for (const q of [0.9, 0.8, 0.7, 0.6]) {
+    const url = cv.toDataURL('image/png', q);
+    if (url.length * 0.75 <= QR_MAX_BYTES) return url;
+  }
+  const url = cv.toDataURL('image/jpeg', 0.7);
+  if (url.length * 0.75 > QR_MAX_BYTES) throw new Error('QR image too large after re-encoding');
+  return url;
+}
+
 /* ---------- render entry ---------- */
 export async function render(root, { match }) {
   const user = session();
@@ -199,16 +235,57 @@ async function renderAttributes(user, canUsersManage) {
   });
 
   /* --- Payment sub-panel --- */
+  const pay = (soc && soc.payment) || {};
   const inpVpa = el('input', {
-    type: 'text', value: (soc.payment && soc.payment.upi_vpa) || '',
+    type: 'text', value: pay.upi_vpa || '',
     on: { change: (e) => saveAttr('payment.upi_vpa', e.target.value.trim()) },
     placeholder: 'e.g. theaddress@hdfcbank'
   });
   const inpQr = el('input', {
-    type: 'text', value: (soc.payment && soc.payment.qr_asset_url) || '',
+    type: 'text', value: pay.qr_asset_url || '',
     on: { change: (e) => saveAttr('payment.qr_asset_url', e.target.value.trim()) },
     placeholder: 'assets/images/upi-qr.png (optional)'
   });
+  let qrDataUrl = (pay.qr_data_url || '').trim();
+  const qrInp = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp' });
+  const qrStatus = el('small', { class: 'sub',
+    text: qrDataUrl
+      ? `Attached society QR (inline) · ~${Math.round((qrDataUrl.length * 0.75) / 1024)} KB`
+      : 'Attach QR image (PNG/JPEG/WebP). Residents will be able to view and save it on phone from contribute screen.'
+  });
+  const qrPreview = el('img', {
+    src: qrDataUrl,
+    alt: 'Society UPI QR preview',
+    style: 'display:' + (qrDataUrl ? 'block' : 'none') + ';max-width:180px;margin:8px 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px'
+  });
+  qrInp.addEventListener('change', async () => {
+    const f = qrInp.files && qrInp.files[0];
+    if (!f) return;
+    try {
+      const next = await readQrDataUrl(f);
+      qrDataUrl = next;
+      qrPreview.src = next;
+      qrPreview.style.display = 'block';
+      qrStatus.textContent = `Attached ${f.name} · ~${Math.round((next.length * 0.75) / 1024)} KB (re-encoded)`;
+      saveAttr('payment.qr_data_url', next, { silent: true });
+      toast('QR attached', 'ok');
+    } catch (e) {
+      qrInp.value = '';
+      qrStatus.textContent = e.message || 'Could not attach that file.';
+      toast(e.message || 'QR upload failed', 'err');
+    }
+  });
+  const qrRemoveBtn = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Remove attached QR');
+  qrRemoveBtn.addEventListener('click', () => {
+    qrDataUrl = '';
+    qrInp.value = '';
+    qrPreview.src = '';
+    qrPreview.style.display = 'none';
+    qrStatus.textContent = 'Attached QR removed. Asset path fallback (if set) will be used.';
+    saveAttr('payment.qr_data_url', undefined, { silent: true });
+    toast('Attached QR removed', 'ok');
+  });
+  const qrAttachWrap = el('div', {}, qrInp, qrStatus, qrPreview, el('div', { style: 'margin-top:8px' }, qrRemoveBtn));
 
   /* --- Receipt sub-panel — active template picker --- */
   const activeId = pick(overrides, 'receipts.active_template_id') || '';
@@ -255,7 +332,7 @@ async function renderAttributes(user, canUsersManage) {
   /* --- Desktop footer visibility controls --- */
   const showFooterSocial = !!(((soc.footer || {}).desktop || {}).show_social);
   const showFooterBug = !!(((soc.footer || {}).desktop || {}).show_bug_report);
-  const showFooterVerify = !!(((soc.footer || {}).desktop || {}).show_verify);
+  const showFooterVerify = !!((soc.navigation || {}).show_verify);
   const showFooterBrandSource = !!(((soc.footer || {}).desktop || {}).show_brand_source);
   const showFooterBrandBuild = !!(((soc.footer || {}).desktop || {}).show_brand_build);
   const cbFootSocial = el('input', {
@@ -268,7 +345,7 @@ async function renderAttributes(user, canUsersManage) {
   });
   const cbFootVerify = el('input', {
     type: 'checkbox', checked: showFooterVerify,
-    on: { change: (e) => saveAttr('footer.desktop.show_verify', e.target.checked ? true : undefined) }
+    on: { change: (e) => saveAttr('navigation.show_verify', e.target.checked ? true : undefined) }
   });
   const cbFootBrandSource = el('input', {
     type: 'checkbox', checked: showFooterBrandSource,
@@ -285,50 +362,150 @@ async function renderAttributes(user, canUsersManage) {
   const gmailOnly = (v) => /^[a-z0-9._%+-]+@gmail\.com$/i.test(String(v || '').trim());
   const canEditRoleMap = !!canUsersManage;
   const canEditAdminRoleMap = user.role === 'admin';
+  const roleIds = roleDefs.map(r => r.id);
   const roleMap = ((((overrides || {}).access || {}).email_roles) || {});
   const roleEmailsRaw = ((((overrides || {}).access || {}).role_emails) || {});
-  const roleIds = roleDefs.map(r => r.id);
-  const roleEmailState = {};
-  roleIds.forEach((id) => { roleEmailState[id] = []; });
-  for (const [roleId, list] of Object.entries(roleEmailsRaw)) {
-    const role = String(roleId || '').trim().toLowerCase();
-    if (!roleIds.includes(role) || !Array.isArray(list)) continue;
-    const cleaned = Array.from(new Set(list
-      .map(v => String(v || '').trim().toLowerCase())
-      .filter(v => gmailOnly(v))));
-    roleEmailState[role] = cleaned;
-  }
-  for (const [emailRaw, roleRaw] of Object.entries(roleMap)) {
-    const email = String(emailRaw || '').trim().toLowerCase();
-    const role = String(roleRaw || '').trim().toLowerCase();
-    if (!gmailOnly(email) || !roleIds.includes(role)) continue;
-    if (!roleEmailState[role].includes(email)) roleEmailState[role].push(email);
-  }
-  roleIds.forEach((id) => roleEmailState[id].sort());
-
-  const roleEditors = {};
-  const roleEditorWrap = el('div', { class: 'stack' });
-  for (const def of roleDefs) {
-    const isAdminRole = def.id === 'admin';
-    const disabled = !canEditRoleMap || (!canEditAdminRoleMap && isAdminRole);
-    const area = el('textarea', {
-      rows: 3,
-      placeholder: `${def.label} gmail IDs. Comma, semicolon, newline, or spaces supported.`,
-      value: (roleEmailState[def.id] || []).join('\n'),
-      disabled,
-      readOnly: disabled,
+  const tierRaw = ((((overrides || {}).access || {}).role_tiers) || []);
+  const defaultTiers = roleDefs.map((r, i) => ({
+    id: r.id,
+    label: r.label,
+    base_role: r.id,
+    rank: (typeof r.rank === 'number' ? r.rank : (100 - i * 10)),
+    emails: [],
+  }));
+  const roleTierState = (Array.isArray(tierRaw) && tierRaw.length ? tierRaw : defaultTiers)
+    .map((t, i) => {
+      const baseRole = roleIds.includes(String(t.base_role || '').toLowerCase())
+        ? String(t.base_role || '').toLowerCase()
+        : 'resident';
+      const emails = Array.from(new Set((Array.isArray(t.emails) ? t.emails : [])
+        .map(v => String(v || '').trim().toLowerCase())
+        .filter(v => gmailOnly(v)))).sort();
+      return {
+        id: String(t.id || slugId('tier')).trim().toLowerCase(),
+        label: String(t.label || '').trim() || ('Tier ' + (i + 1)),
+        base_role: baseRole,
+        rank: Number.isFinite(Number(t.rank)) ? Number(t.rank) : (100 - i * 10),
+        emails,
+      };
     });
-    roleEditors[def.id] = area;
-    roleEditorWrap.append(
-      el('div', { class: 'field' },
-        el('label', { class: 'lbl', text: def.label }),
-        !canEditAdminRoleMap && isAdminRole
-          ? el('small', { class: 'sub', text: 'Admin mappings are locked for your role.' })
-          : null,
-        area
-      )
-    );
+  /* Compatibility hydrate: if old role_emails/email_roles exist but
+   * role_tiers are absent, fold those emails into default tiers. */
+  if (!(Array.isArray(tierRaw) && tierRaw.length)) {
+    const roleEmailState = {};
+    roleIds.forEach((id) => { roleEmailState[id] = []; });
+    for (const [roleId, list] of Object.entries(roleEmailsRaw)) {
+      const role = String(roleId || '').trim().toLowerCase();
+      if (!roleIds.includes(role) || !Array.isArray(list)) continue;
+      roleEmailState[role] = Array.from(new Set(list
+        .map(v => String(v || '').trim().toLowerCase())
+        .filter(v => gmailOnly(v))));
+    }
+    for (const [emailRaw, roleRaw] of Object.entries(roleMap)) {
+      const email = String(emailRaw || '').trim().toLowerCase();
+      const role = String(roleRaw || '').trim().toLowerCase();
+      if (!gmailOnly(email) || !roleIds.includes(role)) continue;
+      if (!roleEmailState[role].includes(email)) roleEmailState[role].push(email);
+    }
+    roleTierState.forEach((t) => {
+      t.emails = Array.from(new Set((roleEmailState[t.base_role] || []).concat(t.emails || []))).sort();
+    });
   }
+
+  const initialRoleTierState = roleTierState.map(t => ({ ...t, emails: (t.emails || []).slice() }));
+  const roleEditorWrap = el('div', { class: 'stack' });
+  function renderRoleTierEditors() {
+    roleEditorWrap.replaceChildren();
+    roleTierState.forEach((tier, idx) => {
+      const adminMapped = tier.base_role === 'admin';
+      const locked = !canEditRoleMap || (!canEditAdminRoleMap && adminMapped);
+      const rankInp = el('input', {
+        type: 'number',
+        value: String(Number.isFinite(Number(tier.rank)) ? Number(tier.rank) : (100 - idx * 10)),
+        disabled: locked,
+        readOnly: locked,
+        style: 'width:120px'
+      });
+      rankInp.addEventListener('change', () => {
+        const n = Number(rankInp.value);
+        tier.rank = Number.isFinite(n) ? n : (100 - idx * 10);
+      });
+      const labelInp = el('input', {
+        type: 'text',
+        value: tier.label,
+        placeholder: 'Tier label (e.g. Chairman)',
+        disabled: locked,
+        readOnly: locked,
+      });
+      labelInp.addEventListener('input', () => { tier.label = String(labelInp.value || '').trim(); });
+      const baseSel = el('select', { disabled: locked },
+        ...roleDefs.map((r) => el('option', {
+          value: r.id,
+          selected: r.id === tier.base_role,
+          text: `${r.label} (${r.id})`
+        }))
+      );
+      baseSel.addEventListener('change', () => { tier.base_role = String(baseSel.value || '').trim().toLowerCase() || 'resident'; });
+      const area = el('textarea', {
+        rows: 3,
+        placeholder: `${tier.label} gmail IDs. Comma, semicolon, newline, or spaces supported.`,
+        value: (tier.emails || []).join('\n'),
+        disabled: locked,
+        readOnly: locked,
+      });
+      area.addEventListener('input', () => { tier.emails = String(area.value || '').split(/[\s,;]+/).map(v => String(v || '').trim().toLowerCase()).filter(Boolean); });
+      const delBtn = el('button', {
+        class: 'btn btn-sm btn-ghost',
+        type: 'button',
+        disabled: locked || roleTierState.length <= 1,
+      }, 'Remove tier');
+      delBtn.addEventListener('click', () => {
+        const next = roleTierState.filter((x) => x.id !== tier.id);
+        roleTierState.length = 0;
+        next.forEach(x => roleTierState.push(x));
+        renderRoleTierEditors();
+      });
+      roleEditorWrap.append(
+        el('div', { class: 'panel', style: 'margin-top:8px' },
+          el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;align-items:flex-end' },
+            el('div', { class: 'field', style: 'margin:0;min-width:220px;flex:1' },
+              el('label', { class: 'lbl', text: 'Tier label' }),
+              labelInp
+            ),
+            el('div', { class: 'field', style: 'margin:0;min-width:220px;flex:1' },
+              el('label', { class: 'lbl', text: 'Access profile (base role)' }),
+              baseSel
+            ),
+            el('div', { class: 'field', style: 'margin:0' },
+              el('label', { class: 'lbl', text: 'Rank' }),
+              rankInp
+            ),
+            delBtn
+          ),
+          !canEditAdminRoleMap && adminMapped
+            ? el('small', { class: 'sub', text: 'Admin-mapped tier is locked for your role.' })
+            : null,
+          el('div', { class: 'field', style: 'margin-top:10px' },
+            el('label', { class: 'lbl', text: 'Email IDs' }),
+            area
+          )
+        )
+      );
+    });
+  }
+  renderRoleTierEditors();
+  const btnAddTier = el('button', { class: 'btn btn-sm', type: 'button', disabled: !canEditRoleMap }, '+ Add access tier');
+  btnAddTier.addEventListener('click', () => {
+    if (!canEditRoleMap) return;
+    roleTierState.push({
+      id: slugId('tier'),
+      label: 'New tier',
+      base_role: 'resident',
+      rank: roleTierState.length ? Number(roleTierState[roleTierState.length - 1].rank || 0) - 10 : 10,
+      emails: [],
+    });
+    renderRoleTierEditors();
+  });
   const taEmailBulk = el('textarea', {
     rows: 5,
     placeholder: 'Paste one or many gmail IDs. Comma, semicolon, newline, or spaces all supported.',
@@ -346,52 +523,59 @@ async function renderAttributes(user, canUsersManage) {
       return;
     }
     const nextRoleEmails = {};
+    roleIds.forEach((id) => { nextRoleEmails[id] = []; });
+    const nextEmailRoles = {};
     const seen = new Set();
     let invalid = 0;
     let duplicate = 0;
 
-    if (!canEditAdminRoleMap) {
-      const preservedAdmin = (roleEmailState.admin || []).slice();
-      if (preservedAdmin.length) nextRoleEmails.admin = preservedAdmin;
-      preservedAdmin.forEach((e) => seen.add(e));
-    }
-
-    for (const def of roleDefs) {
-      if (!canEditAdminRoleMap && def.id === 'admin') continue;
-      const area = roleEditors[def.id];
-      if (!area) continue;
-      const tokens = String(area.value || '')
-        .split(/[\s,;]+/)
-        .map(v => String(v || '').trim().toLowerCase())
-        .filter(Boolean);
-      const out = [];
-      for (const token of tokens) {
-        if (!gmailOnly(token)) {
-          invalid += 1;
-          continue;
-        }
-        if (seen.has(token)) {
-          duplicate += 1;
-          continue;
-        }
+    const byTierId = new Map(initialRoleTierState.map(t => [t.id, t]));
+    const normalizedTiers = [];
+    for (let i = 0; i < roleTierState.length; i++) {
+      const t = roleTierState[i];
+      const label = String(t.label || '').trim() || ('Tier ' + (i + 1));
+      const baseRole = roleIds.includes(String(t.base_role || '').trim().toLowerCase())
+        ? String(t.base_role || '').trim().toLowerCase()
+        : 'resident';
+      const rank = Number.isFinite(Number(t.rank)) ? Number(t.rank) : (100 - i * 10);
+      const lockedAdminTier = (!canEditAdminRoleMap && baseRole === 'admin');
+      const sourceEmails = lockedAdminTier
+        ? ((byTierId.get(t.id) && byTierId.get(t.id).emails) || [])
+        : (Array.isArray(t.emails) ? t.emails : []);
+      const cleanedEmails = [];
+      for (const tokenRaw of sourceEmails) {
+        const token = String(tokenRaw || '').trim().toLowerCase();
+        if (!token) continue;
+        if (!gmailOnly(token)) { invalid += 1; continue; }
+        if (seen.has(token)) { duplicate += 1; continue; }
         seen.add(token);
-        out.push(token);
+        cleanedEmails.push(token);
       }
-      if (out.length) nextRoleEmails[def.id] = Array.from(new Set(out)).sort();
+      cleanedEmails.sort();
+      normalizedTiers.push({
+        id: String(t.id || slugId('tier')).trim().toLowerCase(),
+        label,
+        base_role: baseRole,
+        rank,
+        emails: cleanedEmails,
+      });
+      if (!nextRoleEmails[baseRole]) nextRoleEmails[baseRole] = [];
+      nextRoleEmails[baseRole] = Array.from(new Set(nextRoleEmails[baseRole].concat(cleanedEmails)));
+      cleanedEmails.forEach((email) => { nextEmailRoles[email] = baseRole; });
     }
 
-    const nextEmailRoles = {};
-    for (const def of roleDefs) {
-      const list = nextRoleEmails[def.id] || [];
-      for (const email of list) nextEmailRoles[email] = def.id;
-    }
+    Object.keys(nextRoleEmails).forEach((k) => {
+      nextRoleEmails[k] = (nextRoleEmails[k] || []).sort();
+      if (!nextRoleEmails[k].length) delete nextRoleEmails[k];
+    });
 
     const o = state.societyOverrides() || {};
+    setAt(o, 'access.role_tiers', normalizedTiers.length ? normalizedTiers : undefined);
     setAt(o, 'access.role_emails', Object.keys(nextRoleEmails).length ? nextRoleEmails : undefined);
     setAt(o, 'access.email_roles', Object.keys(nextEmailRoles).length ? nextEmailRoles : undefined);
     pruneEmpty(o);
     state.saveSocietyOverrides(o);
-    state.audit({ actor: user.email, action: 'settings.role_map.save', detail: `roles=${Object.keys(nextRoleEmails).length};emails=${Object.keys(nextEmailRoles).length}` });
+    state.audit({ actor: user.email, action: 'settings.role_map.save', detail: `tiers=${normalizedTiers.length};roles=${Object.keys(nextRoleEmails).length};emails=${Object.keys(nextEmailRoles).length}` });
 
     const total = Object.keys(nextEmailRoles).length;
     toast(`Saved ${total} mapped email ID(s)${invalid ? `, skipped ${invalid} invalid` : ''}${duplicate ? `, skipped ${duplicate} duplicate` : ''}.`, total ? 'ok' : 'warn');
@@ -446,6 +630,7 @@ async function renderAttributes(user, canUsersManage) {
     panel('Payment channel',
       'Society-wide UPI details. Individual events can still override.',
       row('UPI VPA', 'Handle residents pay into (e.g. society@bank).', inpVpa),
+      row('Attach UPI QR image', 'Recommended: upload once here so residents can directly view/save on phone while paying.', qrAttachWrap),
       row('UPI QR image path', 'Optional. Falls back to auto-generated QR from the VPA.', inpQr),
     ),
     panel('Receipts',
@@ -477,10 +662,10 @@ async function renderAttributes(user, canUsersManage) {
       ),
     ),
     panel('Desktop footer visibility',
-      'Control which footer actions and brand chips are visible. Legal line remains hidden on desktop by policy.',
+      'Control which footer actions and brand chips are visible. Verify receipt visibility is controlled globally (header/mobile/footer) and defaults to OFF.',
       el('label', { class: 'row', style: 'gap:8px;margin-top:14px;cursor:pointer' }, cbFootSocial, el('span', { text: 'Show society social pill' })),
       el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootBug, el('span', { text: 'Show "Report site bug" action' })),
-      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootVerify, el('span', { text: 'Show "Verify receipt" action' })),
+      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootVerify, el('span', { text: 'Show "Verify receipt" action (header/mobile/footer)' })),
       el('label', { class: 'row', style: 'gap:8px;margin-top:12px;cursor:pointer' }, cbFootBrandSource, el('span', { text: 'Show footer source link' })),
       el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootBrandBuild, el('span', { text: 'Show footer build tag (theme/version)' })),
       el('small', { class: 'sub', style: 'display:block;margin-top:6px', text: 'When both are OFF, only the society brand text (e.g. "The Address · Baner") is shown in the right meta row.' })
@@ -493,10 +678,10 @@ async function renderAttributes(user, canUsersManage) {
       allowedPreview,
       row('Role to email ID mapping',
         canEditAdminRoleMap
-          ? 'Map one or more gmail IDs to each role. A single email can only belong to one role. Higher roles win when duplicates are entered.'
-          : 'You can update gmail IDs for non-admin roles. Admin role mappings are read-only for your role.',
+          ? 'Define access tiers (like TSH), map each tier to a base role profile, and assign one or more gmail IDs. A single email can only belong to one tier.'
+          : 'You can update non-admin tiers. Any tier mapped to Admin is read-only for your role.',
         roleEditorWrap),
-      el('div', { class: 'row', style: 'gap:8px' }, btnSaveRoleMap),
+      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, btnAddTier, btnSaveRoleMap),
       el('div', { style: 'margin-top:10px;overflow-x:auto' },
         el('table', { class: 'table' },
           el('thead', {}, el('tr', {},

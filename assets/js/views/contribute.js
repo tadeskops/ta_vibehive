@@ -17,12 +17,12 @@
  * Honours event feature flags: shows tiers only if
  * contribution.suggested is on, shows anonymous toggle only if
  * privacy.anonymous is on, etc.
-    if (st.method === 'upi' && upiOn) {
+ */
 'use strict';
 import { el, mount, fmtINR, toast } from '../dom.js';
 import { findEvent, addContribution, contribsFor } from '../events.js';
 import { isEventOn } from '../features.js';
-      const intent = effVpa ? upiIntentUrl({ vpa: effVpa, name: effVpaName, amount: st.amount, note: `Contribution: ${evt.title}` }) : '';
+import { session } from '../auth.js';
 import { navigate } from '../router.js';
 import { getSociety, state } from '../store.js';
 import { emit as notifyEmit } from '../notify.js';
@@ -39,24 +39,25 @@ function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onerror = () => reject(new Error('read failed'));
-          el('div', { class: 'lbl', text: 'Pay to this UPI ID' }),
+    r.onload = () => resolve(r.result);
     r.readAsDataURL(file);
   });
 }
 async function shrinkImageIfNeeded(file) {
-          intent ? el('a', {
-            class: 'btn btn-block tvh-upi-cta',
-            href: intent,
-            rel: 'noopener noreferrer',
-            'aria-label': `Pay ${fmtINR(st.amount)} via UPI`,
-          },
-            el('span', { class: 'tvh-upi-cta-ico', text: '📱' }),
-            el('span', { class: 'tvh-upi-cta-txt' },
-              el('span', { class: 'tvh-upi-cta-lead', text: `Pay ${fmtINR(st.amount)}` }),
-              el('span', { class: 'tvh-upi-cta-sub', text: 'via any UPI app' }),
-            ),
-            el('span', { class: 'tvh-upi-cta-caret', 'aria-hidden': 'true', text: '›' })
-          ) : null,
+  if (!/^image\//.test(file.type)) {
+    if (file.size > MAX_BYTES_RAW) throw new Error('File too large - keep under 750 KB.');
+    return await fileToDataUrl(file);
+  }
+  const raw = await fileToDataUrl(file);
+  const img = new Image();
+  await new Promise((ok, ko) => { img.onload = ok; img.onerror = () => ko(new Error('image decode failed')); img.src = raw; });
+  const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.round(img.naturalWidth * scale);
+  const h = Math.round(img.naturalHeight * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0, w, h);
   /* Try successively lower JPEG qualities until we fit. */
   for (const q of [0.85, 0.72, 0.6, 0.5, 0.4]) {
@@ -239,10 +240,9 @@ export async function render(root, { match }) {
   const effVpa  = evtVpa  || pay.upi_vpa || '';
   const effVpaName = evtVpaName || pay.upi_name || soc.short_name;
   /* QR fallback chain: per-event data-URL (evt.payment_qr_data_url) →
-   * society default asset (society.payment.qr_asset_url from Settings).
-   * Both are optional; if neither exists the UPI hint just skips the
-   * QR image and shows the copy-VPA button only. */
-  const effQr = evtQr || (pay.qr_asset_url || '').trim();
+   * society attached QR (society.payment.qr_data_url) → society asset
+   * path (society.payment.qr_asset_url from Settings). */
+  const effQr = evtQr || (pay.qr_data_url || '').trim() || (pay.qr_asset_url || '').trim();
   function refreshPayHint() {
     payHint.textContent = '';
     if (st.method === 'upi' && upiOn) {
@@ -319,15 +319,33 @@ export async function render(root, { match }) {
             /* QR data URL is validated at event-save time (PNG/JPEG/WebP
              * only, size-capped, SVG explicitly rejected). Safe to
              * render as a data-URL <img>. */
-            el('img', { src: evtQr, alt: 'Scan to pay via UPI', style: 'display:block;max-width:220px;margin:8px auto 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px' })
+            el('img', { src: evtQr, alt: 'Scan to pay via UPI', style: 'display:block;max-width:220px;margin:8px auto 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px' }),
+            el('div', { class: 'row', style: 'gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px' },
+              el('a', { class: 'btn btn-sm btn-ghost', href: evtQr, target: '_blank', rel: 'noopener noreferrer', text: 'View QR' }),
+              el('a', {
+                class: 'btn btn-sm btn-ghost',
+                href: evtQr,
+                download: `${(evt.title || 'event').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'event'}-upi-qr.png`,
+                text: 'Save QR'
+              })
+            )
           ) : (effQr ? el('div', { class: 'tvh-upi-qr' },
             el('small', { class: 'sub', text: 'Or scan the society QR below with any UPI app:' }),
             /* Society-level QR image path (society.payment.qr_asset_url).
              * Same-origin asset only — no data-URL, no cross-origin URL
              * — so browser cache + CSP img-src 'self' both hold. */
-            el('img', { src: effQr, alt: 'Scan to pay via UPI', style: 'display:block;max-width:220px;margin:8px auto 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px' })
+            el('img', { src: effQr, alt: 'Scan to pay via UPI', style: 'display:block;max-width:220px;margin:8px auto 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px' }),
+            el('div', { class: 'row', style: 'gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px' },
+              el('a', { class: 'btn btn-sm btn-ghost', href: effQr, target: '_blank', rel: 'noopener noreferrer', text: 'View QR' }),
+              el('a', {
+                class: 'btn btn-sm btn-ghost',
+                href: effQr,
+                download: `${(soc.short_name || 'society').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'society'}-upi-qr.png`,
+                text: 'Save QR'
+              })
+            )
           ) : null),
-          el('small', { style: 'display:block;margin-top:8px', text: 'On desktop, use the UPI ID above in your bank app. On mobile, tap "Pay" or scan the QR and confirm the amount inside the app.' })
+          el('small', { style: 'display:block;margin-top:8px', text: 'On desktop, use the UPI ID above in your bank app. On mobile, tap "Pay", or use View/Save QR and confirm the amount inside your UPI app.' })
         ].filter(Boolean)
       );
     } else if (st.method === 'bank' && bankOn) {

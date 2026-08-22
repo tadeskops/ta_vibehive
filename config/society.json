@@ -54,11 +54,14 @@
     "instagram": "https://www.instagram.com/theaddress_society",
     "whatsapp": ""
   },
+  "navigation": {
+    "show_verify": false
+  },
   "footer": {
     "desktop": {
       "show_social": true,
       "show_bug_report": true,
-      "show_verify": true,
+      "show_verify": false,
       "show_legal": false,
       "show_source": false,
       "show_brand_source": false,

@@ -6,7 +6,8 @@ Scope: Current shipped behavior in ta_vibehive.
 ## 1) Navigation and Information Architecture
 
 Implemented:
-- Header navigation: Home, Events, Verify receipt; role-gated links for Reports/Settings/Admin.
+- Header navigation: Home, Events; role-gated links for Reports/Settings/Admin.
+- Verify receipt entry points (header nav, mobile tab, and footer action) are configuration-gated via `navigation.show_verify` and default OFF.
 - Auth state controls in header: sign-in for signed-out users, sign-out for signed-in users, and whoami role chip.
 - Route-driven SPA with stable hash routes for all main surfaces.
 - Quick action `+` is reserved for "Create a new event" only.
@@ -66,6 +67,8 @@ Implemented:
 - Draft persistence prevents data loss on refresh.
 - Manual UPI mode UI:
   - Shows configurable UPI ID and copy action.
+  - Supports attached society-level UPI QR image from Settings, with event-level QR override retained.
+  - Provides QR actions to view full image and save to phone from the contribute screen.
   - Resident pays in external UPI app, then submits UTR/proof.
   - Payment-mode chooser is not exposed for app-triggered auto payment capture.
 - Resident-only help note copy explicitly routes issue handling to society manager / cultural committee for assisted upload and post-verification receipt sharing.
@@ -95,6 +98,7 @@ Implemented:
 - Footer brand-row chips (`source` and build/version tag) are configurable and default to hidden, leaving only society brand text visible.
 - Resident email governance tools:
   - Bulk gmail parser
+  - TSH-style access-tier editor (add tier, rename tier, set rank, map to base role profile, assign tier emails)
   - Role-to-email mapping (one or more IDs per role)
   - Admin-only editability for admin role mappings; secretary/mgmt can edit non-admin role mappings
   - Access table visibility state
