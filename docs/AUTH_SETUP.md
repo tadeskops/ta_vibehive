@@ -53,176 +53,458 @@ in — no admin work per user.
 
 ---
 
+## Quick reference — every link you'll need
+
+Bookmark these before you start; the numbered sections below walk through
+each in order.
+
+| Provider | Console page | Direct link |
+|---|---|---|
+| Google | Cloud Console home | <https://console.cloud.google.com/> |
+| Google | Create/select project | <https://console.cloud.google.com/projectcreate> |
+| Google | OAuth consent screen | <https://console.cloud.google.com/auth/overview> |
+| Google | Credentials (create Client ID) | <https://console.cloud.google.com/apis/credentials> |
+| Google | Test users (Testing mode) | <https://console.cloud.google.com/auth/audience> |
+| Microsoft | Entra admin center | <https://entra.microsoft.com/> |
+| Microsoft | App registrations (create) | <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade> |
+| Microsoft | New registration form | <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade> |
+| Yahoo (deferred) | Developer Network | <https://developer.yahoo.com/apps/> |
+| GitHub | This repo's `config/auth.json` | <https://github.com/tadeskops/ta_vibehive/blob/main/config/auth.json> |
+| GitHub | Pages deploy status | <https://github.com/tadeskops/ta_vibehive/actions> |
+| Live app | Login page | <https://tadeskops.github.io/ta_vibehive/#/login> |
+
+**Values you'll paste in both consoles** (copy these once):
+
+| Field | Value |
+|---|---|
+| Production origin | `https://tadeskops.github.io` |
+| Production redirect URI | `https://tadeskops.github.io/ta_vibehive/` |
+| Local dev origin | `http://localhost:8081` |
+| Local dev redirect URI | `http://localhost:8081/ta_vibehive/` |
+| Scopes | `openid email profile` |
+
+---
+
 ## 1. Google (recommended — works out of the box)
 
 Google issues **public** OAuth clients that support PKCE with no secret, so
 they are safe to embed in a static site. This is the smoothest path.
 
-### 1.1 Create the OAuth client
+**Time estimate:** ~7 minutes.
+**Prerequisite:** a Google account (personal Gmail is fine; use the committee's
+shared account if you have one — that way handover to a future admin is trivial).
 
-1. Open [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials).
-2. If you don't have a project yet, click **New Project** at the top-right,
-   name it `ta_vibehive` (any name works), and select it.
-3. Click **CONFIGURE CONSENT SCREEN** (only needed once per project):
-   - **User type:** External (unless you have a Google Workspace domain, then
-     Internal is safer).
-   - **App name:** `VibeHive · The Address` (or whatever your society is called).
-   - **User support email:** the committee's email.
-   - **Authorized domains:** add `github.io` (or your custom hosting domain).
-   - **Scopes:** click **ADD OR REMOVE SCOPES**, tick
-     `.../auth/userinfo.email` and `.../auth/userinfo.profile` and `openid`.
-     Skip everything else.
-   - **Test users:** while the app is in "Testing" mode, add every committee
-     member's Gmail address. Once you publish the consent screen this becomes
-     unnecessary — but the review is minimal for a "sign-in only" scope set.
-   - Save.
-4. Back on **Credentials**, click **CREATE CREDENTIALS → OAuth client ID**.
-   - **Application type:** `Web application`.
-   - **Name:** `VibeHive PKCE`.
-   - **Authorized JavaScript origins:** add
+### 1.1 Create a Google Cloud project (one-time)
+
+1. Open <https://console.cloud.google.com/> and sign in.
+2. At the top-left, next to the "Google Cloud" logo, click the **project
+   picker dropdown** (it shows the current project name or "Select a project").
+3. In the dialog that opens, click **NEW PROJECT** (top-right).
+4. Fill in:
+   - **Project name:** `ta_vibehive` (any name works — this is internal).
+   - **Organization / Location:** leave as **No organization** unless you
+     already have a Google Workspace.
+5. Click **CREATE**. Wait ~10 seconds for the project to be provisioned; a
+   notification chime confirms it. Click the notification (or reopen the
+   project picker) to **switch into the new project**.
+
+**Direct link once selected:**
+<https://console.cloud.google.com/apis/dashboard>
+
+> ⚠️ Every step below must be done **while your new project is selected** in
+> the top bar. If you ever see credentials appear in "someone else's" project
+> later, you accidentally created them in a different project — nothing breaks,
+> just delete and redo in the right one.
+
+### 1.2 Configure the OAuth consent screen (one-time)
+
+The consent screen is what your residents see the very first time they tap
+"Continue with Google": a small dialog saying *"VibeHive · The Address wants
+to access your email address and profile info. Allow?"*.
+
+1. Direct link: <https://console.cloud.google.com/auth/overview> (falls back to
+   <https://console.cloud.google.com/apis/credentials/consent> on older UIs).
+2. If prompted **"Which type of user will use your app?"**:
+   - Choose **External** (unless you have a Google Workspace domain and only
+     Workspace users will sign in — then Internal is fine and skips the
+     publish step).
+   - Click **CREATE**.
+3. **OAuth consent screen** form — fill in:
+   - **App name:** `VibeHive · The Address` (this text is shown to users).
+   - **User support email:** the committee's shared email (e.g.
+     `committee@theaddress-society.example`) or your personal Gmail.
+   - **App logo:** optional; skip for MVP.
+   - **App domain → Application home page:** `https://tadeskops.github.io/ta_vibehive/`
+   - **App domain → Authorized domains:** click **+ ADD DOMAIN** and enter
+     `github.io` (just the apex — no path, no scheme). If you use a custom
+     domain later (e.g. `theaddress.in`), add that too.
+   - **Developer contact information → Email addresses:** your email again.
+   - Click **SAVE AND CONTINUE**.
+4. **Scopes** step — click **ADD OR REMOVE SCOPES**. In the filter box search
+   for and tick these three exact rows:
+   - `openid`
+   - `.../auth/userinfo.email`
+   - `.../auth/userinfo.profile`
+   Click **UPDATE**. Confirm the three rows appear under "Your non-sensitive
+   scopes". **Do NOT add** `.../auth/gmail.*` or anything else — sensitive
+   scopes trigger a mandatory Google verification review (weeks of delay).
+   Click **SAVE AND CONTINUE**.
+5. **Test users** step (only shown for External + Testing mode) — click
+   **+ ADD USERS** and paste each committee member's Gmail address, one per
+   line. You can add up to 100. Click **ADD**, then **SAVE AND CONTINUE**.
+6. **Summary** — review, then click **BACK TO DASHBOARD**.
+
+At this point your consent screen is in **Testing** publishing status. Only
+the test users you listed can sign in successfully; anyone else gets a
+scary-looking "Access blocked" page. That's fine for the pilot — you'll
+publish in §1.4.
+
+### 1.3 Create the OAuth 2.0 Client ID
+
+1. Direct link: <https://console.cloud.google.com/apis/credentials>.
+2. Confirm the top bar shows YOUR project (`ta_vibehive`).
+3. Click **+ CREATE CREDENTIALS** (top of page) → **OAuth client ID**.
+4. Fill in:
+   - **Application type:** `Web application` (dropdown).
+   - **Name:** `VibeHive PKCE` (internal label — not shown to users).
+   - **Authorized JavaScript origins → + ADD URI:**
+
+     Add each of these as a **separate** entry (click + ADD URI again for
+     each). Origins are **scheme + host + port only** — no path, no trailing
+     slash:
      ```
      https://tadeskops.github.io
      ```
-     (origin only — no path). If you also use `http://localhost:8081` for
-     development, add that too.
-   - **Authorized redirect URIs:** add
+     ```
+     http://localhost:8081
+     ```
+     (skip the `localhost` entry if you never run local previews).
+   - **Authorized redirect URIs → + ADD URI:**
+
+     Add each of these — the trailing `/` IS required:
      ```
      https://tadeskops.github.io/ta_vibehive/
      ```
-     (include the trailing `/`). And for dev:
      ```
      http://localhost:8081/ta_vibehive/
      ```
-   - Click **Create**. Copy the **Client ID** (looks like
-     `1234567890-abcxyz.apps.googleusercontent.com`).
+5. Click **CREATE**. A dialog pops up showing:
+   - **Client ID** (looks like `1234567890-abcxyzABC123.apps.googleusercontent.com`).
+   - **Client secret** (looks like `GOCSPX-...`) — **IGNORE THIS**. PKCE does
+     not use it. Do not paste it anywhere. Do not commit it. It's harmless to
+     leave in Google's console.
+6. Click the **copy icon** next to Client ID. That's the only value you need.
 
-### 1.2 Paste it into the app
+### 1.4 Publish the consent screen (removes the "test users" limit)
 
-Open [config/auth.json](../config/auth.json) and set:
+While the consent screen is in **Testing**, only listed test users can sign in.
+To let every resident sign in, publish it:
+
+1. Direct link: <https://console.cloud.google.com/auth/overview> (or Credentials
+   → OAuth consent screen).
+2. Under **Publishing status: Testing**, click **PUBLISH APP**.
+3. Confirm the dialog. Publishing status flips to **In production**.
+
+Because you only requested `openid email profile` (non-sensitive scopes),
+Google does **NOT** trigger a verification review — publish is immediate and
+free. If you ever add a sensitive scope later, you'll be sent through a
+formal review; don't do that.
+
+### 1.5 Paste the Client ID into the app
+
+Open [config/auth.json](../config/auth.json) and find the `google` entry.
+Replace the empty `clientId` string with what you copied in §1.3.5:
 
 ```json
 {
   "providers": [
     {
       "id": "google",
-      "clientId": "1234567890-abcxyz.apps.googleusercontent.com",
-      "...": "..."
-    }
+      "label": "Continue with Google",
+      "icon": "G",
+      "clientId": "1234567890-abcxyzABC123.apps.googleusercontent.com",
+      "authorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+      "tokenUrl": "https://oauth2.googleapis.com/token",
+      "userinfoUrl": "https://openidconnect.googleapis.com/v1/userinfo",
+      "scope": "openid email profile",
+      "extraAuthorizeParams": { "access_type": "online", "include_granted_scopes": "true" }
+    },
+    ...
   ]
 }
 ```
 
-Commit + push. On the next page load the login screen will show the
-`Continue with Google` button.
+Commit + push:
 
-### 1.3 Publish the consent screen (optional but recommended)
+```powershell
+git add config/auth.json
+git commit -m "chore(auth): enable Google OAuth for The Address"
+git push origin main
+```
 
-While the consent screen is in "Testing", **only listed test users** can sign
-in. Once you have tested the flow with a couple of committee members, go back
-to the **OAuth consent screen** page and click **PUBLISH APP**.
+Wait ~1 minute for GitHub Pages to redeploy, then hard-reload the site
+(`Ctrl+Shift+R`). The **Continue with Google** button now appears on the
+login page.
 
-Because the app requests only `openid email profile` (no sensitive scopes),
-Google does NOT trigger a verification review — publish is immediate.
+### 1.6 Test end-to-end
+
+1. Open the site in an **Incognito / private window** (this guarantees no
+   cached session).
+2. Navigate to `#/login`.
+3. Click **Continue with Google**.
+4. Approve the Google consent dialog (only shown the first time).
+5. You should land back on the site at the home page with your name in the
+   whoami pill and a toast saying *"Signed in as <Your Name>"*.
+6. If step 4 shows **"Access blocked: VibeHive has not completed the Google
+   verification process"** → you skipped §1.4 publish. Either publish now, or
+   add that Gmail address to §1.2.5 test users.
 
 ---
 
 ## 2. Microsoft (Entra ID / Azure AD — works out of the box)
 
 Microsoft supports **Single-page application (SPA)** clients that use PKCE
-without a client secret. Setup is very similar to Google.
+without a client secret. Setup takes about 5 minutes and requires just a
+free Microsoft account (personal `@outlook.com` works — you do NOT need
+Azure paid tier).
 
-### 2.1 Register the app
+**Prerequisite:** a Microsoft account. If you don't have one, create a free
+one at <https://signup.live.com/>.
 
-1. Open [Microsoft Entra admin center → App registrations](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade).
-2. Click **New registration**.
-   - **Name:** `VibeHive · The Address`.
-   - **Supported account types:** `Accounts in any organizational directory
-     and personal Microsoft accounts` (multi-tenant, so residents with an
-     `@outlook.com` / `@hotmail.com` account also work).
-   - **Redirect URI:** platform `Single-page application (SPA)`, value:
-     ```
-     https://tadeskops.github.io/ta_vibehive/
-     ```
-   - Click **Register**.
-3. On the Overview page, copy **Application (client) ID**.
-4. Go to **Authentication** in the sidebar:
-   - Under **Single-page application → Redirect URIs**, add the dev URL
-     `http://localhost:8081/ta_vibehive/` if you want to test locally.
-   - Under **Implicit grant and hybrid flows**, leave BOTH checkboxes
-     UNTICKED — SPA + PKCE does not need them.
-   - Under **Allow public client flows**, leave `No`.
-   - Save.
-5. Go to **API permissions**. The default `User.Read` + `openid email profile`
-   set is enough. No admin consent needed.
-6. Go to **Token configuration** (optional): under **Optional claims**, add
-   `email` for the ID token — a few older tenants don't return `email` by
-   default and users would fail to sign in with "provider returned no email".
+### 2.1 Register a new application
 
-### 2.2 Paste it into the app
+1. Direct link: <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>
+   (or navigate: Microsoft Entra admin center → **Applications → App
+   registrations**).
+2. Sign in with your Microsoft account.
+3. If prompted to pick a directory, use the default (a personal tenant is
+   auto-created for personal MS accounts — usually called "Default Directory"
+   or "MSA").
+4. Click **+ New registration** at the top.
+5. Fill in:
+   - **Name:** `VibeHive · The Address` (shown to users on the consent screen).
+   - **Supported account types:** select
+     **Accounts in any organizational directory (Any Microsoft Entra ID
+     tenant — Multitenant) and personal Microsoft accounts (e.g. Skype, Xbox)**.
+     This lets residents with `@outlook.com`, `@hotmail.com`, `@live.com`,
+     `@gmail.com`-linked-Microsoft accounts, and work/school accounts all
+     sign in.
+   - **Redirect URI:**
+     - Platform dropdown: **Single-page application (SPA)** — NOT "Web".
+       (If you pick "Web", Microsoft demands a client secret and the browser
+       flow silently fails.)
+     - URL: paste
+       ```
+       https://tadeskops.github.io/ta_vibehive/
+       ```
+       (trailing `/` required).
+6. Click **Register**. You land on the app's **Overview** page.
 
-Edit [config/auth.json](../config/auth.json):
+### 2.2 Copy the Application (client) ID
+
+On the **Overview** page:
+
+- Copy the **Application (client) ID** — GUID format,
+  e.g. `abcd1234-ef56-7890-abcd-ef1234567890`.
+- **DO NOT** copy the "Directory (tenant) ID". You don't need it — the app
+  uses the `/common` tenant endpoint so any account can sign in.
+
+### 2.3 Add the local-dev redirect URI (optional)
+
+1. In the app's left sidebar, click **Authentication**.
+2. Under **Single-page application**, click **Add URI** and enter:
+   ```
+   http://localhost:8081/ta_vibehive/
+   ```
+3. Under **Implicit grant and hybrid flows**, confirm BOTH checkboxes
+   ("Access tokens" and "ID tokens") are **UNCHECKED**. SPA + PKCE does not
+   need implicit grant; leaving them on is a small security downgrade.
+4. Under **Advanced settings → Allow public client flows**, leave it **No**.
+5. Click **Save** (top of page).
+
+### 2.4 Confirm API permissions (usually already correct)
+
+1. Left sidebar → **API permissions**.
+2. You should see one delegated permission: **Microsoft Graph → User.Read**.
+   That's enough — `openid`, `email`, `profile` are implicit for OIDC clients.
+3. If **User.Read** is missing (rare), click **+ Add a permission** →
+   **Microsoft Graph** → **Delegated permissions** → search `User.Read` →
+   tick → **Add permissions**.
+4. **Grant admin consent** is NOT needed for these low-privilege scopes on
+   personal MS accounts. Skip it.
+
+### 2.5 Add the email optional claim (recommended)
+
+Some older/personal-account tokens don't include `email` in the ID token by
+default, which makes VibeHive fail with *"provider returned no email"*.
+Fix it once:
+
+1. Left sidebar → **Token configuration**.
+2. Click **+ Add optional claim**.
+3. In the panel: **Token type** = **ID**, then tick `email` in the list.
+4. Click **Add**.
+5. If prompted *"Some of these claims require Microsoft Graph email
+   permission. Turn it on now?"* → tick it → **Add**.
+
+### 2.6 Paste the Client ID into the app
+
+Open [config/auth.json](../config/auth.json) and find the `microsoft` entry:
 
 ```json
 {
   "id": "microsoft",
-  "clientId": "<paste the Application (client) ID here>",
-  "..."
+  "label": "Continue with Microsoft",
+  "icon": "M",
+  "clientId": "abcd1234-ef56-7890-abcd-ef1234567890",
+  "authorizeUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+  "tokenUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+  "userinfoUrl": "https://graph.microsoft.com/oidc/userinfo",
+  "scope": "openid email profile"
 }
 ```
 
-Commit + push.
+Commit + push (same commands as §1.5). Wait ~1 minute for GitHub Pages to
+redeploy, hard-reload, and you should see both **Continue with Google** AND
+**Continue with Microsoft** buttons on `#/login`.
+
+### 2.7 Test end-to-end
+
+Same as §1.6 but with the Microsoft button. First-run consent dialog
+asks the user to allow *"VibeHive · The Address — View your basic profile,
+View your email address, Sign you in"*. That's the correct minimal set.
 
 ---
 
 ## 3. Yahoo — DEFERRED (needs a backend proxy)
 
-Yahoo's token endpoint **requires the `client_secret`** in the exchange call,
-which means a pure browser SPA cannot use Yahoo directly without leaking the
-secret. This is a Yahoo policy, not a VibeHive limitation.
+Yahoo's OAuth 2.0 spec **requires the `client_secret`** to be sent in the token
+exchange call (see Yahoo's official docs:
+<https://developer.yahoo.com/oauth2/guide/flows_authcode/#step-4-exchange-authorization-code-for-access-token>).
+A pure-browser SPA cannot hold a secret without leaking it, so Yahoo is
+listed under `config/auth.json#unsupported` and no button ever renders.
 
-Options:
-- **Recommended:** skip Yahoo. Every resident with a Yahoo Mail account also
-  has, or can create in 60 seconds, a Google account.
-- **Advanced:** stand up a tiny serverless proxy (Cloudflare Worker,
-  Vercel Function, GitHub Actions webhook) that holds the client secret and
-  forwards the token request. Update `providers[].tokenUrl` to point at
-  that proxy. Out of scope for MVP.
+### 3.1 If you really want Yahoo (advanced — not needed for MVP)
 
-The Yahoo entry stays in [config/auth.json](../config/auth.json) with an empty
-`clientId` so the login page won't render the button until an admin
-consciously configures it.
+You'd need to add a tiny serverless token-exchange proxy that holds the
+`client_secret` server-side and forwards the exchange:
+
+- **Cloudflare Workers** (free tier, ~50 lines):
+  <https://developers.cloudflare.com/workers/get-started/guide/>
+- **Vercel Functions** (free hobby tier):
+  <https://vercel.com/docs/functions>
+- **GitHub Actions webhook**: possible but slower cold-start; not recommended.
+
+Once the proxy is deployed, register a Yahoo OAuth app at
+<https://developer.yahoo.com/apps/create/> (Application Type: **Web
+Application**, Redirect URI = the proxy's endpoint) and update
+`config/auth.json` with the Yahoo entry pointing `tokenUrl` at your proxy.
+This is a multi-day project — deferred until we have a real reason.
+
+### 3.2 What to tell Yahoo Mail users in the meantime
+
+Every Yahoo Mail user can either:
+- Sign in with a Google/Microsoft account they already have (most do), or
+- Create a free Google account at <https://accounts.google.com/signup> in
+  under 60 seconds.
+
+Once magic-link email lands in a future release (needs the same serverless
+slice), Yahoo Mail addresses will "just work" for OTP delivery without any
+provider registration.
 
 ---
 
 ## 4. Verification checklist
 
-- [ ] Google client ID pasted in `config/auth.json`, committed, deployed.
-- [ ] Microsoft client ID pasted in `config/auth.json`, committed, deployed.
-- [ ] Redirect URI matches EXACTLY on both provider consoles
-      (`https://tadeskops.github.io/ta_vibehive/` including the trailing `/`).
-- [ ] Local dev URL added on both consoles
-      (`http://localhost:8081/ta_vibehive/`) — optional but useful.
-- [ ] Google consent screen: added `openid`, `email`, `profile` scopes.
-- [ ] Microsoft: SPA platform selected (NOT Web), implicit grant OFF.
-- [ ] Tested sign-in end-to-end with a real committee member's Google account.
-- [ ] Signed the same person out (whoami pill → Switch → Sign out) and
-      confirmed they can sign back in without stale state.
+Tick off after §1 + §2 are done:
+
+- [ ] **Google Client ID** pasted in `config/auth.json`, committed, pushed.
+- [ ] **Microsoft Application (client) ID** pasted in `config/auth.json`,
+      committed, pushed.
+- [ ] **GitHub Pages deploy** finished (check
+      <https://github.com/tadeskops/ta_vibehive/actions> — top workflow shows
+      a green checkmark).
+- [ ] **Google Cloud Console → Credentials → OAuth client** shows:
+  - Authorized JavaScript origins: `https://tadeskops.github.io` (+ optional
+    `http://localhost:8081`).
+  - Authorized redirect URIs: `https://tadeskops.github.io/ta_vibehive/` (+
+    optional dev URL).
+- [ ] **Google Cloud Console → OAuth consent screen** shows **In production**
+      (not Testing) — unless you're okay with pre-listed test users only.
+- [ ] **Microsoft Entra → App registration → Authentication** shows platform
+      **Single-page application** (NOT "Web") with the correct redirect URI,
+      and BOTH implicit-grant checkboxes UNCHECKED.
+- [ ] Tested sign-in end-to-end in Incognito with a real Google account →
+      landed home with correct name in whoami pill.
+- [ ] Tested sign-in end-to-end in Incognito with a real Microsoft account →
+      same result.
+- [ ] Signed out (whoami pill → **Switch** → **Sign out** button on
+      `#/login`) → confirmed signed-out toast → signed back in with no stale
+      state.
+- [ ] The **login page shows the exact redirect URI** in the code block —
+      screenshot it and file it in the committee's onboarding notes so
+      whoever inherits admin duties has it ready.
 
 ---
 
-## 5. What if I get "redirect_uri_mismatch"?
+## 5. Troubleshooting
 
-Google/Microsoft do an **exact string** match on the redirect URI. Common
+### 5.1 `redirect_uri_mismatch` (Google) or `AADSTS50011` (Microsoft)
+
+Both providers do an **exact string** match on the redirect URI. Common
 gotchas:
 
-- `github.io` vs `Github.io` (case matters on some checks — always lowercase).
-- Trailing `/` present in one place but not the other.
-- HTTP vs HTTPS.
+- Trailing `/` present in the console but not in the running site (or vice
+  versa). VibeHive's redirect URI **always ends in `/`** — mirror that in
+  the console.
+- `http://` vs `https://` (localhost is `http`, GitHub Pages is `https`).
+- `github.io` vs `Github.io` — the console string is case-sensitive on some
+  paths. Always type it lowercase.
 - `www.` prefix on one but not the other.
+- You edited the console entry but the change hasn't propagated yet — Google
+  says it can take up to 5 minutes; Microsoft usually is instant.
 
-Copy the URI from your browser's address bar while you are on the site's
-root URL (before signing in) — that is the exact string to paste into the
-provider console.
+**How to verify:** on the login page, copy the redirect URI shown in the
+callout code block (the login page shows the exact string the app will send).
+Paste that verbatim into the provider console. If they still don't match, one
+of them is wrong — the URL bar wins.
+
+### 5.2 Google: "Access blocked: VibeHive has not completed the Google verification process"
+
+Your consent screen is still in **Testing** and the signing-in user is not
+in the test users list. Either:
+- Publish the consent screen (§1.4), OR
+- Add that Gmail to Testing → Test users
+  (<https://console.cloud.google.com/auth/overview>).
+
+### 5.3 Microsoft: "AADSTS7000218: The request body must contain the following parameter: `client_assertion` or `client_secret`"
+
+You registered the app as **Web** instead of **Single-page application (SPA)**.
+Fix:
+1. Entra admin center → your app → **Authentication**.
+2. Under **Platform configurations**, delete the "Web" platform (click the
+   trash icon).
+3. Add a new platform **Single-page application** with the same redirect URI.
+4. Save. Retry sign-in.
+
+### 5.4 Microsoft: "provider returned no email"
+
+Your tenant strips `email` from the ID token. Add the optional claim per §2.5.
+
+### 5.5 Sign-in completes but the browser lands on a blank page
+
+The callback URL rewrite in `app.js` didn't fire — usually means the
+redirect URI you registered points at a sub-path (e.g. `.../ta_vibehive/index.html`)
+instead of the site root (`.../ta_vibehive/`). Change the console entry to
+the root path (trailing `/`, no `index.html`).
+
+### 5.6 "Continue with X" button doesn't render at all
+
+- Reload with cache disabled (`Ctrl+Shift+R`).
+- Open DevTools → Network → `config/auth.json` — confirm the deployed file
+  has your Client ID (not the empty string). If it's still empty, your
+  commit didn't reach main / didn't deploy yet.
+- Confirm the provider's `clientId` field is a **non-empty string** (not
+  `null`, not `0`, not missing).
 
 ---
 
