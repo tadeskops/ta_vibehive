@@ -286,7 +286,7 @@ function verifyContribIconBtn(c, user, evt) {
     class: 'tvh-verify-icon',
     'aria-label': `Verify contribution from ${c.contributor_name || 'resident'}`,
     title: 'Verify & mint receipt'
-  }, '✏');
+  }, '✓');
   btn.addEventListener('click', async (ev) => {
     ev.stopPropagation();
     if (btn.disabled) return;

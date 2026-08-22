@@ -464,6 +464,12 @@ export function publicBoardFor(eventId) {
       name: c.anonymous ? 'Anonymous' : (c.contributor_name || '—'),
       flat: c.anonymous ? '' : (c.flat || ''),
       amount: c.hide_amount ? null : c.amount,
+      contribId: c.id,
+      hasReceipt: !!c.receipt,
+      contributor: c.contributor || '',
+      contributorEmail: c.contributor_email || '',
+      createdBy: c.created_by || '',
+      filledByEmail: c.filled_by_email || '',
     }))
     .sort((a, b) => (b.when || '').localeCompare(a.when || ''));
 }

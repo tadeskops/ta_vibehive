@@ -143,7 +143,7 @@ export async function render(root, { match }) {
     el('div', { class: 'progress-meta' }, el('span', { text: fmtINR(total) + ' raised' }), el('span', { text: pct + '% of goal' }))
   ) : null;
 
-  const board = showBoard ? renderPublicBoard(evt, hideAmount) : null;
+  const board = showBoard ? await renderPublicBoard(evt, hideAmount, user) : null;
   const reportCard = canOpenDetailedReport
     ? el('section', { class: 'card card-pad', style: 'margin-top:16px' },
       el('h3', { text: 'Contribution report' }),
@@ -223,19 +223,57 @@ function statCard(k, v) {
   );
 }
 
-function renderPublicBoard(evt, hideAmount) {
+async function renderPublicBoard(evt, hideAmount, user) {
   const rows = publicBoardFor(evt.id);
+  const canReceiptDownload = user ? await can(user, 'receipts.download') : false;
+  const userEmail = user && user.email ? String(user.email).toLowerCase() : '';
+  const userId = user && user.id ? String(user.id).toLowerCase() : '';
+  const canOpenReceipt = (r) => {
+    if (!user || !canReceiptDownload || !r.hasReceipt || !r.contribId) return false;
+    if (user.role !== 'resident') return true;
+    const rowIds = [r.contributorEmail, r.contributor, r.createdBy, r.filledByEmail]
+      .map((v) => String(v || '').toLowerCase())
+      .filter(Boolean);
+    return (userEmail && rowIds.includes(userEmail)) || (userId && rowIds.includes(userId));
+  };
   const body = el('table', { class: 'table' },
-    el('thead', {}, el('tr', {}, el('th', { text: 'When' }), el('th', { text: 'Contributor' }), el('th', { text: 'Flat' }), el('th', { class: 'num', text: 'Amount' }))),
+    el('thead', {}, el('tr', {},
+      el('th', { text: 'When' }),
+      el('th', { text: 'Contributor' }),
+      el('th', { text: 'Flat' }),
+      el('th', { class: 'num', text: 'Amount' }),
+      el('th', { class: 'num', text: 'Receipt' })
+    )),
     el('tbody', {}, ...(rows.length ? rows.slice(0, 20).map(r => el('tr', {},
       el('td', { text: fmtDate(r.when) }),
       el('td', { text: r.name }),
       el('td', { text: r.flat }),
-      el('td', { class: 'num', text: (r.amount == null || hideAmount) ? '—' : fmtINR(r.amount) })
-    )) : [el('tr', {}, el('td', { colspan: 4, text: 'No verified contributions yet.', style: 'text-align:center;color:var(--muted)' }))]))
+      el('td', { class: 'num', text: (r.amount == null || hideAmount) ? '—' : fmtINR(r.amount) }),
+      el('td', { class: 'num' },
+        canOpenReceipt(r)
+          ? el('span', { class: 'tvh-receipt-actions' },
+              el('a', {
+                class: 'tvh-mini-icon-btn',
+                href: `#/receipt/${encodeURIComponent(r.contribId)}`,
+                title: 'View receipt',
+                'aria-label': 'View receipt'
+              }, '👁'),
+              el('a', {
+                class: 'tvh-mini-icon-btn',
+                href: `#/receipt/${encodeURIComponent(r.contribId)}?download=1`,
+                title: 'Download receipt PDF',
+                'aria-label': 'Download receipt PDF'
+              }, '⬇')
+            )
+          : el('small', { class: 'sub', text: '—' })
+      )
+    )) : [el('tr', {}, el('td', { colspan: 5, text: 'No verified contributions yet.', style: 'text-align:center;color:var(--muted)' }))]))
   );
   return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
     el('h3', { text: '🌸 Contributor board' }),
+    canReceiptDownload
+      ? el('p', { class: 'sub', style: 'margin:0 0 8px', text: 'People with receipt access can view (👁) or download (⬇) from here.' })
+      : null,
     body
   );
 }

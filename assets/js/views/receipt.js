@@ -500,7 +500,7 @@ function waIcon() {
   return span;
 }
 
-export async function render(root, { match }) {
+export async function render(root, { match, params }) {
   const contribs = state.contribs();
   const rec = contribs.find(c => c.id === match.id);
   if (!rec) return mount(root, el('div', { class: 'card card-pad' }, el('h2', { text: 'Contribution not found.' })));
@@ -587,6 +587,7 @@ export async function render(root, { match }) {
   );
   themePicker.value = ['default', 'cheque-classic', 'certificate-brand'].includes(defaultTheme) ? defaultTheme : 'default';
   const currentTheme = () => themePicker.value || 'default';
+  const wantsAutoDownload = !!(params && (params.get('download') === '1' || params.get('dl') === '1'));
 
   const actionKids = [
     el('a', { class: 'btn btn-ghost', href: `#/e/${rec.event}` }, '← Event'),
@@ -636,7 +637,7 @@ export async function render(root, { match }) {
   const receipt = el('article', { class: 'receipt' },
     showWatermark ? textmark(soc.short_name, r.id, r.verify_hash) : null,
     el('header', { class: 'receipt-head' },
-      el('img', { src: 'assets/images/bee-circle-512.png', alt: '' }),
+      el('img', { src: 'assets/images/TaLogo.png', alt: '' }),
       el('div', {},
         el('h2', { text: soc.english_name }),
         el('small', { text: `${soc.legal_name} · Reg ${soc.reg_no} · ${soc.location}` })
@@ -681,6 +682,15 @@ export async function render(root, { match }) {
   );
 
   mount(root, actions, receipt);
+
+  if (wantsAutoDownload) {
+    try {
+      await downloadReceiptPdf(r, rec, evt, soc, tpl, currentTheme());
+      toast('Receipt PDF saved to Downloads.', 'ok');
+    } catch (e) {
+      toast((e && e.message) || 'Could not generate the receipt PDF', 'err');
+    }
+  }
 }
 
 /* --- SVG helpers (createElementNS to avoid innerHTML per CSP posture) --- */

@@ -58,15 +58,29 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
  * discoverable without shouting. */
 .tvh-verify-icon{
   display:inline-flex;align-items:center;justify-content:center;
-  width:26px;height:26px;padding:0;
+  width:30px;height:30px;padding:0;
   background:transparent;color:var(--terra);
-  border:1px solid var(--line);border-radius:8px;
-  cursor:pointer;font-size:13px;line-height:1;
+  border:1px solid var(--line);border-radius:10px;
+  cursor:pointer;font-size:16px;line-height:1;
   transition:background .12s ease,color .12s ease,border-color .12s ease,transform .12s ease;
 }
 .tvh-verify-icon:hover{background:var(--gold-soft,#faf1de);color:#7a5410;border-color:#e3c877}
 .tvh-verify-icon:active{transform:scale(0.94)}
 .tvh-verify-icon:disabled{opacity:0.55;cursor:progress}
+
+/* Icon-only receipt actions used in contributor board rows. */
+.tvh-receipt-actions{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px}
+.tvh-mini-icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:30px;height:30px;border-radius:999px;
+  border:1px solid var(--line);
+  background:#fff;color:var(--terra);
+  text-decoration:none;font-size:14px;line-height:1;
+  transition:background .12s ease,color .12s ease,border-color .12s ease,transform .12s ease;
+}
+.tvh-mini-icon-btn:hover{background:var(--terra-soft);color:#8b3f2a;border-color:#d9c2a5;text-decoration:none}
+.tvh-mini-icon-btn:active{transform:scale(0.96)}
+.tvh-mini-icon-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){
   body.is-busy .topbar::after{animation:none;background:linear-gradient(90deg,transparent 0%,rgba(199,143,42,.55) 50%,transparent 100%);background-size:100% 100%;background-position:0 0}
 }
