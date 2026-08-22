@@ -46,78 +46,99 @@ async function gh(token, method, path, body) {
 }
 
 /** Push N archive entries as ONE commit. Returns { commitSha, treeSha, url }.
- *  Rejects with GhError on any REST failure (caller re-enqueues + retries). */
+ *  Rejects with GhError on any REST failure (caller re-enqueues + retries).
+ *  On "not a fast forward" (422), the commit is rebuilt on top of the
+ *  fresh head sha and the ref update is retried a bounded number of
+ *  times. */
 export async function pushBatch({ owner, repo, branch, token, entries, message }) {
   if (!owner || !repo || !branch || !token) throw new Error('archive.pushBatch: missing owner/repo/branch/token');
   if (!Array.isArray(entries) || !entries.length) throw new Error('archive.pushBatch: no entries');
 
   const enc = safeRepoPath;
+  const MAX_ATTEMPTS = 4;
+  let lastErr = null;
 
-  /* 1 · head ref
-   * Empty repos return 409 "Git Repository is empty". Bootstrap once
-   * via the Contents API (creates README + default branch), then
-   * retry to get the real head sha. */
-  let ref;
-  try {
-    ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(branch)}`);
-  } catch (err) {
-    if (err && err.status === 409 && isEmptyRepoError(err)) {
-      await bootstrapEmptyRepo(token, owner, repo, branch);
-      ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(branch)}`);
-    } else {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      /* 1 · head ref
+       * Empty repos return 409 "Git Repository is empty". Bootstrap
+       * once via the Contents API (creates README + default branch),
+       * then retry to get the real head sha. */
+      let ref;
+      try {
+        ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(branch)}`);
+      } catch (err) {
+        if (err && err.status === 409 && isEmptyRepoError(err)) {
+          await bootstrapEmptyRepo(token, owner, repo, branch);
+          ref = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/ref/heads/${enc(branch)}`);
+        } else {
+          throw err;
+        }
+      }
+      const headSha = ref.object && ref.object.sha;
+      if (!headSha) throw new Error('archive: head ref has no sha');
+
+      /* 2 · base tree via head commit */
+      const headCommit = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/commits/${enc(headSha)}`);
+      const baseTreeSha = headCommit.tree && headCommit.tree.sha;
+      if (!baseTreeSha) throw new Error('archive: head commit has no tree sha');
+
+      /* 3 · blobs */
+      const blobs = [];
+      for (const e of entries) {
+        const path = String(e.path || '').replace(/^\/+/, '').replace(/\.\.+/g, '.');
+        if (!path) continue;
+        const binaryB64 = (e && (e.contentBase64 || e.content_base64)) ? String(e.contentBase64 || e.content_base64) : '';
+        const contentB64 = (e && e.encoding === 'base64')
+          ? String(binaryB64 || e.content || '').replace(/\s+/g, '')
+          : toBase64Utf8(String(e.content || ''));
+        const blob = await gh(token, 'POST', `/repos/${enc(owner)}/${enc(repo)}/git/blobs`, {
+          content: contentB64,
+          encoding: 'base64',
+        });
+        blobs.push({ path, sha: blob.sha });
+      }
+      if (!blobs.length) throw new Error('archive: no valid entries after path guard');
+
+      /* 4 · tree (add blob leaves on top of the current head tree) */
+      const tree = await gh(token, 'POST', `/repos/${enc(owner)}/${enc(repo)}/git/trees`, {
+        base_tree: baseTreeSha,
+        tree: blobs.map(b => ({ path: b.path, mode: '100644', type: 'blob', sha: b.sha })),
+      });
+
+      /* 5 · commit */
+      const commit = await gh(token, 'POST', `/repos/${enc(owner)}/${enc(repo)}/git/commits`, {
+        message: message || `receipts: batched archive (${blobs.length} entr${blobs.length === 1 ? 'y' : 'ies'})`,
+        tree: tree.sha,
+        parents: [headSha],
+      });
+
+      /* 6 · move ref */
+      await gh(token, 'PATCH', `/repos/${enc(owner)}/${enc(repo)}/git/refs/heads/${enc(branch)}`, {
+        sha: commit.sha,
+        force: false,
+      });
+
+      return {
+        commitSha: commit.sha,
+        treeSha: tree.sha,
+        url: `https://github.com/${owner}/${repo}/commit/${commit.sha}`,
+        fileCount: blobs.length,
+      };
+    } catch (err) {
+      lastErr = err;
+      if (err && err.status === 422 && isNonFastForwardError(err) && attempt < MAX_ATTEMPTS - 1) {
+        /* Ref moved under us — someone (or a previous auto-bootstrap
+         * call) advanced main. Re-fetch head sha and rebuild the
+         * commit on top of it. Short jittered backoff to avoid busy
+         * retry loops. */
+        await new Promise(r => setTimeout(r, 120 + Math.floor(Math.random() * 180)));
+        continue;
+      }
       throw err;
     }
   }
-  const headSha = ref.object && ref.object.sha;
-  if (!headSha) throw new Error('archive: head ref has no sha');
-
-  /* 2 · base tree via head commit */
-  const headCommit = await gh(token, 'GET', `/repos/${enc(owner)}/${enc(repo)}/git/commits/${enc(headSha)}`);
-  const baseTreeSha = headCommit.tree && headCommit.tree.sha;
-  if (!baseTreeSha) throw new Error('archive: head commit has no tree sha');
-
-  /* 3 · blobs */
-  const blobs = [];
-  for (const e of entries) {
-    const path = String(e.path || '').replace(/^\/+/, '').replace(/\.\.+/g, '.');
-    if (!path) continue;
-    const binaryB64 = (e && (e.contentBase64 || e.content_base64)) ? String(e.contentBase64 || e.content_base64) : '';
-    const contentB64 = (e && e.encoding === 'base64')
-      ? String(binaryB64 || e.content || '').replace(/\s+/g, '')
-      : toBase64Utf8(String(e.content || ''));
-    const blob = await gh(token, 'POST', `/repos/${enc(owner)}/${enc(repo)}/git/blobs`, {
-      content: contentB64,
-      encoding: 'base64',
-    });
-    blobs.push({ path, sha: blob.sha });
-  }
-  if (!blobs.length) throw new Error('archive: no valid entries after path guard');
-
-  /* 4 · tree (add blob leaves on top of the current head tree) */
-  const tree = await gh(token, 'POST', `/repos/${enc(owner)}/${enc(repo)}/git/trees`, {
-    base_tree: baseTreeSha,
-    tree: blobs.map(b => ({ path: b.path, mode: '100644', type: 'blob', sha: b.sha })),
-  });
-
-  /* 5 · commit */
-  const commit = await gh(token, 'POST', `/repos/${enc(owner)}/${enc(repo)}/git/commits`, {
-    message: message || `receipts: batched archive (${blobs.length} entr${blobs.length === 1 ? 'y' : 'ies'})`,
-    tree: tree.sha,
-    parents: [headSha],
-  });
-
-  /* 6 · move ref */
-  await gh(token, 'PATCH', `/repos/${enc(owner)}/${enc(repo)}/git/refs/heads/${enc(branch)}`, {
-    sha: commit.sha,
-    force: false,
-  });
-
-  return {
-    commitSha: commit.sha,
-    treeSha: tree.sha,
-    url: `https://github.com/${owner}/${repo}/commit/${commit.sha}`,
-    fileCount: blobs.length,
-  };
+  throw lastErr || new Error('archive: pushBatch exhausted retries');
 }
 
 /** UTF-8 → base64. Safe for arbitrary text (Latin-1 btoa would corrupt). */
@@ -143,6 +164,17 @@ function isEmptyRepoError(err) {
     ? body
     : (body && body.message) ? String(body.message) : '';
   return /repository is empty/i.test(msg);
+}
+
+/** Detect GitHub's "Update is not a fast forward" 422 payload so the
+ *  writer can rebuild the commit on top of the fresh head sha. */
+function isNonFastForwardError(err) {
+  if (!err) return false;
+  const body = err.body;
+  const msg = typeof body === 'string'
+    ? body
+    : (body && body.message) ? String(body.message) : '';
+  return /not a fast forward/i.test(msg);
 }
 
 /** Create an initial README.md via the Contents API. This succeeds on
