@@ -1049,6 +1049,57 @@ async function renderAttributes(user, canUsersManage) {
  * layers its header/footer/thank-you strings over the base render. */
 async function renderTemplates(user) {
   const clone = (v) => structuredClone(v);
+  /* Shipped presets — the three built-in themes we ship in
+   * `views/receipt.js#buildReceiptPdf`. They appear in the templates
+   * list alongside any custom template the operator has authored so
+   * "Make active" flows through the same code path. Marked with
+   * `shipped: true` + `theme: '<id>'` so `renderTemplates` renders
+   * them read-only and the receipt page reads the theme id when
+   * generating the PDF. */
+  const SHIPPED_TEMPLATES = [
+    {
+      id: 'shipped-default',
+      shipped: true,
+      theme: 'default',
+      name: 'Default — Community Warmth (A4 portrait)',
+      header_note: '',
+      thank_you_line: 'Received with thanks. This receipt is issued for records only. No goods or services have been supplied in exchange.',
+      footer_note: 'Verify online at the receipt URL below.',
+      show_qr: true,
+      show_verify_grid: true,
+      show_watermark: true,
+      seal_glyph: '🐝',
+      created_at: '2026-08-22T00:00:00Z',
+    },
+    {
+      id: 'shipped-cheque-classic',
+      shipped: true,
+      theme: 'cheque-classic',
+      name: 'Cheque Classic — blue grid (A5 landscape)',
+      header_note: 'Contribution Receipt',
+      thank_you_line: 'Received with thanks. This receipt is issued for records only.',
+      footer_note: 'Verifiable at the online URL printed on the receipt.',
+      show_qr: false,
+      show_verify_grid: false,
+      show_watermark: false,
+      seal_glyph: '',
+      created_at: '2026-08-23T00:00:00Z',
+    },
+    {
+      id: 'shipped-certificate-brand',
+      shipped: true,
+      theme: 'certificate-brand',
+      name: 'Certificate Brand — indigo + gold (A4 landscape)',
+      header_note: 'Certificate of Contribution',
+      thank_you_line: 'Presented with sincere gratitude for your generous support of the community.',
+      footer_note: 'Issued by the Management Committee. Verify at the URL below.',
+      show_qr: true,
+      show_verify_grid: false,
+      show_watermark: true,
+      seal_glyph: '🏛',
+      created_at: '2026-08-23T00:00:00Z',
+    },
+  ];
   let persistedTemplates = state.receiptTemplates() || [];
   let persistedActiveId = pick(state.societyOverrides() || {}, 'receipts.active_template_id') || '';
   let draftTemplates = clone(persistedTemplates);
@@ -1155,33 +1206,40 @@ async function renderTemplates(user) {
       el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:10px' }, draftPill, saveBtn, discardBtn)
     ));
 
-    /* Row per template */
-    if (!draftTemplates.length) {
+    /* Combined list: shipped presets first (read-only), custom
+     * drafts after. Shipped rows can be "Made active" but not edited
+     * or deleted — they're built into the code path in
+     * `views/receipt.js#buildReceiptPdf`. */
+    const rowsToRender = [...SHIPPED_TEMPLATES, ...draftTemplates];
+    if (!rowsToRender.length) {
       wrap.append(el('div', { class: 'panel' },
         el('p', { class: 'sub', style: 'margin:0', text: 'No custom templates yet. Receipts will use the shipped default layout.' })
       ));
       return;
     }
 
-    for (const t of draftTemplates) {
+    for (const t of rowsToRender) {
       const isActive = t.id === activeNow;
+      const isShipped = !!t.shipped;
       const panel = el('div', { class: 'panel' });
       const head = el('div', { class: 'row row-between', style: 'gap:8px' },
         el('div', {},
-          el('h3', { text: t.name || t.id, style: 'margin:0' }),
-          el('small', { class: 'sub', text: 'id: ' + t.id + ' · created ' + fmtDate(t.created_at || Date.now()) }),
+          el('h3', { text: (isShipped ? '📦 ' : '') + (t.name || t.id), style: 'margin:0' }),
+          el('small', { class: 'sub', text: (isShipped ? 'shipped preset · ' : '') + 'id: ' + t.id + ' · created ' + fmtDate(t.created_at || Date.now()) }),
         ),
         el('div', { class: 'row', style: 'gap:6px' },
           isActive
             ? el('span', { class: 'pill', style: 'background:var(--sage-soft);color:var(--sage);font-weight:700', text: '✓ Active (draft)' })
             : el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => { draftActiveId = t.id; render(); toast('Template activation staged', 'ok'); } } }, 'Make active'),
-          el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => {
-            if (!confirm('Delete template "' + (t.name || t.id) + '"?')) return;
-            draftTemplates = draftTemplates.filter(x => x.id !== t.id);
-            if (isActive) draftActiveId = '';
-            render();
-            toast('Template deletion staged', 'ok');
-          } }, style: 'color:var(--terra)' }, 'Delete'),
+          isShipped
+            ? el('span', { class: 'pill pill-muted', title: 'Shipped presets cannot be edited or deleted', text: 'Read-only' })
+            : el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => {
+                if (!confirm('Delete template "' + (t.name || t.id) + '"?')) return;
+                draftTemplates = draftTemplates.filter(x => x.id !== t.id);
+                if (isActive) draftActiveId = '';
+                render();
+                toast('Template deletion staged', 'ok');
+              } }, style: 'color:var(--terra)' }, 'Delete'),
         ),
       );
       panel.append(head);
@@ -1190,6 +1248,28 @@ async function renderTemplates(user) {
         draftTemplates = draftTemplates.map(x => x.id === t.id ? { ...x, ...patch } : x);
         render();
       };
+      /* Read-only preview for shipped presets — shows the copy but
+       * hides the inputs so operators can't accidentally break the
+       * theme layout. */
+      if (isShipped) {
+        const previewRow = (k, v) => el('div', { class: 'field', style: 'margin-top:10px' },
+          el('label', { class: 'lbl', text: k }),
+          el('div', { style: 'padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#faf3ea;color:var(--muted);font-size:13px', text: v || '—' })
+        );
+        panel.append(
+          previewRow('Header note', t.header_note),
+          previewRow('Thank-you line', t.thank_you_line),
+          previewRow('Footer note', t.footer_note),
+          el('div', { class: 'row', style: 'gap:14px;flex-wrap:wrap;margin-top:12px' },
+            el('span', { class: 'pill pill-muted', text: (t.show_qr !== false ? '✓' : '×') + ' QR' }),
+            el('span', { class: 'pill pill-muted', text: (t.show_verify_grid !== false ? '✓' : '×') + ' Verify grid' }),
+            el('span', { class: 'pill pill-muted', text: (t.show_watermark !== false ? '✓' : '×') + ' Watermark' }),
+            el('span', { class: 'pill pill-muted', text: 'Seal ' + (t.seal_glyph || '—') }),
+          )
+        );
+        wrap.append(panel);
+        continue;
+      }
       panel.append(
         el('div', { class: 'field', style: 'margin-top:14px' },
           el('label', { class: 'lbl', text: 'Template name' }),

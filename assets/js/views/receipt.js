@@ -536,8 +536,20 @@ export async function render(root, { match }) {
   /* Per-download theme override — reads the society default from
    * settings and lets the resident/committee flip to Cheque Classic
    * or Certificate Brand for this one download. Value flows into
-   * `downloadReceiptPdf` / `shareToWhatsApp` via `currentTheme()`. */
-  const defaultTheme = (soc.receipts && soc.receipts.default_theme) || 'default';
+   * `downloadReceiptPdf` / `shareToWhatsApp` via `currentTheme()`.
+   * Active-template id takes priority when it maps to one of the
+   * shipped presets (`shipped-cheque-classic`, `shipped-certificate-brand`)
+   * so operators can pick a theme purely from Settings → Receipt
+   * templates without touching the Receipts archive panel. */
+  const SHIPPED_THEME_BY_ID = {
+    'shipped-default': 'default',
+    'shipped-cheque-classic': 'cheque-classic',
+    'shipped-certificate-brand': 'certificate-brand',
+  };
+  const themeFromActive = SHIPPED_THEME_BY_ID[activeTplId] || '';
+  const defaultTheme = themeFromActive
+    || (soc.receipts && soc.receipts.default_theme)
+    || 'default';
   const themePicker = el('select', {
     class: 'btn btn-ghost',
     style: 'min-width:180px',
