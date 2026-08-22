@@ -76,10 +76,19 @@ export function loginWithProfile(profile) {
     user = { ...existing };
     if (profile.name && (!existing.name || existing.name === existing.email)) user.name = profile.name;
     if (!user.provider) user.provider = profile.provider;
-    /* Role mapping is authoritative on sign-in. If an email is not
-     * present in any explicit role list, it becomes resident. This
-     * prevents stale legacy roles from surviving after mapping edits. */
-    user.role = normalizeRole(mappedRole || 'resident');
+    /* Role resolution on re-sign-in:
+     *  - If the operator has explicitly mapped this email → apply the
+     *    mapped role (promotes / demotes as intended).
+     *  - Otherwise keep the previously-persisted role so admins do
+     *    not get silently demoted to `resident` when they sign back
+     *    in on a browser that lost its session but still has data.
+     *    Data is not lost — the surfaces that hide would previously
+     *    make it look that way. */
+    if (mappedRole) {
+      user.role = normalizeRole(mappedRole);
+    } else if (!user.role) {
+      user.role = normalizeRole('resident');
+    }
     user.is_verified_resident = verifiedResident;
     const idx = users.findIndex(u => u.id === existing.id);
     if (idx >= 0) users[idx] = user;
