@@ -1,7 +1,7 @@
 /* Event detail view — public read-only + admin edit tabs. */
 'use strict';
 import { el, mount, fmtDate, fmtINR, daysLeft, toast, modal } from '../dom.js';
-import { findEvent, totalFor, verifiedCount, publicBoardFor, saveEvent, STATUS, contribsFor, canViewEventDetailedReport } from '../events.js';
+import { findEvent, totalFor, verifiedCount, publicBoardFor, saveEvent, STATUS, contribsFor, canViewEventDetailedReport, nextStatusesFor, isTransitionAllowed } from '../events.js';
 import { catalog, isEventOn, validateEventFeatures } from '../features.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
@@ -564,14 +564,22 @@ async function renderEdit(root, evt, user, caps) {
   );
 
   const statusSel = el('select', {},
-    ...Object.values(STATUS).map(s => el('option', { value: s, selected: evt.status === s, text: s.charAt(0).toUpperCase() + s.slice(1) }))
+    ...nextStatusesFor(evt.status).map(s => el('option', { value: s, selected: evt.status === s, text: s.charAt(0).toUpperCase() + s.slice(1) }))
   );
+  const statusHelp = evt.status === STATUS.PUBLISHED
+    ? el('small', { class: 'sub', style: 'display:block;margin-top:4px', text: 'Published events cannot be moved back to draft/review — contributions stay linked. Use Close or Archive when the event is over.' })
+    : null;
 
   const actions = el('div', { class: 'row row-between', style: 'margin-top:16px' },
     el('a', { class: 'btn btn-ghost', href: `#/e/${evt.id}` }, 'Cancel'),
-    el('div', { class: 'row' },
-      el('span', { text: 'Status:' }),
-      statusSel,
+    el('div', { class: 'row', style: 'flex-wrap:wrap' },
+      el('div', {},
+        el('div', { class: 'row', style: 'gap:6px;align-items:center' },
+          el('span', { text: 'Status:' }),
+          statusSel,
+        ),
+        statusHelp
+      ),
       el('button', { class: 'btn', on: { click: async () => {
         /* Validate the UPI VPA if the creator entered one. Blank is
          * fine (falls back to society-wide settings) but a non-blank
@@ -613,6 +621,10 @@ async function renderEdit(root, evt, user, caps) {
         };
         const errs = await validateEventFeatures(updated.features);
         if (errs.length) { toast(`Fix dependencies: ${errs[0].id} needs ${errs[0].missing}`, 'err'); return; }
+        if (!isTransitionAllowed(evt.status, updated.status)) {
+          toast(`Cannot change status from "${evt.status}" to "${updated.status}". Published events can only move to Closed / Archived to preserve contributions.`, 'err');
+          return;
+        }
         if (updated.status === STATUS.PUBLISHED && !caps.canPublish) { toast('You cannot publish. Ask Management Committee.', 'err'); return; }
         /* Four-eyes gate: when society.events.require_approval is ON,
          * the person who drafted the event may not publish it themselves

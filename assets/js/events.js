@@ -34,6 +34,24 @@ function normalizeStatus(raw) {
   return STATUS.DRAFT;
 }
 
+const ALLOWED_TRANSITIONS = Object.freeze({
+  [STATUS.DRAFT]:     [STATUS.DRAFT, STATUS.REVIEW, STATUS.PUBLISHED],
+  [STATUS.REVIEW]:    [STATUS.REVIEW, STATUS.DRAFT, STATUS.PUBLISHED],
+  [STATUS.PUBLISHED]: [STATUS.PUBLISHED, STATUS.CLOSED, STATUS.ARCHIVED],
+  [STATUS.CLOSED]:    [STATUS.CLOSED, STATUS.PUBLISHED, STATUS.ARCHIVED],
+  [STATUS.ARCHIVED]:  [STATUS.ARCHIVED, STATUS.PUBLISHED, STATUS.CLOSED],
+});
+
+export function nextStatusesFor(current) {
+  const cur = normalizeStatus(current);
+  return ALLOWED_TRANSITIONS[cur] || [STATUS.DRAFT];
+}
+
+export function isTransitionAllowed(from, to) {
+  const options = ALLOWED_TRANSITIONS[normalizeStatus(from)] || [];
+  return options.includes(normalizeStatus(to));
+}
+
 export function slugify(s) {
   return String(s).toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
 }
@@ -113,7 +131,7 @@ export async function newEventFromTemplate(templateId, actor) {
   const now = new Date();
   const evt = {
     id: uid('ev'),
-    slug: slugify(tpl.label + '-' + now.getFullYear()),
+    slug: slugify(tpl.label + '-' + now.getFullYear()) + '-' + Math.random().toString(36).slice(2, 6),
     template: tpl.id,
     cluster: tpl.cluster,
     glyph: tpl.glyph,
@@ -140,6 +158,11 @@ export async function saveEvent(evt, actor) {
   const before = evts.slice();
   evt.status = normalizeStatus(evt.status);
   const priorStatus = (evts.find(e => e.id === evt.id) || {}).status || null;
+  if (priorStatus && !isTransitionAllowed(priorStatus, evt.status)) {
+    const err = new Error(`Cannot change status from "${priorStatus}" to "${evt.status}". Once an event is published, it can only be moved to closed or archived to preserve contribution history.`);
+    err.code = 'INVALID_STATUS_TRANSITION';
+    throw err;
+  }
   evt.updated_at = new Date().toISOString();
   const i = evts.findIndex(e => e.id === evt.id);
   if (i >= 0) evts[i] = evt; else evts.push(evt);
@@ -233,12 +256,24 @@ export function publicEvents() {
       const st = normalizeStatus(e.status);
       return st === STATUS.PUBLISHED || st === STATUS.CLOSED;
     });
+  const contribCount = new Map();
+  for (const c of state.contribs()) {
+    if (!c || !c.event) continue;
+    contribCount.set(c.event, (contribCount.get(c.event) || 0) + 1);
+  }
   const byKey = new Map();
   const keyOf = e => (e.slug || (e.title || '').toLowerCase().trim() || e.id);
   for (const e of filtered) {
     const k = keyOf(e);
     const prev = byKey.get(k);
-    if (!prev || (e.updated_at || '') > (prev.updated_at || '')) byKey.set(k, e);
+    if (!prev) { byKey.set(k, e); continue; }
+    const prevContribs = contribCount.get(prev.id) || 0;
+    const curContribs  = contribCount.get(e.id)    || 0;
+    if (curContribs !== prevContribs) {
+      if (curContribs > prevContribs) byKey.set(k, e);
+      continue;
+    }
+    if ((e.updated_at || '') > (prev.updated_at || '')) byKey.set(k, e);
   }
   return [...byKey.values()].sort((a, b) => (a.end_at || '').localeCompare(b.end_at || ''));
 }
