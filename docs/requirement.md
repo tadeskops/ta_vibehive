@@ -126,6 +126,7 @@ Core implementation:
 
 Implemented:
 - Archive pipeline supports immediate push for:
+  - Event snapshots (on event create/edit/publish/save)
   - Receipt records
   - Event moderator history records
   - Report snapshots
@@ -139,9 +140,9 @@ Required runtime settings:
 
 Core implementation:
 - `assets/js/archive-runtime.js`
+- `assets/js/events.js`
 - `assets/js/views/admin.js`
 - `assets/js/views/reports.js`
-- `assets/js/events.js`
 - `assets/js/receipts.js`
 
 ## 10) Validation Status (Current)

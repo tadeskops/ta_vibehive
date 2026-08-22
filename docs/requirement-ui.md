@@ -129,6 +129,7 @@ Implemented:
 - Society settings panel in admin includes archive repo, branch, and PAT fields.
 - Draft indicators for settings edits and archive outbox count.
 - Flush archive queue button performs real archive push and returns actionable status feedback.
+- Archive queue includes event snapshot writes triggered by event saves in addition to receipts/history/reports.
 
 Core UI files:
 - `assets/js/views/admin.js`

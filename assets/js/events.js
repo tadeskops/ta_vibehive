@@ -64,6 +64,32 @@ function sanitizeForPath(v) {
   return String(v || '').replace(/[^a-z0-9_.-]+/gi, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '') || 'event';
 }
 
+function archiveEventSnapshot(evt, actor, priorStatus) {
+  if (!evt || !evt.id) return;
+  try {
+    const ts = new Date().toISOString();
+    const slug = sanitizeForPath(evt.slug || evt.id || 'event');
+    const payload = {
+      ...evt,
+      _archive_meta: {
+        kind: 'event',
+        saved_at: ts,
+        actor: actor ? (actor.email || actor.id || null) : null,
+        prior_status: priorStatus,
+      },
+    };
+    queueAndMaybePushArchive({
+      kind: 'event',
+      path: `events/${slug}/event.json`,
+      content: JSON.stringify(payload, null, 2),
+      eventId: evt.id,
+    }, {
+      actor: actor ? (actor.email || actor.id) : null,
+      message: `event: ${evt.id} ${priorStatus || 'new'} -> ${evt.status || 'unknown'}`,
+    }).catch(() => {});
+  } catch (_e) { /* best-effort */ }
+}
+
 export async function canViewEventDetailedReport(evt, user, canPermission) {
   if (!evt || !user) return false;
   if (canPermission) return true;
@@ -123,6 +149,7 @@ export function saveEvent(evt, actor) {
   if (i >= 0) evts[i] = evt; else evts.push(evt);
   state.saveEvents(evts);
   state.audit({ actor: actor ? actor.id : null, action: 'event.save', event: evt.id, status: evt.status });
+  archiveEventSnapshot(evt, actor, priorStatus);
   if (actor) {
     appendHistory(evt, actor, 'event.save', `status=${evt.status || ''}`);
   }
