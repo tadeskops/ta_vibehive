@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "generated_at_utc": "2026-08-22T17:21:37.877Z",
+    "timezone": "Asia/Kolkata",
+    "archive_repo": "tadeskops/tvh_record",
+    "archive_branch": "main",
+    "schedule_hours_local": [
+      6,
+      14,
+      22
+    ]
+  },
+  "report": {
+    "summaries": [],
+    "allRows": [],
+    "totals": {
+      "live_event_count": 1,
+      "covered_live_events": 0,
+      "verified_total_all_live_events": 0,
+      "verified_rows_all_live_events": 0
+    }
+  }
+}
