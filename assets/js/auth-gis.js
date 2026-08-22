@@ -309,5 +309,33 @@
     return () => listeners.delete(fn);
   }
 
-  root.Auth = { init, signIn, signOut, token: tokenIfFresh, hasSession, onChange, email: () => state.email };
+  /* Render the *real* Google-managed sign-in button visibly inside a
+   * caller-provided element. Reliable on iOS Safari + Android Chrome
+   * where a synthetic click on a hidden button is often ignored by
+   * ITP / pop-up guards. Callers should place the target somewhere
+   * visible (the login view does this on mobile). Idempotent — a
+   * second call clears the target and re-renders. */
+  function renderVisibleButton(targetEl, opts) {
+    if (!targetEl) return false;
+    if (!window.google || !window.google.accounts || !window.google.accounts.id) return false;
+    try {
+      while (targetEl.firstChild) targetEl.removeChild(targetEl.firstChild);
+      const inner = document.createElement('div');
+      targetEl.appendChild(inner);
+      window.google.accounts.id.renderButton(inner, Object.assign({
+        type: 'standard',
+        theme: 'filled_blue',
+        size: 'large',
+        text: 'signin_with',
+        shape: 'rectangular',
+        logo_alignment: 'left',
+      }, opts || {}));
+      return true;
+    } catch (e) {
+      console.warn('TVH auth: renderVisibleButton failed', e);
+      return false;
+    }
+  }
+
+  root.Auth = { init, signIn, signOut, token: tokenIfFresh, hasSession, onChange, email: () => state.email, renderVisibleButton };
 })(window);

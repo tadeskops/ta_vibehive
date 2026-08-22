@@ -66,12 +66,50 @@ function iconSpan(svg) {
   return s;
 }
 
+/* Resolve the post-sign-in destination. Prefers the query param, then
+ * falls back to a sessionStorage-persisted value (survives the mobile
+ * GIS redirect path). Guarantees we never bounce back into #/login,
+ * which would loop the user. Consumes the stashed value so a later
+ * sign-out+sign-in doesn't send the resident to a stale destination. */
+function resolveNext(next) {
+  let target = next || '#/';
+  try {
+    if (target === '#/' && typeof sessionStorage !== 'undefined') {
+      const stashed = sessionStorage.getItem('tvh:v1:login_next');
+      if (stashed) target = stashed;
+    }
+  } catch (_e) { /* ignore */ }
+  try { sessionStorage.removeItem('tvh:v1:login_next'); } catch (_e) { /* ignore */ }
+  try {
+    const decoded = decodeURIComponent(target);
+    if (/^#\/login/.test(decoded)) return '#/';
+    return decoded || '#/';
+  } catch (_e) {
+    return '#/';
+  }
+}
+
 export async function render(root, { params }) {
   const next = params.get('next') || '#/';
   const current = session();
   const clientId = (typeof window !== 'undefined' && window.TVH_GOOGLE_CLIENT_ID) || '';
   const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   const gisReady = !!(clientId && window.Auth && typeof window.Auth.signIn === 'function');
+  /* Detect mobile UAs so we can render the real Google-managed
+   * sign-in button visibly. iOS Safari (and to a lesser extent
+   * Android Chrome) blocks synthetic clicks on a hidden button that
+   * the desktop path uses as a fallback, so residents end up stuck
+   * on "Continue with Google". Rendering the native button gives us
+   * a genuine user gesture straight into the Google popup / redirect. */
+  const isMobile = typeof navigator !== 'undefined'
+    && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  /* Persist `next` to sessionStorage so it survives a mobile redirect
+   * flow (some GIS paths bounce to accounts.google.com and back). */
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('tvh:v1:login_next', next);
+    }
+  } catch (_e) { /* private mode */ }
   /* Demo persona picker is a dev-only ergonomic shortcut. It is NEVER
    * available on a live deploy — the `?demo=1` bypass would let a
    * public visitor impersonate committee / admin roles. Gated strictly
@@ -93,28 +131,73 @@ export async function render(root, { params }) {
   }
 
   if (gisReady) {
-    parts.push(el('div', { class: 'stack', style: 'margin-top:12px' },
-      el('button', {
-        class: 'btn btn-block',
-        on: { click: async () => {
-          try {
-            const ok = await window.Auth.signIn();
-            if (!ok) { toast('Sign-in was cancelled', 'err'); return; }
-            // window.Auth.onChange (bound in app.js via bindGis) upserts + sets currentUser.
-            // Give the listener a tick, then bounce.
-            setTimeout(() => {
-              const cur = session();
-              if (cur) {
-                toast('Signed in as ' + (cur.name || cur.email), 'ok');
-                location.hash = decodeURIComponent(next);
-              } else {
-                toast('Signed in but session not restored — refresh?', 'err');
-              }
-            }, 60);
-          } catch (e) { toast(e && e.message || 'Sign-in failed', 'err'); }
-        } }
-      }, iconSpan(ICON_SIGNIN), el('span', { text: 'Continue with Google' }))
-    ));
+    /* Native Google-managed sign-in button. Rendered visibly on
+     * mobile (iOS Safari + Android Chrome) where the synthetic-click
+     * fallback is unreliable. On desktop we keep the styled
+     * "Continue with Google" button below for brand consistency. */
+    const nativeBtnHost = el('div', {
+      class: 'tvh-gis-native',
+      style: 'display:flex;justify-content:center;margin-top:12px'
+    });
+    parts.push(nativeBtnHost);
+    /* Try to render the real Google button immediately. If the GIS
+     * script hasn't finished loading yet (rare on mobile with slow
+     * networks), retry a few times. */
+    (function tryRender(attempt) {
+      if (window.Auth && typeof window.Auth.renderVisibleButton === 'function') {
+        const ok = window.Auth.renderVisibleButton(nativeBtnHost);
+        if (ok) return;
+      }
+      if (attempt > 20) return;
+      setTimeout(() => tryRender(attempt + 1), 150);
+    })(0);
+
+    if (!isMobile) {
+      parts.push(el('div', { class: 'stack', style: 'margin-top:12px' },
+        el('button', {
+          class: 'btn btn-block',
+          on: { click: async () => {
+            try {
+              const ok = await window.Auth.signIn();
+              if (!ok) { toast('Sign-in was cancelled', 'err'); return; }
+              // window.Auth.onChange (bound in app.js via bindGis) upserts + sets currentUser.
+              // Give the listener a tick, then bounce.
+              setTimeout(() => {
+                const cur = session();
+                if (cur) {
+                  toast('Signed in as ' + (cur.name || cur.email), 'ok');
+                  const target = resolveNext(next);
+                  location.hash = target;
+                } else {
+                  toast('Signed in but session not restored — refresh?', 'err');
+                }
+              }, 60);
+            } catch (e) { toast(e && e.message || 'Sign-in failed', 'err'); }
+          } }
+        }, iconSpan(ICON_SIGNIN), el('span', { text: 'Continue with Google' }))
+      ));
+    }
+
+    /* Auto-bounce on mobile too: subscribe to the auth onChange event so
+     * the moment the Google credential arrives (whether via One Tap,
+     * the visible button, or a redirect return) we route to `next`.
+     * Guards prevent double-bouncing when the desktop button handler
+     * has already routed. */
+    if (window.Auth && typeof window.Auth.onChange === 'function') {
+      let bounced = false;
+      const off = window.Auth.onChange((s) => {
+        if (bounced || !s || !s.signedIn) return;
+        setTimeout(() => {
+          if (bounced) return;
+          const cur = session();
+          if (!cur) return;
+          bounced = true;
+          try { off(); } catch (_e) { /* ignore */ }
+          toast('Signed in as ' + (cur.name || cur.email), 'ok');
+          location.hash = resolveNext(next);
+        }, 80);
+      });
+    }
     /* Tiny help line. GIS "just works" for any real Gmail address once
      * the site is on the Authorized JavaScript origin of the Google
      * OAuth client — no per-user setup, no consent-screen publish
@@ -141,7 +224,7 @@ export async function render(root, { params }) {
     parts.push(el('p', { class: 'sub', text: 'Available only when the site is served from localhost — never on the live deploy. Handy for iterating on role-gated views without going through Google every time.' }));
     parts.push(el('div', { class: 'stack', style: 'margin-top:10px' },
       ...users.map(u => el('button', { class: 'card card-content', style: 'text-align:left;cursor:pointer;border:1.5px solid var(--line);min-height:auto',
-        on: { click: () => { loginAs(u.id); toast('Signed in as ' + u.name, 'ok'); location.hash = decodeURIComponent(next); } } },
+        on: { click: () => { loginAs(u.id); toast('Signed in as ' + u.name, 'ok'); location.hash = resolveNext(next); } } },
         el('div', { class: 'row row-between' },
           el('div', {},
             el('h3', { class: 'card-title', text: u.name }),
