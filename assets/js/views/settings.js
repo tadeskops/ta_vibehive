@@ -104,14 +104,20 @@ async function pushArchiveBatchStrict(entries, actor, message, opts) {
   const out = await flushArchiveQueueNow({ actor, message });
   if (!out || !out.ok) {
     /* Bootstrap allowance: when the caller is saving archive
-     * configuration itself, skip the strict repo-gate on "not
-     * configured" / "disabled" reasons. Without this, the very first
-     * save of the PAT can never succeed because the archive it depends
-     * on is not yet reachable. Real push failures (auth/404/network)
-     * still throw so operators see the actual GitHub error. */
+     * configuration itself, keep the local write on any archive-side
+     * failure. Without this, the first save of the PAT can never
+     * persist because either:
+     *   - archive is not yet reachable (not_configured/disabled), OR
+     *   - the push fails with the exact credentials being installed
+     *     (push_failed with 401/404), and rollback wipes the PAT the
+     *     user is trying to correct.
+     * We still surface the real error so the operator can fix it. */
     const reason = out && out.reason;
-    if (opts && opts.bootstrapAllowed && (reason === 'archive_not_configured' || reason === 'archive_disabled')) {
-      return { ok: true, bootstrapped: true, reason };
+    if (opts && opts.bootstrapAllowed) {
+      const detail = reason === 'push_failed' && out.error && out.error.message
+        ? out.error.message
+        : archiveErrorText(out);
+      return { ok: true, bootstrapped: true, reason, detail };
     }
     throw new Error(archiveErrorText(out));
   }
@@ -747,7 +753,13 @@ async function renderAttributes(user, canUsersManage) {
       refreshDraftMeta();
     });
     if (saveResult && saveResult.bootstrapped) {
-      toast('Settings saved locally. Archive is not yet reachable — save again after PAT/repo details verify to commit remotely.', 'warn');
+      const reason = saveResult.reason;
+      const detail = saveResult.detail ? ` (${saveResult.detail})` : '';
+      if (reason === 'push_failed') {
+        toast(`Settings saved locally, but archive push was rejected${detail}. Fix credentials and Save again.`, 'warn');
+      } else {
+        toast('Settings saved locally. Archive is not yet reachable — Save again once repo/PAT are populated to commit remotely.', 'warn');
+      }
     } else {
       toast('Settings saved in one consolidated write.', 'ok');
     }
