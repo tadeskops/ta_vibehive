@@ -6,6 +6,7 @@ import { catalog, isEventOn, validateEventFeatures } from '../features.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { navigate } from '../router.js';
+import { getSociety } from '../store.js';
 
 /* ---------- payment-input validation helpers ----------
  * Both used ONLY inside the event editor (renderEdit). Kept module-
@@ -325,6 +326,23 @@ async function renderEdit(root, evt, user, caps) {
         const errs = await validateEventFeatures(updated.features);
         if (errs.length) { toast(`Fix dependencies: ${errs[0].id} needs ${errs[0].missing}`, 'err'); return; }
         if (updated.status === STATUS.PUBLISHED && !caps.canPublish) { toast('You cannot publish. Ask Management Committee.', 'err'); return; }
+        /* Four-eyes gate: when society.events.require_approval is ON,
+         * the person who drafted the event may not publish it themselves
+         * — a second committee member must click Publish. Admin bypasses
+         * this gate so a single admin can always ship an urgent event. */
+        if (updated.status === STATUS.PUBLISHED && evt.status !== STATUS.PUBLISHED) {
+          try {
+            const soc = await getSociety();
+            const needsPeer = !!(soc && soc.events && soc.events.require_approval);
+            const isAdmin = user && (user.role === 'admin' || user.role === 'mgmt');
+            const drafter = evt.created_by || null;
+            const meId = user && (user.email || user.id);
+            if (needsPeer && !isAdmin && drafter && meId && drafter === meId) {
+              toast('Society requires a second committee member to publish this event.', 'err');
+              return;
+            }
+          } catch (_e) { /* if flag lookup fails, keep existing publish behaviour */ }
+        }
         if (updated.status === STATUS.CLOSED && !caps.canClose) { toast('Only Management Committee can close.', 'err'); return; }
         saveEvent(updated, user);
         toast('Event saved', 'ok');

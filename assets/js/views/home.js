@@ -15,6 +15,15 @@ const RECENT_N_CHOICES = [5, 10, 20];
 export async function render(root) {
   const user = session();
   const events = publicEvents();
+  /* Society label for the hero pretitle — read live so a short_name /
+   * location override in Settings reflects here on the next render.
+   * Falls back to the shipped brand when the config isn't hydrated. */
+  const socHero = await getSociety().catch(() => null);
+  const heroBrand = socHero && socHero.short_name
+    ? (String(socHero.short_name) + ((socHero.location || '').split(',')[0].trim()
+        ? ' · ' + (socHero.location || '').split(',')[0].trim()
+        : '')).toUpperCase()
+    : 'THE ADDRESS · BANER';
 
   const emerg = events.find(e => e.template === 'emergency' && e.status === STATUS.PUBLISHED);
   /* Belt-and-braces dedupe: publicEvents() already unique-by-id, but home
@@ -26,7 +35,7 @@ export async function render(root) {
   const hero = el('section', { class: 'hero' },
     el('div', { class: 'row row-between' },
       el('div', {},
-        el('div', { class: 'pill', text: 'THE ADDRESS · BANER' }),
+        el('div', { class: 'pill', text: heroBrand }),
         el('h1', { text: user ? `Namaste, ${user.name.split(' ')[0]} 🙏` : 'Welcome to VibeHive' }),
         el('p', { class: 'sub', text: `${events.length} live event${events.length === 1 ? '' : 's'} · ${totalPublicSum(events)} raised across the community.` })
       ),

@@ -119,9 +119,15 @@ export async function render(root, { match }) {
   const bank         = pay.bank || {};
 
   let amount = evt.fixed_amount || (showTiers && (evt.tiers[0] || {}).amount) || 0;
+  /* Privacy defaults for a fresh contribute form. Admin can flip either
+   * default on via Settings → Attributes → Contribution privacy so a
+   * community that prefers anonymity gets that as the starting state. */
+  const privDefaults = (soc && soc.contributions) || {};
   const st = {
     amount, method: upiOn ? 'upi' : bankOn ? 'bank' : 'other',
-    anonymous: false, hide_amount: false, ref: '', remarks: '',
+    anonymous: allowAnon && !!privDefaults.default_anonymous,
+    hide_amount: canHideAmt && !!privDefaults.default_hide_amount,
+    ref: '', remarks: '',
     proof_data_url: '', proof_name: '', proof_size: 0,
     /* Contributor details — required on every submit. Prefilled from the
      * signed-in user profile; editable so residents can correct a
@@ -163,9 +169,9 @@ export async function render(root, { match }) {
   );
   methodSel.addEventListener('change', () => { st.method = methodSel.value; refreshPayHint(); refreshRefLabel(); });
 
-  const anonToggle = el('button', { type: 'button', class: 'toggle', 'aria-label': 'Anonymous' });
+  const anonToggle = el('button', { type: 'button', class: 'toggle' + (st.anonymous ? ' on' : ''), 'aria-label': 'Anonymous' });
   anonToggle.addEventListener('click', () => { st.anonymous = !st.anonymous; anonToggle.classList.toggle('on', st.anonymous); });
-  const hideToggle = el('button', { type: 'button', class: 'toggle', 'aria-label': 'Hide amount' });
+  const hideToggle = el('button', { type: 'button', class: 'toggle' + (st.hide_amount ? ' on' : ''), 'aria-label': 'Hide amount' });
   hideToggle.addEventListener('click', () => { st.hide_amount = !st.hide_amount; hideToggle.classList.toggle('on', st.hide_amount); });
 
   const refLabel = el('label', { text: 'UPI reference / UTR' });
@@ -194,10 +200,15 @@ export async function render(root, { match }) {
   const evtQr = (evt.payment_qr_data_url || '').trim();
   const effVpa  = evtVpa  || pay.upi_vpa || '';
   const effVpaName = evtVpaName || pay.upi_name || soc.short_name;
+  /* QR fallback chain: per-event data-URL (evt.payment_qr_data_url) →
+   * society default asset (society.payment.qr_asset_url from Settings).
+   * Both are optional; if neither exists the UPI hint just skips the
+   * QR image and shows the copy-VPA button only. */
+  const effQr = evtQr || (pay.qr_asset_url || '').trim();
   function refreshPayHint() {
     payHint.textContent = '';
     if (st.method === 'upi' && upiOn) {
-      if (!effVpa && !evtQr) {
+      if (!effVpa && !effQr) {
         payHint.append(el('small', { text: 'The committee has not published a UPI ID or QR for this event yet. Please choose Bank or Cash, or ask an admin to add UPI details in event settings.' }));
         return;
       }
@@ -271,7 +282,13 @@ export async function render(root, { match }) {
              * only, size-capped, SVG explicitly rejected). Safe to
              * render as a data-URL <img>. */
             el('img', { src: evtQr, alt: 'Scan to pay via UPI', style: 'display:block;max-width:220px;margin:8px auto 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px' })
-          ) : null,
+          ) : (effQr ? el('div', { class: 'tvh-upi-qr' },
+            el('small', { class: 'sub', text: 'Or scan the society QR below with any UPI app:' }),
+            /* Society-level QR image path (society.payment.qr_asset_url).
+             * Same-origin asset only — no data-URL, no cross-origin URL
+             * — so browser cache + CSP img-src 'self' both hold. */
+            el('img', { src: effQr, alt: 'Scan to pay via UPI', style: 'display:block;max-width:220px;margin:8px auto 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px' })
+          ) : null),
           el('small', { style: 'display:block;margin-top:8px', text: 'On desktop, use the UPI ID above in your bank app. On mobile, tap "Pay" or scan the QR and confirm the amount inside the app.' })
         ].filter(Boolean)
       );

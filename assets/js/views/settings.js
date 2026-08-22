@@ -175,6 +175,13 @@ async function renderAttributes(user) {
     on: { change: (e) => saveAttr('social.instagram', e.target.value.trim()) },
     placeholder: 'https://www.instagram.com/…'
   });
+  /* Handle text shown alongside the Instagram link (e.g. "@theaddress_society")
+   * — read/written to `social.label` so header + footer pills update. */
+  const inpIgHandle = el('input', {
+    type: 'text', value: (soc.social && soc.social.label) || '',
+    on: { change: (e) => saveAttr('social.label', e.target.value.trim()) },
+    placeholder: '@theaddress_society'
+  });
 
   /* --- Payment sub-panel --- */
   const inpVpa = el('input', {
@@ -235,7 +242,8 @@ async function renderAttributes(user) {
       'Public labels shown in the header, footer, and receipts.',
       row('Short name', 'Displayed in the top bar next to the bee.', inpShort),
       row('Location', 'City / neighbourhood shown alongside the short name.', inpLoc),
-      row('Instagram URL', 'Powers the footer @-handle and the mobile header shortcut.', inpIg),
+      row('Instagram URL', 'Powers the footer @-handle link and the mobile header shortcut.', inpIg),
+      row('Instagram handle', 'Display text next to the Instagram icon (e.g. @theaddress_society).', inpIgHandle),
     ),
     panel('Payment channel',
       'Society-wide UPI details. Individual events can still override.',

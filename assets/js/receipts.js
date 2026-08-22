@@ -18,12 +18,15 @@ async function sha256(text) {
 
 function pad(n, w) { return String(n).padStart(w, '0'); }
 
-/** TA-<PURPOSE>-<YYYY>-<MM>-<DD>-<HHMMSS>-<SEQ4>-<HASH8> */
-export async function mintReceiptId(contribution, eventPurposeCode) {
+/** TA-<PURPOSE>-<YYYY>-<MM>-<DD>-<HHMMSS>-<SEQ4>-<HASH8>
+ *  Prefix is `RECEIPT_PREFIX` by default but can be overridden per-society
+ *  via `society.receipts.prefix` (Settings → Attributes → Receipts). */
+export async function mintReceiptId(contribution, eventPurposeCode, prefixOverride) {
   const d = new Date(contribution.verified_at || Date.now());
   const seq = pad((state.contribs().findIndex(c => c.id === contribution.id) + 1) % 10000, 4);
+  const prefix = (prefixOverride && String(prefixOverride).trim().toUpperCase()) || RECEIPT_PREFIX;
   const stem = [
-    RECEIPT_PREFIX, (eventPurposeCode || 'GEN').toUpperCase(),
+    prefix, (eventPurposeCode || 'GEN').toUpperCase(),
     d.getUTCFullYear(), pad(d.getUTCMonth() + 1, 2), pad(d.getUTCDate(), 2),
     pad(d.getUTCHours(), 2) + pad(d.getUTCMinutes(), 2) + pad(d.getUTCSeconds(), 2),
     seq
@@ -36,7 +39,7 @@ export async function attachReceipt(contribution) {
   const soc = await getSociety();
   const evt = state.events().find(e => e.id === contribution.event);
   const code = (evt ? evt.template : 'gen').slice(0, 4).toUpperCase();
-  const receiptId = await mintReceiptId(contribution, code);
+  const receiptId = await mintReceiptId(contribution, code, soc.receipts && soc.receipts.prefix);
   const verifyHash = await computeVerifyHash(receiptId, contribution.amount, contribution.contributor);
   const receipt = {
     id: receiptId,

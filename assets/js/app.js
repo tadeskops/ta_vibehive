@@ -282,10 +282,14 @@ window.addEventListener('DOMContentLoaded', async () => {
    * getSociety() so admin overrides show up immediately. */
   try {
     const soc = await getSociety();
-    const sub = document.querySelector('[data-brand-society]');
-    if (sub && soc && soc.short_name) {
+    /* Both the header wordmark and the footer branded-meta carry the
+     * `data-brand-society` attribute — hydrate ALL matches, not just
+     * the first, so a `short_name` override reflects in both spots. */
+    const subs = document.querySelectorAll('[data-brand-society]');
+    if (subs.length && soc && soc.short_name) {
       const where = (soc.location || '').split(',')[0].trim();
-      sub.textContent = where ? `${soc.short_name} · ${where}` : soc.short_name;
+      const text = where ? `${soc.short_name} · ${where}` : soc.short_name;
+      subs.forEach(n => { n.textContent = text; });
     }
     /* Footer legal-name hydration (short-form English name so the row
      * doesn't wrap). Falls back to the shipped literal on failure. */
