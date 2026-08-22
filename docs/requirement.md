@@ -20,6 +20,7 @@ Implemented:
 - System and event-scoped feature flags are defined in a central registry.
 - Event editor supports per-event feature toggles with dependency checks.
 - Governance toggles for event history and event report list view are persisted and synced into event feature flags.
+- `reporting.export` is explicitly registered as a system feature and defaults ON, so Reports builder is available unless an admin disables it in Feature registry.
 
 Config source:
 - `config/features.json`

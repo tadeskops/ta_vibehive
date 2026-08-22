@@ -46,6 +46,7 @@
     { "id": "receipt.qr_verify",     "cluster": "receipt",        "label": "QR public verification",          "scope": "system",    "default": true,  "requires_role": "admin" },
     { "id": "receipt.archive",       "cluster": "receipt",        "label": "Push to private archive repo",    "scope": "system",    "default": true,  "requires_role": "admin" },
     { "id": "reporting.progress",    "cluster": "reporting",      "label": "Live goal progress bar",          "scope": "event",     "default": true },
+    { "id": "reporting.export",      "cluster": "reporting",      "label": "Reports export builder",          "scope": "system",    "default": true,  "requires_role": "admin" },
     { "id": "reporting.public_total","cluster": "reporting",      "label": "Public total on landing",         "scope": "event",     "default": true },
     { "id": "reporting.expenses",    "cluster": "reporting",      "label": "Expense summary transparency",    "scope": "event",     "default": false },
     { "id": "reporting.event_detail_signedin","cluster": "reporting", "label": "Signed-in users can view event contribution list", "scope": "event", "default": false },
