@@ -247,7 +247,7 @@ async function renderEdit(root, evt, user, caps) {
       type: 'text',
       value: evt.appreciation_note || '',
       maxlength: '160',
-      placeholder: 'It would be wonderful if you could contribute a minimum of {amount}. This is completely voluntary.'
+      placeholder: 'Contribution is at will, though we would appreciate contribution of {amount}.'
     }),
     el('small', { class: 'sub', text: 'Polite suggestion only. Use {amount} to insert the selected amount dynamically.' })
   );
