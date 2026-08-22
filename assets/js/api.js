@@ -114,9 +114,14 @@ export async function listContributions(eventFilter) {
 }
 
 /** Submit a new contribution. Server stamps `id`, `created_at`,
- *  `created_by`, and `status='pending'`. */
+ *  `created_by`, and `status='pending'`. Returned contribution has
+ *  `_path` set so a later verify call knows the archive location. */
 export async function createContribution(contribution) {
-  return request('POST', '/contributions', { contribution });
+  const data = await request('POST', '/contributions', { contribution });
+  if (data && data.contribution && data.path && !data.contribution._path) {
+    data.contribution._path = data.path;
+  }
+  return data;
 }
 
 /** Verify a pending contribution. Committee+. `contribPath` is the

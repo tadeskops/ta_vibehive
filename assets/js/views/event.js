@@ -247,7 +247,7 @@ async function renderEdit(root, evt, user, caps) {
       type: 'text',
       value: evt.appreciation_note || '',
       maxlength: '160',
-      placeholder: 'Contribution is at will, though we would appreciate contribution of {amount}.'
+      placeholder: 'It would be wonderful if you could contribute a minimum of {amount}. This is completely voluntary.'
     }),
     el('small', { class: 'sub', text: 'Polite suggestion only. Use {amount} to insert the selected amount dynamically.' })
   );
@@ -569,11 +569,15 @@ function contribRow(c, evt, user, caps) {
     el('td', {}, el('span', { class: 'pill ' + (c.status === 'verified' ? 'pill-sage' : c.status === 'void' ? 'pill-muted' : ''), text: c.status })),
     el('td', {}, el('div', { class: 'row' },
       c.status === 'pending' ? el('button', { class: 'btn btn-sm', on: { click: async () => {
-        const mod = await import('../events.js'); const rec = await import('../receipts.js');
-        const verified = mod.verifyContribution(c.id, user);
-        await rec.attachReceipt(verified);
-        toast('Verified & receipt minted', 'ok');
-        renderManage(document.getElementById('main'), evt, user, caps);
+        try {
+          const mod = await import('../events.js'); const rec = await import('../receipts.js');
+          const verified = await mod.verifyContribution(c.id, user);
+          await rec.attachReceipt(verified);
+          toast('Verified & receipt minted', 'ok');
+          renderManage(document.getElementById('main'), evt, user, caps);
+        } catch (err) {
+          toast((err && err.message) || 'Verify failed', 'err');
+        }
       } } }, 'Verify') : null,
       c.status !== 'void' ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => {
         modal({

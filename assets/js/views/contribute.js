@@ -633,7 +633,7 @@ export async function render(root, { match }) {
     };
     let rec;
     try {
-      rec = addContribution(payload, user);
+      rec = await addContribution(payload, user);
     } catch (e) {
       /* addContribution enforces the one-per-flat rule at storage
        * time. Surface its message as a friendly toast rather than a

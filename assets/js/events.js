@@ -59,6 +59,19 @@ function sanitizeForPath(v) {
   return String(v || '').replace(/[^a-z0-9_.-]+/gi, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '') || 'event';
 }
 
+/** Derive `contributions/{yyyy}/{mm}/{id}.json` from a locally cached
+ *  record when the Worker's archive path was not persisted (e.g.
+ *  record predates the Worker upgrade). Falls back to using the
+ *  record's `created_at` for month bucketing. */
+function _guessArchivePath(rec) {
+  if (!rec || !rec.id) return null;
+  const d = rec.created_at ? new Date(rec.created_at) : new Date();
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const safe = String(rec.id).replace(/[^a-z0-9_.-]+/gi, '-').slice(0, 60);
+  return `contributions/${y}/${m}/${safe}.json`;
+}
+
 export async function canViewEventDetailedReport(evt, user, canPermission) {
   if (!evt || !user) return false;
   if (canPermission) return true;
@@ -205,7 +218,7 @@ export function verifiedCount(eventId) {
   return set.size;
 }
 
-export function addContribution(payload, actor) {
+export async function addContribution(payload, actor) {
   const list = state.contribs();
   /* Enforce the per-event "one contribution per flat" rule at storage
    * time so a devtools-crafted POST can't sneak past the UI guard in
@@ -227,19 +240,15 @@ export function addContribution(payload, actor) {
       throw err;
     }
   }
-  const rec = {
-    id: uid('c'),
+  /* Build the payload the Worker persists in the archive repo. We do
+   * NOT ship binary proof attachments through the Worker path — those
+   * remain in the local cache so the committee can view them from
+   * their own browser. Payloads on the wire are lean JSON. */
+  const wirePayload = {
     event: payload.event,
     contributor: payload.contributor,
     contributor_name: payload.contributor_name,
-    /* Contributor email is captured on the form (mandatory) so we can
-     * notify the payer directly at submit and verify time without
-     * having to look them up in the users list. When on_behalf is true
-     * this is the BENEFICIARY's email, not the filler's. */
     contributor_email: payload.contributor_email || '',
-    /* Mobile number (10-digit, starting 6-9) captured on the form.
-     * Used ONLY by the committee for post-submit rectification (wrong
-     * name / flat on a receipt). Never rendered on the public board. */
     contributor_mobile: payload.contributor_mobile || '',
     flat: payload.flat,
     amount: Number(payload.amount || 0),
@@ -248,26 +257,57 @@ export function addContribution(payload, actor) {
     hide_amount: !!payload.hide_amount,
     ref: payload.ref || '',
     remarks: payload.remarks || '',
-    /* Payment proof (screenshot / PDF), stored as a data URL. Compressed
-     * client-side in the contribute view before it lands here so we
-     * don't blow the localStorage quota. Committee uses this to verify.
-     * Attach is MANDATORY when on_behalf is true. */
+    on_behalf: !!payload.on_behalf,
+    filled_by_id:    payload.filled_by_id    || null,
+    filled_by_name:  payload.filled_by_name  || null,
+    filled_by_email: payload.filled_by_email || null,
+    cluster: evt && evt.cluster || null,
+    template: evt && evt.template || null,
+  };
+  let serverRec = null;
+  try {
+    const res = await api.createContribution(wirePayload);
+    serverRec = res && res.contribution;
+  } catch (err) {
+    const wrapped = new Error(err && err.message ? err.message : 'Could not submit contribution to server.');
+    wrapped.code = 'WORKER_WRITE_FAILED';
+    throw wrapped;
+  }
+  const nowIso = new Date().toISOString();
+  const rec = {
+    /* Adopt the server-generated id + timestamps so both sides refer
+     * to the same record. */
+    id: (serverRec && serverRec.id) || uid('c'),
+    event: payload.event,
+    contributor: payload.contributor,
+    contributor_name: payload.contributor_name,
+    contributor_email: payload.contributor_email || '',
+    contributor_mobile: payload.contributor_mobile || '',
+    flat: payload.flat,
+    amount: Number(payload.amount || 0),
+    method: payload.method,
+    anonymous: !!payload.anonymous,
+    hide_amount: !!payload.hide_amount,
+    ref: payload.ref || '',
+    remarks: payload.remarks || '',
+    /* Proof attachment stays in the local cache only (see wirePayload
+     * comment above). Committee views it from the browser that owns
+     * this record. Future slice can move blobs to a signed-URL flow. */
     proof_data_url: payload.proof_data_url || '',
     proof_name: payload.proof_name || '',
     proof_size: payload.proof_size || 0,
-    /* On-behalf-of trail. When true, the signed-in user (`filled_by_*`)
-     * paid or is registering the payment for someone else, and that
-     * someone else is the `contributor_name/email/flat` above. */
     on_behalf: !!payload.on_behalf,
     filled_by_id:    payload.filled_by_id    || null,
     filled_by_name:  payload.filled_by_name  || null,
     filled_by_email: payload.filled_by_email || null,
     status: 'pending',
     receipt: null,
-    created_by: actor ? actor.id : payload.contributor,
-    created_at: new Date().toISOString(),
+    created_by: (serverRec && serverRec.created_by) || (actor ? actor.id : payload.contributor),
+    created_at: (serverRec && serverRec.created_at) || nowIso,
     verified_by: null,
     verified_at: null,
+    /* Path returned by the Worker; used to build the verify request. */
+    _archive_path: (serverRec && serverRec._path) || null,
   };
   list.push(rec);
   state.saveContribs(list);
@@ -275,13 +315,34 @@ export function addContribution(payload, actor) {
   return rec;
 }
 
-export function verifyContribution(contribId, actor) {
+export async function verifyContribution(contribId, actor) {
   const list = state.contribs();
   const rec = list.find(c => c.id === contribId);
   if (!rec) throw new Error('unknown contribution');
+  /* Prefer server-side verify so the archive commit carries the true
+   * verifier identity + timestamp. We update local mirror from the
+   * server response. */
+  let serverContrib = null;
+  try {
+    const path = rec._archive_path || _guessArchivePath(rec);
+    if (path) {
+      const res = await api.verifyContribution(path);
+      serverContrib = res && res.contribution;
+    }
+  } catch (err) {
+    /* Surface the error so committee sees it — don't silently mark
+     * verified locally if the server refused. */
+    const wrapped = new Error(err && err.message ? err.message : 'Verify failed on server.');
+    wrapped.code = 'WORKER_WRITE_FAILED';
+    throw wrapped;
+  }
+  const nowIso = new Date().toISOString();
   rec.status = 'verified';
-  rec.verified_by = actor ? actor.id : null;
-  rec.verified_at = new Date().toISOString();
+  rec.verified_by = (serverContrib && serverContrib.verified_by) || (actor ? actor.id : null);
+  rec.verified_at = (serverContrib && serverContrib.verified_at) || nowIso;
+  if (serverContrib && serverContrib.receipt_id && !rec.receipt) {
+    rec.receipt = { id: serverContrib.receipt_id };
+  }
   state.saveContribs(list);
   state.audit({ actor: actor ? actor.id : null, action: 'contrib.verify', contrib: rec.id });
   const evt = state.events().find(e => e.id === rec.event);

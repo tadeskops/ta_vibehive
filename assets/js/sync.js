@@ -17,10 +17,22 @@
  * viewing work.
  */
 'use strict';
-import { listEvents, whoami } from './api.js';
+import { listEvents, listContributions, whoami } from './api.js';
 import { state } from './store.js';
 
 let _running = false;
+
+/** Local-only fields that must survive when merging with the server's
+ *  authoritative record (e.g. proof attachments live only in the
+ *  browser that submitted the contribution). */
+function pickLocalOnly(rec) {
+  const out = {};
+  if (rec.proof_data_url) out.proof_data_url = rec.proof_data_url;
+  if (rec.proof_name) out.proof_name = rec.proof_name;
+  if (rec.proof_size) out.proof_size = rec.proof_size;
+  if (rec._archive_path) out._archive_path = rec._archive_path;
+  return out;
+}
 
 /** Fetch events + identity from the Worker, hydrate localStorage cache,
  *  and trigger a re-render. Silent on network / auth failures — the
@@ -48,8 +60,27 @@ export async function syncFromWorker() {
     const events = await listEvents();
     if (Array.isArray(events)) {
       state.saveEvents(events);
-      try { window.dispatchEvent(new HashChangeEvent('hashchange')); } catch (_e) { /* older browsers */ }
     }
+
+    /* Hydrate contributions cache — only meaningful when signed in
+     * (Worker returns 401 for anonymous). Merges server records with
+     * any locally cached extras (proof attachments live only in the
+     * browser). Dedupe by id. */
+    try {
+      const remote = await listContributions();
+      if (Array.isArray(remote) && remote.length) {
+        const local = state.contribs() || [];
+        const byId = new Map();
+        for (const r of remote) if (r && r.id) byId.set(r.id, { ...r });
+        for (const l of local) if (l && l.id) {
+          const merged = { ...(byId.get(l.id) || {}), ...pickLocalOnly(l) };
+          byId.set(l.id, merged);
+        }
+        state.saveContribs(Array.from(byId.values()));
+      }
+    } catch (_e) { /* auth / network — fall back to local cache */ }
+
+    try { window.dispatchEvent(new HashChangeEvent('hashchange')); } catch (_e) { /* older browsers */ }
   } catch (e) {
     /* Log-only. Never block the app on sync failures. */
     // eslint-disable-next-line no-console
