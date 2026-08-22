@@ -17,3 +17,9 @@
  * but never asks the browser to hold a secret.
  */
 window.TVH_GOOGLE_CLIENT_ID = '888761828993-d38vmjdjnuns2ubksvpdmkv860qeeap5.apps.googleusercontent.com';
+
+/* Cloudflare Worker URL — the single API endpoint the frontend calls.
+ * Set separately from Pages so the Worker can be swapped/rolled without
+ * a Pages redeploy. Overridable via `window.TVH_WORKER_URL` in DevTools
+ * or a local override script for testing. */
+window.TVH_WORKER_URL = 'https://tvh-worker.tadeskops.workers.dev';

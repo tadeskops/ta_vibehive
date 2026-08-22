@@ -7,12 +7,19 @@ import { can } from './rbac.js';
 import { getSociety, state } from './store.js';
 import { installFetchWrapper, busy } from './busy.js';
 import { mountBell as mountNotifyBell } from './notify.js';
+import { syncFromWorker } from './sync.js';
 
 /* Global background-activity tracker: wraps window.fetch so every network
  * call (Google Identity Services, GitHub archive push, config load, …)
  * automatically drives the topbar's golden shimmer stripe. Idempotent —
  * safe to call once. */
 installFetchWrapper();
+
+/* Boot-time sync: hydrate the local events cache from the Worker so
+ * multi-device viewing works (any user sees the current published
+ * event list, not just what their own browser last cached). Fire-and-
+ * forget — never blocks the first paint. See assets/js/sync.js. */
+syncFromWorker();
 
 /* Bootstrap Google Identity Services (GIS). Mirrors the ta-society-helpdesk
  * pattern (docs/index.html → Auth.init). If TVH_GOOGLE_CLIENT_ID isn't set
