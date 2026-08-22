@@ -583,5 +583,21 @@ export async function restoreEventToPublished(eventId, actor) {
   evt.updated_at = new Date().toISOString();
   state.saveEvents(events);
   state.audit({ actor: actor ? actor.id : null, action: 'event.restore', event: evt.id, from: before, to: evt.status });
-  return evt;
+  // Push to Worker so background sync doesn't revert the status.
+  try {
+    const slug = sanitizeForPath(evt.slug || evt.id || 'event');
+    const res = await api.writeEvent(slug, evt);
+    const saved = (res && res.event) || evt;
+    const all = state.events();
+    const j = all.findIndex(e => e.id === saved.id);
+    if (j >= 0) all[j] = saved; else all.push(saved);
+    state.saveEvents(all);
+    return saved;
+  } catch (err) {
+    // Marker so sync-merge can preserve the local status if the push failed.
+    evt._recovery_pending = true;
+    state.saveEvents(events);
+    console.warn('[recovery] writeEvent push failed — sync-merge will preserve local status.', err && err.message ? err.message : err);
+    return evt;
+  }
 }

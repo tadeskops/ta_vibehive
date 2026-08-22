@@ -31,6 +31,14 @@ function pickLocalOnly(rec) {
   if (rec.proof_name) out.proof_name = rec.proof_name;
   if (rec.proof_size) out.proof_size = rec.proof_size;
   if (rec._archive_path) out._archive_path = rec._archive_path;
+  // Data-recovery migration markers — keep the locally-remapped event id
+  // so background sync never re-links a migrated contribution to its
+  // former (orphaned/hidden) event.
+  if (rec.migrated_at) {
+    if (rec.event) out.event = rec.event;
+    if (rec.migrated_from) out.migrated_from = rec.migrated_from;
+    out.migrated_at = rec.migrated_at;
+  }
   return out;
 }
 
@@ -59,7 +67,21 @@ export async function syncFromWorker() {
     /* Hydrate events cache. */
     const events = await listEvents();
     if (Array.isArray(events)) {
-      state.saveEvents(events);
+      // Preserve events flagged _recovery_pending (writeEvent push failed) so
+      // background sync doesn't overwrite the local status change.
+      const localPending = new Map();
+      for (const e of state.events() || []) {
+        if (e && e._recovery_pending) localPending.set(e.id, e);
+      }
+      const merged = events.map(e => {
+        const local = e && localPending.get(e.id);
+        if (!local) return e;
+        localPending.delete(e.id);
+        return { ...e, status: local.status, updated_at: local.updated_at, _recovery_pending: true };
+      });
+      // Append any pending events that the server hasn't seen yet.
+      for (const e of localPending.values()) merged.push(e);
+      state.saveEvents(merged);
     }
 
     /* Hydrate society-overrides cache — the Worker holds the
