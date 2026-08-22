@@ -29,6 +29,7 @@ import { isSystemOn, isEventOn } from '../features.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { findEvent, canViewEventDetailedReport } from '../events.js';
+import { queueAndMaybePushArchive } from '../archive-runtime.js';
 
 const LS_KEY = 'tvh:v1:reports:filters';
 const STATUSES = ['pending', 'verified', 'void'];
@@ -133,7 +134,7 @@ export async function render(root, { match } = {}) {
 
   function renderFilters() {
     clear(filtersCard);
-    filtersCard.append(
+    const nodes = [
       el('h3', { text: 'What to report' }),
       row('Report title (optional)',
         el('input', { type: 'text', maxlength: '120', value: st.title, placeholder: 'e.g. Ganeshotsav 2026 — verified collections',
@@ -150,8 +151,6 @@ export async function render(root, { match } = {}) {
           st.scope = v; renderFilters(); refresh();
         })
       ),
-      st.scope === 'events' ? eventPicker() : null,
-      st.scope === 'range' && !forcedEventId ? dateRange() : null,
       section('Status',
         el('div', { class: 'row', style: 'gap:12px;flex-wrap:wrap' },
           ...STATUSES.map(s => check(s, st.statuses.includes(s), on => {
@@ -178,7 +177,10 @@ export async function render(root, { match } = {}) {
           }))
         )
       ),
-    );
+    ];
+    if (st.scope === 'events') nodes.splice(3, 0, eventPicker());
+    if (st.scope === 'range' && !forcedEventId) nodes.splice(4, 0, dateRange());
+    filtersCard.append(...nodes);
   }
 
   function eventPicker() {
@@ -299,25 +301,27 @@ export async function render(root, { match } = {}) {
     );
 
     const groups = groupRows(rows, st.groupBy);
-    const groupTable = st.groupBy !== 'none' && groups.length ? el('div', { style: 'margin-top:14px' },
-      el('div', { class: 'lbl', style: 'font-weight:600;margin-bottom:6px', text: `Breakdown by ${labelForGroup(st.groupBy)}` }),
-      el('table', { class: 'table' },
-        el('thead', {}, el('tr', {},
-          el('th', { text: labelForGroup(st.groupBy) }),
-          el('th', { text: 'Entries' }),
-          el('th', { text: 'Verified ₹' }),
-          el('th', { text: 'Total ₹' }),
-        )),
-        el('tbody', {}, ...groups.map(g => el('tr', {},
-          el('td', { text: g.label }),
-          el('td', { text: String(g.count) }),
-          el('td', { text: fmtINR(g.verified) }),
-          el('td', { text: fmtINR(g.total) }),
-        )))
-      )
-    ) : null;
-
-    summaryCard.append(el('h3', { text: 'Summary' }), stats, groupTable);
+    const summaryNodes = [el('h3', { text: 'Summary' }), stats];
+    if (st.groupBy !== 'none' && groups.length) {
+      summaryNodes.push(el('div', { style: 'margin-top:14px' },
+        el('div', { class: 'lbl', style: 'font-weight:600;margin-bottom:6px', text: `Breakdown by ${labelForGroup(st.groupBy)}` }),
+        el('table', { class: 'table' },
+          el('thead', {}, el('tr', {},
+            el('th', { text: labelForGroup(st.groupBy) }),
+            el('th', { text: 'Entries' }),
+            el('th', { text: 'Verified ₹' }),
+            el('th', { text: 'Total ₹' }),
+          )),
+          el('tbody', {}, ...groups.map(g => el('tr', {},
+            el('td', { text: g.label }),
+            el('td', { text: String(g.count) }),
+            el('td', { text: fmtINR(g.verified) }),
+            el('td', { text: fmtINR(g.total) }),
+          )))
+        )
+      ));
+    }
+    summaryCard.append(...summaryNodes);
   }
 
   function labelForGroup(g) {
@@ -365,12 +369,13 @@ export async function render(root, { match } = {}) {
     const shown = rows.slice(0, previewCap);
     const cols = DEFAULT_COLS.filter(c => st.columns.includes(c.id));
 
-    const actions = el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' },
+    const actionNodes = [
       exportOn ? el('button', { class: 'btn', on: { click: () => downloadCSV(rows) } }, '⬇ Download CSV') : null,
       exportOn ? el('button', { class: 'btn btn-ghost', on: { click: () => printReport(rows) } }, '🖨 Print / Save as PDF') : null,
       exportOn ? el('button', { class: 'btn btn-sage', on: { click: () => saveToArchive(rows) } }, '☁ Save snapshot to archive') : null,
       !exportOn ? el('small', { class: 'sub', text: 'Export actions are disabled by admin. List view remains available.' }) : null,
-    );
+    ].filter(Boolean);
+    const actions = el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' }, ...actionNodes);
 
     tableCard.append(
       el('div', { class: 'row row-between', style: 'align-items:center;flex-wrap:wrap;gap:8px' },
@@ -439,9 +444,16 @@ export async function render(root, { match } = {}) {
       const scopeSlug = scopeSlugFor();
       const path = `reports/${scopeSlug}/${stamp}.csv`;
       const content = buildCsv(rows);
-      const size = state.enqueueArchive({ path, content, kind: 'report', createdBy: user.id, scope: scopeSlug, rows: rows.length });
+      const res = await queueAndMaybePushArchive({ path, content, kind: 'report', createdBy: user.id, scope: scopeSlug, rows: rows.length }, {
+        actor: user.id,
+        message: `report: ${scopeSlug} (${rows.length} rows)`,
+      });
       state.audit({ actor: user.id, action: 'report.enqueue', path, rows: rows.length });
-      toast(`Queued · ${rows.length} rows → ${path} (outbox: ${size})`, 'ok');
+      if (res && res.ok && res.commitSha) {
+        toast(`Saved to tvh_record · ${rows.length} rows`, 'ok');
+      } else {
+        toast(`Queued · ${rows.length} rows → ${path} (will retry from outbox)`, 'warn');
+      }
     } catch (err) {
       console.error('[reports] archive enqueue failed', err);
       toast('Save to archive failed — see console', 'err');
@@ -509,11 +521,12 @@ export async function render(root, { match } = {}) {
 /* --- shared helpers --- */
 
 function stat(k, v, d) {
-  return el('div', { class: 'card stat' },
+  const kids = [
     el('div', { class: 'k', text: k }),
-    el('div', { class: 'v', text: v }),
-    d ? el('div', { class: 'd', text: d }) : null
-  );
+    el('div', { class: 'v', text: v })
+  ];
+  if (d) kids.push(el('div', { class: 'd', text: d }));
+  return el('div', { class: 'card stat' }, ...kids);
 }
 
 function rangeBounds(st) {

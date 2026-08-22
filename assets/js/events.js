@@ -3,6 +3,7 @@
 import { cfg, state } from './store.js';
 import { catalog } from './features.js';
 import { emit as notifyEmit } from './notify.js';
+import { queueAndMaybePushArchive } from './archive-runtime.js';
 
 export const STATUS = Object.freeze({
   DRAFT: 'draft', REVIEW: 'review', PUBLISHED: 'published',
@@ -40,12 +41,15 @@ function appendHistory(evt, actor, action, detail) {
   state.addEventHistory(row);
   try {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    state.enqueueArchive({
+    queueAndMaybePushArchive({
       kind: 'history',
       path: `history/${sanitizeForPath(evt.slug || evt.id || 'event')}/${ts}.json`,
       content: JSON.stringify({ ...row, ts: new Date().toISOString() }, null, 2),
       eventId: evt.id,
-    });
+    }, {
+      actor: actor && (actor.email || actor.id) || null,
+      message: `history: ${evt.id} ${action}`,
+    }).catch(() => {});
   } catch (_e) { /* best-effort */ }
 }
 

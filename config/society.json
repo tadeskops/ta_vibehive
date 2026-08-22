@@ -59,8 +59,8 @@
       "show_social": true,
       "show_bug_report": true,
       "show_verify": true,
-      "show_legal": true,
-      "show_source": true
+      "show_legal": false,
+      "show_source": false
     }
   },
   "residents": {

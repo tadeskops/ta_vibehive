@@ -7,6 +7,7 @@ import { state, cfg, getSociety } from '../store.js';
 import { catalog, isSystemOn, setSystemOverride } from '../features.js';
 import { session } from '../auth.js';
 import { can, labelForRole, badgeClass } from '../rbac.js';
+import { flushArchiveQueueNow } from '../archive-runtime.js';
 
 export async function render(root, { match }) {
   const user = session();
@@ -331,6 +332,8 @@ async function renderSettings(user) {
 
   const paths = [
     ['receipts.archive_repo',    'Archive repo',        'owner/private-repo'],
+    ['receipts.archive_branch',  'Archive branch',      'main'],
+    ['receipts.archive_pat',     'Archive PAT (fine-grained)', 'github_pat_...'],
     ['receipts.watermark_asset', 'Watermark asset',     'assets/images/TaStampBlueOverlay.png'],
     ['receipts.stamp_asset',     'Stamp asset',         'assets/images/TaStampBlue.png'],
     ['contact.chairman',         'Chairman email',      'chairman@example.org'],
@@ -350,7 +353,12 @@ async function renderSettings(user) {
   for (const [p, label, ph] of paths) {
     const draftVal = pick(draft, p);
     const shownVal = draftVal != null ? draftVal : (pick(effective, p) || '');
-    const inp = textInput(shownVal, ph);
+    const isSecret = p === 'receipts.archive_pat';
+    const inp = textInput(shownVal, ph, isSecret ? 'password' : 'text');
+    if (isSecret) {
+      inp.autocomplete = 'off';
+      inp.spellcheck = false;
+    }
     inp.addEventListener('input', () => {
       const v = inp.value.trim();
       if (v) setAt(draft, p, v);
@@ -412,23 +420,21 @@ async function renderSettings(user) {
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   } } }, 'Reset to shipped defaults');
 
-  /* Outbox: batched receipt-archive queue. Flushing today just clears
-   * the queue and marks receipts archived locally — the real GitHub
-   * Trees + Commits push lands in the private-repo slice. This UI
-   * ships so residents/committee see the pending count and the
-   * transactional pattern is visible from day one. */
+  /* Outbox flush now performs a real GitHub push through archive.js.
+   * On failure entries are re-queued so nothing is lost. */
   const flushBtn = el('button', { class: 'btn btn-sage', on: { click: async () => {
     const q = state.outbox();
     if (!q.length) { toast('Nothing to flush'); return; }
-    const drained = state.drainOutbox();
-    const list = state.contribs();
-    for (const entry of drained) {
-      const rec = list.find(c => c.receipt && c.receipt.id === entry.receiptId);
-      if (rec) rec.receipt.archived = true;
+    const res = await flushArchiveQueueNow({ actor: user.id, message: `manual flush by ${user.email || user.id || 'admin'}` });
+    if (res.ok) {
+      toast(`Pushed ${res.count} entr${res.count === 1 ? 'y' : 'ies'} to archive${res.commitSha ? ' · ' + res.commitSha.slice(0, 7) : ''}`, 'ok');
+    } else if (res.reason === 'archive_not_configured') {
+      toast('Archive repo/token not configured. Save Archive repo + PAT first.', 'err');
+    } else if (res.reason === 'archive_disabled') {
+      toast('Archive is disabled in settings.', 'err');
+    } else {
+      toast('Archive push failed. Entries kept in outbox for retry.', 'err');
     }
-    state.saveContribs(list);
-    state.audit({ actor: user.id, action: 'archive.flush', detail: `${drained.length} entries` });
-    toast(`Flushed ${drained.length} receipt${drained.length === 1 ? '' : 's'} · one commit (offline stub)`, 'ok');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   } } }, 'Flush archive queue');
 
@@ -446,8 +452,10 @@ async function renderSettings(user) {
     ),
     el('div', { class: 'panel' },
       el('h3', { text: 'Receipts archive · Admin only' }),
-      el('p', { class: 'sub', text: 'Where verified receipts get pushed for long-term storage. Must be a private GitHub repo owned by the society. Format: owner/name.' }),
+      el('p', { class: 'sub', text: 'Where verified receipts/history/report snapshots are pushed for long-term storage. Must be a private GitHub repo owned by the society. Format: owner/name.' }),
       labeledField(inputs['receipts.archive_repo'].label, inputs['receipts.archive_repo'].input, `Effective: ${effective.receipts && effective.receipts.archive_repo || '(not set)'} · ${overrides.receipts && overrides.receipts.archive_repo ? 'overridden by admin' : 'from shipped defaults'}`),
+      labeledField(inputs['receipts.archive_branch'].label, inputs['receipts.archive_branch'].input, 'Git branch to write commits into (default: main).'),
+      labeledField(inputs['receipts.archive_pat'].label, inputs['receipts.archive_pat'].input, 'Fine-grained PAT with Contents Read+Write to the archive repo.'),
       labeledField(inputs['receipts.watermark_asset'].label, inputs['receipts.watermark_asset'].input, 'Rendered behind receipt text.'),
       labeledField(inputs['receipts.stamp_asset'].label,     inputs['receipts.stamp_asset'].input,     'Corner stamp on the receipt.'),
     ),
@@ -458,7 +466,7 @@ async function renderSettings(user) {
     ),
     el('div', { class: 'panel' },
       el('h3', { text: 'Draft & archive queue' }),
-      el('p', { class: 'sub', text: 'Every keystroke above is cached as a draft. "Save all" writes overrides + audit in one atomic step. Verified receipts are enqueued to the archive queue and pushed together as ONE commit when you flush.' }),
+      el('p', { class: 'sub', text: 'Every keystroke above is cached as a draft. "Save all" writes overrides + audit in one atomic step. Receipt/history/report records attempt an immediate push to the archive repo; if it fails, entries stay in outbox and can be retried with flush.' }),
       el('div', { class: 'row', style: 'gap:8px;margin-top:6px' }, draftCount, dirtyPill, outboxCount)
     ),
     el('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap' },
@@ -489,8 +497,8 @@ function mergeDeep(target, src) {
   return target;
 }
 
-function textInput(value, placeholder) {
-  return el('input', { type: 'text', value: value || '', placeholder: placeholder || '' });
+function textInput(value, placeholder, type = 'text') {
+  return el('input', { type, value: value || '', placeholder: placeholder || '' });
 }
 function labeledField(label, input, hint) {
   return el('div', { class: 'field' },

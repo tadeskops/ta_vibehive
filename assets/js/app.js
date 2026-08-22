@@ -2,10 +2,10 @@
 'use strict';
 import { $, el, clear } from './dom.js';
 import * as router from './router.js';
-import { session, bindGis } from './auth.js';
+import { session, bindGis, logout } from './auth.js';
 import { can } from './rbac.js';
 import { getSociety, state } from './store.js';
-import { installFetchWrapper } from './busy.js';
+import { installFetchWrapper, busy } from './busy.js';
 import { mountBell as mountNotifyBell } from './notify.js';
 
 /* Global background-activity tracker: wraps window.fetch so every network
@@ -44,11 +44,16 @@ const views = {
 };
 
 async function mountView(loader, ctx) {
+  const endBusy = busy.start('Loading view…');
   const root = $('#main');
-  clear(root);
-  root.append(el('div', { class: 'sub', text: 'Loading…' }));
-  const mod = await loader();
-  await mod.render(root, ctx || {});
+  try {
+    clear(root);
+    root.append(el('div', { class: 'sub', text: 'Loading…' }));
+    const mod = await loader();
+    await mod.render(root, ctx || {});
+  } finally {
+    endBusy();
+  }
 }
 
 router.register('/',                          (ctx) => mountView(views.home, ctx));
@@ -70,14 +75,20 @@ router.register('/verify/:id',                (ctx) => mountView(views.verify, c
 router.register('/login',                     (ctx) => mountView(views.login, ctx));
 router.fallback(                              (ctx) => mountView(views.home, ctx));
 
-/* Inline stroke-icon SVG — visual equivalent of ta-society-helpdesk's
- * FontAwesome fa-right-to-bracket. Matches the header download / bell
- * icons' stroke weight so the toolbar reads as one icon family. */
+/* Auth icons intentionally mirror TSH semantics:
+ * - Sign in: right-to-bracket
+ * - Sign out: right-from-bracket */
 const ICON_SIGNIN =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16">' +
     '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>' +
     '<polyline points="10 17 15 12 10 7"/>' +
     '<line x1="15" x2="3" y1="12" y2="12"/>' +
+  '</svg>';
+const ICON_SIGNOUT =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16">' +
+    '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>' +
+    '<polyline points="16 17 21 12 16 7"/>' +
+    '<line x1="21" x2="9" y1="12" y2="12"/>' +
   '</svg>';
 function iconSpan(svg) {
   const s = document.createElement('span');
@@ -103,9 +114,17 @@ async function renderChrome() {
    * We tag the invocation with a version and clear+repopulate only if
    * we're still the latest caller when can() resolves. */
   const version = (renderChrome.__v = (renderChrome.__v || 0) + 1);
-  const showAdmin    = user && await can(user, 'features.registry.edit');
-  const showSettings = user && await can(user, 'settings.view');
-  const showReports  = user && await can(user, 'reports.view');
+  const [showAdmin, showSettings, showReports, canExport, canPublish, canVerify, canCreate] = user
+    ? await Promise.all([
+      can(user, 'features.registry.edit'),
+      can(user, 'settings.view'),
+      can(user, 'reports.view'),
+      can(user, 'reports.export'),
+      can(user, 'events.publish'),
+      can(user, 'contributions.verify'),
+      can(user, 'events.create'),
+    ])
+    : [false, false, false, false, false, false, false];
   if (version !== renderChrome.__v) return;
   if (showReports)  links.push({ href: '#/reports', text: 'Reports' });
   if (showSettings) links.push({ href: '#/settings', text: 'Settings' });
@@ -128,11 +147,11 @@ async function renderChrome() {
      * `reports.export` (admin / mgmt). Downloads a client-side CSV of
      * every contribution across every event — no data leaves the
      * browser, no external service is contacted. */
-    if (await can(user, 'reports.export')) {
+    if (canExport) {
       if (version !== renderChrome.__v) return;
       const btn = el('button', {
         type: 'button',
-        class: 'tvh-icon-btn',
+        class: 'tvh-icon-btn tvh-export-btn',
         'aria-label': 'Export contributions report (CSV)',
         title: 'Export contributions report (CSV)'
       });
@@ -153,11 +172,21 @@ async function renderChrome() {
       el('span', { class: 'role-badge ' + ({ admin: '', secretary: 'sec', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[user.role], text: roleLabel }),
       user.is_verified_resident ? el('span', { class: 'pill pill-sage', title: 'Verified resident email', text: '🛡' }) : null
     ));
-    whoami.append(el('a', { class: 'btn btn-sm btn-ghost', href: '#/login' },
-      iconSpan(ICON_SIGNIN), el('span', { text: 'Switch' })));
+    const signOutBtn = el('button', { class: 'btn btn-sm btn-ghost btn-auth btn-auth-signout', type: 'button' },
+      iconSpan(ICON_SIGNOUT),
+      el('span', { class: 'btn-label', text: 'Sign out' })
+    );
+    signOutBtn.addEventListener('click', () => {
+      try { logout(); }
+      catch (_e) { /* ignore */ }
+      location.reload();
+    });
+    whoami.append(signOutBtn);
   } else {
-    whoami.append(el('a', { class: 'btn btn-sm', href: '#/login' },
-      iconSpan(ICON_SIGNIN), el('span', { text: 'Sign in' })));
+    whoami.append(el('a', { class: 'btn btn-sm btn-auth btn-auth-signin', href: '#/login' },
+      iconSpan(ICON_SIGNIN),
+      el('span', { class: 'btn-label', text: 'Sign in' })
+    ));
   }
 
   /* Mobile tab-bar: highlight the active tab + adjust the "Me" link. */
@@ -178,8 +207,9 @@ async function applyFooterDesktopVisibility() {
     setFoot('footpad-social', desk.show_social !== false);
     setFoot('footpad-report-btn', desk.show_bug_report !== false);
     setFoot('footpad-verify-link', desk.show_verify !== false);
-    setFoot('footpad-legal-line', desk.show_legal !== false);
-    setFoot('footpad-source-line', desk.show_source !== false);
+    /* Per UX decision: hide legal/source meta block on desktop footer. */
+    setFoot('footpad-legal-line', isDesktop ? false : (desk.show_legal !== false));
+    setFoot('footpad-source-line', isDesktop ? false : (desk.show_source !== false));
     const dot = document.getElementById('footpad-center-dot');
     if (dot && isDesktop) {
       const bug = document.getElementById('footpad-report-btn');

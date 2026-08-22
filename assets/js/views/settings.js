@@ -73,6 +73,7 @@ export async function render(root, { match }) {
   const canTemplates  = await can(user, 'settings.templates.edit');
   const canFeatures   = await can(user, 'features.registry.edit');
   const canExpenses   = await can(user, 'expenses.view');
+  const canUsersManage = await can(user, 'users.manage');
   if (!canSettings) {
     return mount(root, el('div', { class: 'card card-pad' },
       el('h3', { text: 'No access' }),
@@ -99,7 +100,7 @@ export async function render(root, { match }) {
   if (tab === 'templates' && canTemplates)       body = await renderTemplates(user);
   else if (tab === 'expenses' && canExpenses)    body = await renderExpensePrefs(user, canAttributes);
   else if (tab === 'features' && canFeatures)    body = renderFeaturesRedirect();
-  else if (tab === 'attributes' && canAttributes)body = await renderAttributes(user);
+  else if (tab === 'attributes' && canAttributes)body = await renderAttributes(user, canUsersManage);
   else                                           body = el('div', { class: 'card card-pad' },
     el('h3', { text: 'No access to this tab' }),
     el('p', { class: 'sub', text: 'Pick a different tab above.' })
@@ -131,11 +132,15 @@ export async function render(root, { match }) {
  * getSociety() merges them with shipped defaults. No draft-cache
  * (unlike admin.js) — attributes are small and low-risk, so we save
  * inline as the user changes them.  */
-async function renderAttributes(user) {
+async function renderAttributes(user, canUsersManage) {
   const soc = await getSociety();
   const overrides = state.societyOverrides() || {};
   const templates = state.receiptTemplates() || [];
   const users = state.users() || [];
+  const roleCfg = await cfg.roles();
+  const roleDefs = ((roleCfg && roleCfg.hierarchy) || [])
+    .map(r => ({ id: String(r.id || '').trim().toLowerCase(), label: String(r.label || r.id || '').trim() }))
+    .filter(r => r.id && r.label);
 
   /* Small helper — save a single dotted-path attribute back into
    * societyOverrides. Toast is optional (spammy for range inputs). */
@@ -242,8 +247,6 @@ async function renderAttributes(user) {
   const showFooterSocial = !!(((soc.footer || {}).desktop || {}).show_social);
   const showFooterBug = !!(((soc.footer || {}).desktop || {}).show_bug_report);
   const showFooterVerify = !!(((soc.footer || {}).desktop || {}).show_verify);
-  const showFooterLegal = !!(((soc.footer || {}).desktop || {}).show_legal);
-  const showFooterSource = !!(((soc.footer || {}).desktop || {}).show_source);
   const cbFootSocial = el('input', {
     type: 'checkbox', checked: showFooterSocial,
     on: { change: (e) => saveAttr('footer.desktop.show_social', e.target.checked ? true : undefined) }
@@ -256,20 +259,57 @@ async function renderAttributes(user) {
     type: 'checkbox', checked: showFooterVerify,
     on: { change: (e) => saveAttr('footer.desktop.show_verify', e.target.checked ? true : undefined) }
   });
-  const cbFootLegal = el('input', {
-    type: 'checkbox', checked: showFooterLegal,
-    on: { change: (e) => saveAttr('footer.desktop.show_legal', e.target.checked ? true : undefined) }
-  });
-  const cbFootSource = el('input', {
-    type: 'checkbox', checked: showFooterSource,
-    on: { change: (e) => saveAttr('footer.desktop.show_source', e.target.checked ? true : undefined) }
-  });
 
   /* --- Resident email governance (gmail only for now) --- */
   const currentAllowed = (((soc.residents || {}).allowed_gmail) || []).slice();
   const allowedSet = new Set(currentAllowed.map(v => String(v || '').trim().toLowerCase()).filter(Boolean));
   const gmailOnly = (v) => /^[a-z0-9._%+-]+@gmail\.com$/i.test(String(v || '').trim());
+  const canEditRoleMap = !!canUsersManage;
+  const canEditAdminRoleMap = user.role === 'admin';
   const roleMap = ((((overrides || {}).access || {}).email_roles) || {});
+  const roleEmailsRaw = ((((overrides || {}).access || {}).role_emails) || {});
+  const roleIds = roleDefs.map(r => r.id);
+  const roleEmailState = {};
+  roleIds.forEach((id) => { roleEmailState[id] = []; });
+  for (const [roleId, list] of Object.entries(roleEmailsRaw)) {
+    const role = String(roleId || '').trim().toLowerCase();
+    if (!roleIds.includes(role) || !Array.isArray(list)) continue;
+    const cleaned = Array.from(new Set(list
+      .map(v => String(v || '').trim().toLowerCase())
+      .filter(v => gmailOnly(v))));
+    roleEmailState[role] = cleaned;
+  }
+  for (const [emailRaw, roleRaw] of Object.entries(roleMap)) {
+    const email = String(emailRaw || '').trim().toLowerCase();
+    const role = String(roleRaw || '').trim().toLowerCase();
+    if (!gmailOnly(email) || !roleIds.includes(role)) continue;
+    if (!roleEmailState[role].includes(email)) roleEmailState[role].push(email);
+  }
+  roleIds.forEach((id) => roleEmailState[id].sort());
+
+  const roleEditors = {};
+  const roleEditorWrap = el('div', { class: 'stack' });
+  for (const def of roleDefs) {
+    const isAdminRole = def.id === 'admin';
+    const disabled = !canEditRoleMap || (!canEditAdminRoleMap && isAdminRole);
+    const area = el('textarea', {
+      rows: 3,
+      placeholder: `${def.label} gmail IDs. Comma, semicolon, newline, or spaces supported.`,
+      value: (roleEmailState[def.id] || []).join('\n'),
+      disabled,
+      readOnly: disabled,
+    });
+    roleEditors[def.id] = area;
+    roleEditorWrap.append(
+      el('div', { class: 'field' },
+        el('label', { class: 'lbl', text: def.label }),
+        !canEditAdminRoleMap && isAdminRole
+          ? el('small', { class: 'sub', text: 'Admin mappings are locked for your role.' })
+          : null,
+        area
+      )
+    );
+  }
   const taEmailBulk = el('textarea', {
     rows: 5,
     placeholder: 'Paste one or many gmail IDs. Comma, semicolon, newline, or spaces all supported.',
@@ -280,27 +320,62 @@ async function renderAttributes(user) {
   });
   const btnAddBulk = el('button', { class: 'btn btn-sm', type: 'button' }, 'Parse and add');
   const btnClearAllowed = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Clear list');
-  const taRoleMap = el('textarea', {
-    rows: 5,
-    placeholder: 'email@gmail.com=resident\nsecretary@gmail.com=secretary',
-    value: Object.entries(roleMap).map(([k, v]) => `${k}=${v}`).join('\n')
-  });
-  const btnSaveRoleMap = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Save role mapping');
+  const btnSaveRoleMap = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: !canEditRoleMap }, 'Save role mapping');
   btnSaveRoleMap.addEventListener('click', () => {
-    const lines = String(taRoleMap.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    const next = {};
-    const validRoles = new Set(['resident', 'manager', 'committee', 'mgmt', 'secretary', 'admin']);
-    for (const line of lines) {
-      const parts = line.split('=');
-      if (parts.length !== 2) continue;
-      const email = String(parts[0] || '').trim().toLowerCase();
-      const role = String(parts[1] || '').trim().toLowerCase();
-      if (!gmailOnly(email)) continue;
-      if (!validRoles.has(role)) continue;
-      next[email] = role;
+    if (!canEditRoleMap) {
+      toast('Only Admin, Secretary, and Management Committee can edit role mappings.', 'warn');
+      return;
     }
-    saveAttr('access.email_roles', Object.keys(next).length ? next : undefined, { silent: true });
-    toast(`Saved ${Object.keys(next).length} email-role mapping(s).`, 'ok');
+    const nextRoleEmails = {};
+    const seen = new Set();
+    let invalid = 0;
+    let duplicate = 0;
+
+    if (!canEditAdminRoleMap) {
+      const preservedAdmin = (roleEmailState.admin || []).slice();
+      if (preservedAdmin.length) nextRoleEmails.admin = preservedAdmin;
+      preservedAdmin.forEach((e) => seen.add(e));
+    }
+
+    for (const def of roleDefs) {
+      if (!canEditAdminRoleMap && def.id === 'admin') continue;
+      const area = roleEditors[def.id];
+      if (!area) continue;
+      const tokens = String(area.value || '')
+        .split(/[\s,;]+/)
+        .map(v => String(v || '').trim().toLowerCase())
+        .filter(Boolean);
+      const out = [];
+      for (const token of tokens) {
+        if (!gmailOnly(token)) {
+          invalid += 1;
+          continue;
+        }
+        if (seen.has(token)) {
+          duplicate += 1;
+          continue;
+        }
+        seen.add(token);
+        out.push(token);
+      }
+      if (out.length) nextRoleEmails[def.id] = Array.from(new Set(out)).sort();
+    }
+
+    const nextEmailRoles = {};
+    for (const def of roleDefs) {
+      const list = nextRoleEmails[def.id] || [];
+      for (const email of list) nextEmailRoles[email] = def.id;
+    }
+
+    const o = state.societyOverrides() || {};
+    setAt(o, 'access.role_emails', Object.keys(nextRoleEmails).length ? nextRoleEmails : undefined);
+    setAt(o, 'access.email_roles', Object.keys(nextEmailRoles).length ? nextEmailRoles : undefined);
+    pruneEmpty(o);
+    state.saveSocietyOverrides(o);
+    state.audit({ actor: user.email, action: 'settings.role_map.save', detail: `roles=${Object.keys(nextRoleEmails).length};emails=${Object.keys(nextEmailRoles).length}` });
+
+    const total = Object.keys(nextEmailRoles).length;
+    toast(`Saved ${total} mapped email ID(s)${invalid ? `, skipped ${invalid} invalid` : ''}${duplicate ? `, skipped ${duplicate} duplicate` : ''}.`, total ? 'ok' : 'warn');
   });
   btnAddBulk.addEventListener('click', () => {
     const raw = String(taEmailBulk.value || '');
@@ -383,19 +458,21 @@ async function renderAttributes(user) {
       ),
     ),
     panel('Desktop footer visibility',
-      'Control which footer actions are visible on desktop view. Mobile compact footer behavior is preserved.',
+      'Control which footer actions are visible on desktop view. Mobile compact footer behavior is preserved. Legal/source meta lines are intentionally hidden on desktop.',
       el('label', { class: 'row', style: 'gap:8px;margin-top:14px;cursor:pointer' }, cbFootSocial, el('span', { text: 'Show society social pill' })),
       el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootBug, el('span', { text: 'Show "Report site bug" action' })),
-      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootVerify, el('span', { text: 'Show "Verify receipt" action' })),
-      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootLegal, el('span', { text: 'Show legal line' })),
-      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootSource, el('span', { text: 'Show source/build line' }))
+      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootVerify, el('span', { text: 'Show "Verify receipt" action' }))
     ),
     panel('Resident email governance (gmail only)',
       'Use this list to mark verified resident emails. Event reports can optionally be restricted to this allowlist.',
       row('Bulk paste resident gmail IDs', 'Separators supported: newline, comma, semicolon, or spaces.', taEmailBulk),
       el('div', { class: 'row', style: 'gap:8px' }, btnAddBulk, btnClearAllowed),
       allowedPreview,
-      row('Email to role mapping', 'Optional: map a gmail ID to a role at sign-in. Format: email=role', taRoleMap),
+      row('Role to email ID mapping',
+        canEditAdminRoleMap
+          ? 'Map one or more gmail IDs to each role. A single email can only belong to one role. Higher roles win when duplicates are entered.'
+          : 'You can update gmail IDs for non-admin roles. Admin role mappings are read-only for your role.',
+        roleEditorWrap),
       el('div', { class: 'row', style: 'gap:8px' }, btnSaveRoleMap),
       el('div', { style: 'margin-top:10px;overflow-x:auto' },
         el('table', { class: 'table' },

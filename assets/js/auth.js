@@ -18,6 +18,14 @@ function normalizeEmail(v) {
 }
 function roleFromEmailMap(email) {
   const over = state.societyOverrides() || {};
+  const roleEmails = pick(over, 'access.role_emails') || {};
+  const roleOrder = ['admin', 'secretary', 'mgmt', 'committee', 'manager', 'resident'];
+  for (const role of roleOrder) {
+    const list = roleEmails[role];
+    if (!Array.isArray(list)) continue;
+    const found = list.map(normalizeEmail).includes(email);
+    if (found) return role;
+  }
   const map = pick(over, 'access.email_roles') || {};
   const role = map[email];
   return typeof role === 'string' ? role : null;

@@ -284,9 +284,17 @@ async function renderEdit(root, evt, user, caps) {
       )
     )
   );
-  const histOnChk = el('input', { type: 'checkbox', checked: !!evt.history_enabled, disabled: !canHistoryConfigure });
-  const reportSignedInChk = el('input', { type: 'checkbox', checked: !!evt.report_public_signedin });
+  const histOnChk = el('input', {
+    type: 'checkbox',
+    checked: !!evt.history_enabled || !!(evt.features && evt.features['event.moderator_history']),
+    disabled: !canHistoryConfigure
+  });
+  const reportSignedInChk = el('input', {
+    type: 'checkbox',
+    checked: !!evt.report_public_signedin || !!(evt.features && evt.features['reporting.event_detail_signedin'])
+  });
   const reportAllowlistChk = el('input', { type: 'checkbox', checked: !!evt.report_restrict_allowlist });
+  const governanceFeatureIds = new Set(['event.moderator_history', 'reporting.event_detail_signedin']);
   const governanceI = el('div', { class: 'field' },
     el('label', { class: 'check-row' },
       histOnChk,
@@ -318,7 +326,7 @@ async function renderEdit(root, evt, user, caps) {
   const featurePanel = el('section', { style: 'margin-top:14px' }, el('h3', { text: 'Feature configuration' }),
     ...clusters.map(cl => el('div', { class: 'panel' },
       el('h4', { text: cl.label }),
-      ...cat.features.filter(f => f.cluster === cl.id && f.scope === 'event').map(f => {
+      ...cat.features.filter(f => f.cluster === cl.id && f.scope === 'event' && !governanceFeatureIds.has(f.id)).map(f => {
         const on = evt.features[f.id] === undefined ? !!f.default : !!evt.features[f.id];
         const cb = el('input', { type: 'checkbox', checked: on });
         featureChecks.set(f.id, cb);
@@ -347,6 +355,12 @@ async function renderEdit(root, evt, user, caps) {
           upiVpaInp.focus();
           return;
         }
+        const reportSignedInOn = !!reportSignedInChk.checked;
+        const historyOn = canHistoryConfigure ? !!histOnChk.checked : !!evt.history_enabled;
+        const updatedFeatures = Object.fromEntries(Array.from(featureChecks.entries()).map(([k, cb]) => [k, cb.checked]));
+        updatedFeatures['event.moderator_history'] = historyOn;
+        updatedFeatures['reporting.event_detail_signedin'] = reportSignedInOn;
+
         const updated = {
           ...evt,
           title: titleI.querySelector('input').value.trim() || evt.title,
@@ -360,10 +374,10 @@ async function renderEdit(root, evt, user, caps) {
           payment_upi_name: (upiNameInp.value || '').trim().slice(0, 60),
           payment_qr_data_url: qrDataUrl,
           one_per_flat: !!oncePerFlatChk.checked,
-          history_enabled: canHistoryConfigure ? !!histOnChk.checked : !!evt.history_enabled,
-          report_public_signedin: !!reportSignedInChk.checked,
+          history_enabled: historyOn,
+          report_public_signedin: reportSignedInOn,
           report_restrict_allowlist: !!reportAllowlistChk.checked,
-          features: Object.fromEntries(Array.from(featureChecks.entries()).map(([k, cb]) => [k, cb.checked])),
+          features: updatedFeatures,
           status: statusSel.value,
         };
         const errs = await validateEventFeatures(updated.features);

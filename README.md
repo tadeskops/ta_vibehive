@@ -146,9 +146,18 @@ Push to `main`. `.github/workflows/pages.yml` publishes `index.html`,
 No secrets required.
 
 The private receipt archive lives in a **separate** repository, referenced
-by `config/society.json → receipts.archive_repo`. The archive publisher
-(GitHub Action) will land in v0.2 and only fires after a receipt is
-minted (verified) — code path documented but not yet wired.
+by `config/society.json → receipts.archive_repo`.
+
+Archive writes are done directly from the app via GitHub Git Data API
+(blobs + trees + commit + ref update):
+
+- Receipt verify flow enqueues, then attempts immediate push.
+- Event history and report snapshots use the same archive pipeline.
+- Any push failure re-queues entries into outbox (no loss).
+- Admin → Society settings → Flush archive queue retries pending entries.
+
+Required configuration: set `receipts.archive_repo` and `receipts.archive_pat`
+(fine-grained PAT with repository Contents read/write) in Society settings.
 
 ---
 
@@ -156,9 +165,8 @@ minted (verified) — code path documented but not yet wired.
 
 - **v0.1 (this drop)** — SPA shell, roles, feature registry, event
   templates + editor, contribution flow, on-screen receipts with stamp,
-  audit log, admin console.
-- **v0.2** — email OTP via GH Action; receipt push to private archive
-  repo; multi-language (EN / MR / HI) UI strings.
+  audit log, admin console, direct archive writes (with outbox retry).
+- **v0.2** — email OTP via GH Action; multi-language (EN / MR / HI) UI strings.
 - **v0.3** — public verify portal (`/verify/<receipt_id>`); waitlist
   and capacity flows; expense transparency board.
 

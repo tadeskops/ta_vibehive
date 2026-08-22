@@ -44,15 +44,16 @@
    * tile. `.topnav` is hidden, so `.topbar-inner` shrinks to just
    * `.brand-wrap` + `.topbar-right`. */
   .topbar-inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
     padding: 8px 12px;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: center;
+    gap: 6px 8px;
   }
   .topnav { display: none !important; }
-  .brand-mark { width: 44px; height: 44px; }
-  .brand-mark img { width: 44px; height: 44px; }
-  .brand-text b.wordmark { font-size: 17px; }
+  .brand-mark { width: 50px; height: 50px; }
+  .brand-mark img { width: 50px; height: 50px; }
+  .brand-text b.wordmark { font-size: 21px; }
   .brand-text em { font-size: 10.5px; }
   /* Persona pill: trim padding so it doesn't wrap on 360 px viewports */
   .whoami { padding: 4px 8px; font-size: 12px; }
@@ -66,7 +67,23 @@
    *   - "Switch" is redundant on mobile — the bottom tabbar's Me tab
    *     already deep-links into `#/admin` or `#/login`. */
   .whoami .whoami-name { display: none; }
-  #whoami .btn-ghost   { display: none; }
+  /* Keep explicit Sign out visible on phones; hide only desktop-style
+   * text links if introduced in future. */
+  #whoami a.btn-ghost  { display: none; }
+  #whoami button.btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 4px 8px;
+    font-size: 11px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  #whoami .btn-auth { min-height: 30px; padding: 4px 8px; font-size: 11px; }
+  #whoami .btn-auth .btn-ico svg { width: 13px; height: 13px; }
+  #whoami .btn-auth .btn-label { display: none; }
+  /* Export CSV is useful on desktop; on phones it crowds primary controls. */
+  .topbar-right .tvh-export-btn { display: none !important; }
   /* Role chip stays visible on mobile — user asked for the role to
    * always be readable. Slightly tighter padding so it doesn't
    * overpower the compact pill. */
@@ -79,16 +96,44 @@
    * the cluster claims a full-width second row (via topbar-inner
    * wrapping) so brand + toolbar each get comfortable breathing room. */
   .topbar-right {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 6px;
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: start;
+    justify-content: end;
+    gap: 4px 6px;
     margin-left: auto;
-    flex-wrap: wrap;
-    flex-shrink: 0;
-    flex-basis: 100%;
+    width: auto;
+    max-width: 100%;
+    flex: 0 0 auto;
   }
+  #whoami.topbar-actions {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: end;
+    align-items: center;
+    gap: 4px 6px;
+    width: auto;
+    min-width: 0;
+  }
+  #whoami .tvh-bell-wrap { grid-column: 1; grid-row: 1; }
+  #whoami .btn-auth { grid-column: 2; grid-row: 1; }
+  #whoami .whoami {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-end;
+    width: auto;
+    max-width: 100%;
+    margin-left: auto;
+    padding: 2px 0;
+    background: transparent;
+    gap: 6px;
+  }
+
+  /* Prevent horizontal page scroll on settings/report tables on phones.
+   * Keep table readable by allowing headings and cells to wrap. */
+  .table { min-width: 0; table-layout: fixed; }
+  .table th, .table td { word-break: break-word; }
+  .table th { white-space: normal; }
 
   /* --- Top-right Instagram shortcut on mobile ---------------
      Legacy override kept only to trim tap-target by a hair on
