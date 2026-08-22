@@ -20,6 +20,7 @@ import { el, mount, toast, fmtDate } from '../dom.js';
 import { state, cfg, getSociety } from '../store.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
+import { busy } from '../busy.js';
 
 /* ---------- helpers ---------- */
 function pick(obj, path) {
@@ -70,6 +71,14 @@ function mergeDeep(target, src) {
 }
 function slugId(prefix) {
   return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+}
+
+async function runBusy(label, fn) {
+  return busy.wrap(label, async () => {
+    const out = await fn();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    return out;
+  });
 }
 
 const QR_ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -669,18 +678,20 @@ async function renderAttributes(user, canUsersManage) {
     .sort((a, b) => a.email.localeCompare(b.email));
 
   const saveAllBtn = el('button', { class: 'btn', type: 'button' }, 'Save all settings changes');
-  saveAllBtn.addEventListener('click', () => {
+  saveAllBtn.addEventListener('click', async () => {
     if (!flatKeys(draft).length) {
       toast('No staged settings changes.', 'warn');
       return;
     }
-    const next = mergeDeep(structuredClone(state.societyOverrides() || {}), draft);
-    pruneEmpty(next);
-    state.saveSocietyOverrides(next);
-    state.audit({ actor: user.email, action: 'settings.attributes.save_all', detail: flatKeys(draft).join(',') });
-    state.clearSettingsDraft();
-    draft = {};
-    refreshDraftMeta();
+    await runBusy('Saving settings…', async () => {
+      const next = mergeDeep(structuredClone(state.societyOverrides() || {}), draft);
+      pruneEmpty(next);
+      state.saveSocietyOverrides(next);
+      state.audit({ actor: user.email, action: 'settings.attributes.save_all', detail: flatKeys(draft).join(',') });
+      state.clearSettingsDraft();
+      draft = {};
+      refreshDraftMeta();
+    });
     toast('Settings saved in one consolidated write.', 'ok');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   });
@@ -796,28 +807,63 @@ async function renderAttributes(user, canUsersManage) {
  * state.receiptTemplates(); the receipt view reads the active one and
  * layers its header/footer/thank-you strings over the base render. */
 async function renderTemplates(user) {
-  let templates = state.receiptTemplates() || [];
-  const overrides = state.societyOverrides() || {};
-  const activeId = pick(overrides, 'receipts.active_template_id') || '';
+  const clone = (v) => structuredClone(v);
+  let persistedTemplates = state.receiptTemplates() || [];
+  let persistedActiveId = pick(state.societyOverrides() || {}, 'receipts.active_template_id') || '';
+  let draftTemplates = clone(persistedTemplates);
+  let draftActiveId = persistedActiveId;
 
-  function persist() {
-    state.saveReceiptTemplates(templates);
-    state.audit({ actor: user.email, action: 'settings.templates.save', detail: 'count=' + templates.length });
-  }
-  function setActive(id) {
-    const o = state.societyOverrides() || {};
-    setAt(o, 'receipts.active_template_id', id || undefined);
-    pruneEmpty(o);
-    state.saveSocietyOverrides(o);
-    state.audit({ actor: user.email, action: 'settings.templates.activate', detail: id || 'default' });
+  function hasDraftChanges() {
+    return JSON.stringify(draftTemplates) !== JSON.stringify(persistedTemplates)
+      || String(draftActiveId || '') !== String(persistedActiveId || '');
   }
 
   const wrap = el('div', {});
 
   function render() {
-    templates = state.receiptTemplates() || [];
-    const activeNow = (state.societyOverrides() || {}).receipts && (state.societyOverrides() || {}).receipts.active_template_id || '';
+    const activeNow = draftActiveId || '';
     wrap.replaceChildren();
+
+    const saveBtn = el('button', { class: 'btn', type: 'button' }, 'Save all template changes');
+    saveBtn.addEventListener('click', async () => {
+      if (!hasDraftChanges()) {
+        toast('No template changes to save.', 'warn');
+        return;
+      }
+      await runBusy('Saving receipt templates…', async () => {
+        state.saveReceiptTemplates(clone(draftTemplates));
+        const o = state.societyOverrides() || {};
+        setAt(o, 'receipts.active_template_id', draftActiveId || undefined);
+        pruneEmpty(o);
+        state.saveSocietyOverrides(o);
+        state.audit({
+          actor: user.email,
+          action: 'settings.templates.save_all',
+          detail: `templates=${draftTemplates.length};active=${draftActiveId || 'default'}`,
+        });
+        persistedTemplates = clone(draftTemplates);
+        persistedActiveId = draftActiveId || '';
+      });
+      toast('Template changes saved.', 'ok');
+      render();
+    });
+
+    const discardBtn = el('button', { class: 'btn btn-ghost', type: 'button' }, 'Discard template draft');
+    discardBtn.addEventListener('click', () => {
+      if (!hasDraftChanges()) {
+        toast('No template draft to discard.', 'warn');
+        return;
+      }
+      draftTemplates = clone(persistedTemplates);
+      draftActiveId = persistedActiveId;
+      toast('Template draft discarded.', 'ok');
+      render();
+    });
+
+    const draftPill = el('span', {
+      class: 'pill ' + (hasDraftChanges() ? 'pill-gold' : 'pill-muted'),
+      text: hasDraftChanges() ? 'unsaved template changes' : 'no unsaved changes',
+    });
 
     /* Intro panel */
     wrap.append(el('div', { class: 'panel' },
@@ -837,24 +883,24 @@ async function renderTemplates(user) {
             seal_glyph: '🐝',
             created_at: new Date().toISOString(),
           };
-          templates = (state.receiptTemplates() || []).concat([t]);
-          persist();
+          draftTemplates = draftTemplates.concat([t]);
           render();
-          toast('Template added', 'ok');
+          toast('Template added to draft', 'ok');
         } } }, '+ New template'),
-        el('span', { class: 'sub', text: templates.length + ' template' + (templates.length === 1 ? '' : 's') }),
-      )
+        el('span', { class: 'sub', text: draftTemplates.length + ' template' + (draftTemplates.length === 1 ? '' : 's') }),
+      ),
+      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:10px' }, draftPill, saveBtn, discardBtn)
     ));
 
     /* Row per template */
-    if (!templates.length) {
+    if (!draftTemplates.length) {
       wrap.append(el('div', { class: 'panel' },
         el('p', { class: 'sub', style: 'margin:0', text: 'No custom templates yet. Receipts will use the shipped default layout.' })
       ));
       return;
     }
 
-    for (const t of templates) {
+    for (const t of draftTemplates) {
       const isActive = t.id === activeNow;
       const panel = el('div', { class: 'panel' });
       const head = el('div', { class: 'row row-between', style: 'gap:8px' },
@@ -864,23 +910,22 @@ async function renderTemplates(user) {
         ),
         el('div', { class: 'row', style: 'gap:6px' },
           isActive
-            ? el('span', { class: 'pill', style: 'background:var(--sage-soft);color:var(--sage);font-weight:700', text: '✓ Active' })
-            : el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => { setActive(t.id); render(); toast('Template activated', 'ok'); } } }, 'Make active'),
+            ? el('span', { class: 'pill', style: 'background:var(--sage-soft);color:var(--sage);font-weight:700', text: '✓ Active (draft)' })
+            : el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => { draftActiveId = t.id; render(); toast('Template activation staged', 'ok'); } } }, 'Make active'),
           el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => {
             if (!confirm('Delete template "' + (t.name || t.id) + '"?')) return;
-            templates = templates.filter(x => x.id !== t.id);
-            persist();
-            if (isActive) setActive('');
+            draftTemplates = draftTemplates.filter(x => x.id !== t.id);
+            if (isActive) draftActiveId = '';
             render();
-            toast('Template deleted', 'ok');
+            toast('Template deletion staged', 'ok');
           } }, style: 'color:var(--terra)' }, 'Delete'),
         ),
       );
       panel.append(head);
 
       const upd = (patch) => {
-        templates = templates.map(x => x.id === t.id ? { ...x, ...patch } : x);
-        persist();
+        draftTemplates = draftTemplates.map(x => x.id === t.id ? { ...x, ...patch } : x);
+        render();
       };
       panel.append(
         el('div', { class: 'field', style: 'margin-top:14px' },
@@ -935,38 +980,85 @@ async function renderTemplates(user) {
  * all (privacy gate). Actual expense CRUD is on the event detail page
  * for committee/manager roles. */
 async function renderExpensePrefs(user, canAttributes) {
-  const overrides = state.societyOverrides() || {};
   const soc = await getSociety();
 
-  function saveAttr(path, value) {
-    const o = state.societyOverrides() || {};
-    setAt(o, path, value);
-    pruneEmpty(o);
-    state.saveSocietyOverrides(o);
-    state.audit({ actor: user.email, action: 'settings.expense', detail: path + '=' + JSON.stringify(value) });
-    toast('Saved', 'ok');
-  }
-
   const disabled = !canAttributes ? { disabled: true } : {};
-  const residentsCanSee = !!(soc.expenses && soc.expenses.residents_can_see);
-  const defaultVisible = !!(soc.expenses && soc.expenses.default_visible_to_residents);
+  let persisted = {
+    residents_can_see: !!(soc.expenses && soc.expenses.residents_can_see),
+    default_visible_to_residents: !!(soc.expenses && soc.expenses.default_visible_to_residents),
+  };
+  let draft = { ...persisted };
 
   const wrap = el('div', {});
+  const canEdit = canAttributes;
+  const cbResidents = el('input', { type: 'checkbox', checked: draft.residents_can_see, ...disabled });
+  const cbDefault = el('input', { type: 'checkbox', checked: draft.default_visible_to_residents, ...disabled });
+  const pill = el('span', { class: 'pill pill-muted', text: 'no unsaved changes' });
+
+  const refreshMeta = () => {
+    const dirty = draft.residents_can_see !== persisted.residents_can_see
+      || draft.default_visible_to_residents !== persisted.default_visible_to_residents;
+    pill.textContent = dirty ? 'unsaved expense preference changes' : 'no unsaved changes';
+    pill.className = 'pill ' + (dirty ? 'pill-gold' : 'pill-muted');
+    return dirty;
+  };
+  cbResidents.addEventListener('change', () => {
+    draft.residents_can_see = !!cbResidents.checked;
+    refreshMeta();
+  });
+  cbDefault.addEventListener('change', () => {
+    draft.default_visible_to_residents = !!cbDefault.checked;
+    refreshMeta();
+  });
+
+  const saveBtn = el('button', { class: 'btn', type: 'button', ...(!canEdit ? { disabled: true } : {}) }, 'Save expense preferences');
+  saveBtn.addEventListener('click', async () => {
+    if (!canEdit) return;
+    if (!refreshMeta()) {
+      toast('No expense preference changes to save.', 'warn');
+      return;
+    }
+    await runBusy('Saving expense preferences…', async () => {
+      const o = state.societyOverrides() || {};
+      setAt(o, 'expenses.residents_can_see', draft.residents_can_see ? true : undefined);
+      setAt(o, 'expenses.default_visible_to_residents', draft.default_visible_to_residents ? true : undefined);
+      pruneEmpty(o);
+      state.saveSocietyOverrides(o);
+      state.audit({ actor: user.email, action: 'settings.expense.save_all', detail: JSON.stringify(draft) });
+      persisted = { ...draft };
+    });
+    toast('Expense preferences saved.', 'ok');
+    refreshMeta();
+  });
+
+  const discardBtn = el('button', { class: 'btn btn-ghost', type: 'button', ...(!canEdit ? { disabled: true } : {}) }, 'Discard expense draft');
+  discardBtn.addEventListener('click', () => {
+    if (!canEdit) return;
+    if (!refreshMeta()) {
+      toast('No expense draft to discard.', 'warn');
+      return;
+    }
+    draft = { ...persisted };
+    cbResidents.checked = draft.residents_can_see;
+    cbDefault.checked = draft.default_visible_to_residents;
+    refreshMeta();
+    toast('Expense draft discarded.', 'ok');
+  });
+
   wrap.append(
     el('div', { class: 'panel' },
       el('h3', { text: 'Expense visibility' }),
       el('p', { class: 'sub', text: 'Committee and manager roles can record expenses against an event so residents see where their contributions are going. You can control whether residents see them at all, and the default for each new expense row.' }),
       el('label', { class: 'row', style: 'gap:8px;margin-top:14px;cursor:pointer' },
-        el('input', { type: 'checkbox', checked: residentsCanSee, ...disabled,
-          on: { change: (e) => saveAttr('expenses.residents_can_see', e.target.checked ? true : undefined) } }),
+        cbResidents,
         el('span', { text: 'Allow residents to see expenses (globally)' }),
       ),
       el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' },
-        el('input', { type: 'checkbox', checked: defaultVisible, ...disabled,
-          on: { change: (e) => saveAttr('expenses.default_visible_to_residents', e.target.checked ? true : undefined) } }),
+        cbDefault,
         el('span', { text: 'Default each new expense row to visible-to-residents' }),
       ),
       el('p', { class: 'sub', style: 'margin-top:12px', text: 'Each expense row can still override this per-row on the event detail page.' }),
+      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:10px' }, pill, saveBtn, discardBtn),
     ),
     el('div', { class: 'panel' },
       el('h3', { text: 'How expenses are recorded' }),
@@ -979,6 +1071,7 @@ async function renderExpensePrefs(user, canAttributes) {
       ),
     ),
   );
+  refreshMeta();
   return wrap;
 }
 

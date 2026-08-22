@@ -29,6 +29,7 @@ Core UI files:
 Implemented:
 - Header border glow is now a global backend-progress indicator across all views.
 - Triggered for network activity and route/view rendering transitions.
+- Triggered during explicit settings save operations.
 
 Core UI files:
 - `assets/js/busy.js`
@@ -96,6 +97,8 @@ Core UI files:
 Implemented:
 - Society settings page with grouped sections (branding, payment, receipts, dashboard, event flow, privacy defaults).
 - Attributes-tab changes are staged first and applied through one consolidated "Save all settings changes" action.
+- Receipt templates tab uses explicit staged Save/Discard actions for batched template updates.
+- Expense preferences tab uses explicit staged Save/Discard actions for batched preference updates.
 - Desktop footer visibility toggles.
 - Footer brand-row chips (`source` and build/version tag) are configurable and default to hidden, leaving only society brand text visible.
 - Resident email governance tools:

@@ -60,6 +60,7 @@ Implemented:
 - TSH-style access-tier lists are supported in Settings (add/remove tier, tier label, rank, base-role profile, assigned emails).
 - Backward-compatible email-to-role index is maintained for runtime lookup.
 - Attributes-tab settings edits are staged and committed through one consolidated "Save all settings changes" action.
+- Receipt templates and expense preferences support explicit staged Save/Discard actions.
 - Governance guardrails:
   - Admin can add/remove/modify mappings for all roles.
   - Secretary and Management Committee can add/remove/modify mappings for non-admin roles.
@@ -155,6 +156,7 @@ Completed validation:
   - Event report list route now works after enabling event-level report toggle.
   - Reports page no longer renders literal `null` nodes.
   - Header border glow is visible across view transitions and backend/network progress states.
+  - Save actions on settings tabs trigger the global progress indicator.
 
 Known non-blocking browser message:
 - CSP `frame-ancestors` warning when delivered via meta tag in localhost context. This does not block app flows.
