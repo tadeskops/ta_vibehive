@@ -152,16 +152,21 @@
      phones (34 px vs 36 px on desktop). The shared `.tvh-icon-btn`
      skin from base.css supplies border, hover and focus rules. */
   .topbar-right .tvh-icon-btn,
-  .topbar-right .tvh-header-ig {
+  .topbar-right .tvh-header-ig,
+  .topbar-right .tvh-bell {
     width: 40px;
     height: 40px;
   }
   .topbar-right .tvh-icon-btn svg,
-  .topbar-right .tvh-header-ig svg {
+  .topbar-right .tvh-header-ig svg,
+  .topbar-right .tvh-bell .tvh-bell-ico,
+  .topbar-right .tvh-bell svg {
     width: 20px;
     height: 20px;
+    display: block;
   }
   .tvh-header-ig svg { display: block; }
+  .topbar-right .tvh-bell-badge { top: -4px; right: -4px; }
 
   /* --- Stage: room for the fixed tab-bar --------------------- */
   .stage {
