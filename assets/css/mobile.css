@@ -82,8 +82,8 @@
   #whoami .btn-auth { min-height: 30px; padding: 4px 8px; font-size: 11px; }
   #whoami .btn-auth .btn-ico svg { width: 13px; height: 13px; }
   #whoami .btn-auth .btn-label { display: none; }
-  /* Export CSV is useful on desktop; on phones it crowds primary controls. */
-  .topbar-right .tvh-export-btn { display: none !important; }
+  /* Keep export visible on mobile as icon-only so reporting parity with TSH remains discoverable. */
+  .topbar-right .tvh-export-btn { display: inline-flex !important; }
   /* Role chip stays visible on mobile — user asked for the role to
    * always be readable. Slightly tighter padding so it doesn't
    * overpower the compact pill. */
@@ -108,15 +108,16 @@
   }
   #whoami.topbar-actions {
     display: grid;
-    grid-template-columns: auto auto;
+    grid-template-columns: auto auto auto;
     justify-content: end;
     align-items: center;
     gap: 4px 6px;
     width: auto;
     min-width: 0;
   }
-  #whoami .tvh-bell-wrap { grid-column: 1; grid-row: 1; }
-  #whoami .btn-auth { grid-column: 2; grid-row: 1; }
+  #whoami .tvh-export-btn { grid-column: 1; grid-row: 1; }
+  #whoami .tvh-bell-wrap { grid-column: 2; grid-row: 1; }
+  #whoami .btn-auth { grid-column: 3; grid-row: 1; }
   #whoami .whoami {
     grid-column: 1 / -1;
     grid-row: 2;

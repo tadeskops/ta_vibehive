@@ -17,12 +17,12 @@
  * Honours event feature flags: shows tiers only if
  * contribution.suggested is on, shows anonymous toggle only if
  * privacy.anonymous is on, etc.
- */
+    if (st.method === 'upi' && upiOn) {
 'use strict';
 import { el, mount, fmtINR, toast } from '../dom.js';
 import { findEvent, addContribution, contribsFor } from '../events.js';
 import { isEventOn } from '../features.js';
-import { session } from '../auth.js';
+      const intent = effVpa ? upiIntentUrl({ vpa: effVpa, name: effVpaName, amount: st.amount, note: `Contribution: ${evt.title}` }) : '';
 import { navigate } from '../router.js';
 import { getSociety, state } from '../store.js';
 import { emit as notifyEmit } from '../notify.js';
@@ -39,24 +39,24 @@ function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onerror = () => reject(new Error('read failed'));
-    r.onload = () => resolve(r.result);
+          el('div', { class: 'lbl', text: 'Pay to this UPI ID' }),
     r.readAsDataURL(file);
   });
 }
 async function shrinkImageIfNeeded(file) {
-  if (!/^image\//.test(file.type)) {
-    if (file.size > MAX_BYTES_RAW) throw new Error('File too large - keep under 750 KB.');
-    return await fileToDataUrl(file);
-  }
-  const raw = await fileToDataUrl(file);
-  const img = new Image();
-  await new Promise((ok, ko) => { img.onload = ok; img.onerror = () => ko(new Error('image decode failed')); img.src = raw; });
-  const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
-  const w = Math.round(img.naturalWidth * scale);
-  const h = Math.round(img.naturalHeight * scale);
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d');
+          intent ? el('a', {
+            class: 'btn btn-block tvh-upi-cta',
+            href: intent,
+            rel: 'noopener noreferrer',
+            'aria-label': `Pay ${fmtINR(st.amount)} via UPI`,
+          },
+            el('span', { class: 'tvh-upi-cta-ico', text: '📱' }),
+            el('span', { class: 'tvh-upi-cta-txt' },
+              el('span', { class: 'tvh-upi-cta-lead', text: `Pay ${fmtINR(st.amount)}` }),
+              el('span', { class: 'tvh-upi-cta-sub', text: 'via any UPI app' }),
+            ),
+            el('span', { class: 'tvh-upi-cta-caret', 'aria-hidden': 'true', text: '›' })
+          ) : null,
   ctx.drawImage(img, 0, 0, w, h);
   /* Try successively lower JPEG qualities until we fit. */
   for (const q of [0.85, 0.72, 0.6, 0.5, 0.4]) {

@@ -46,6 +46,7 @@ Implemented:
 - Event-specific signed-in list report route: `#/reports/event/:id`.
 - Route is gated by event-level feature enablement and permission/allowlist checks.
 - Optional resident allowlist restriction is supported.
+- Report export includes event-based selection so admins/committee can choose a specific event from a list that includes both live and past events, then download that event report.
 
 Core implementation:
 - `assets/js/views/reports.js`
@@ -72,10 +73,11 @@ Core implementation:
 Implemented:
 - Desktop footer visibility toggles are available for social, bug report, verify link, legal line, and source line.
 - Runtime footer reflects configured toggles.
+- Footer brand row keeps society name visible, while source/build chips are independently configurable and disabled by default.
 
 Current enforced behavior:
 - Desktop legal/source meta lines are intentionally suppressed from the end-user footer UI.
-- Settings keeps desktop toggles for social/bug/verify actions only.
+- Source/build chips in the brand row can be enabled from Settings when needed.
 
 Core implementation:
 - `assets/js/views/settings.js`
@@ -88,6 +90,13 @@ Implemented:
 - Contribution form includes note/remarks and validation helpers.
 - Per-event draft cache survives refresh and is cleared on successful submit.
 - One-contribution-per-flat event rule is supported and enforced at storage guard level.
+- Mobile/quick-action `+` is create-only (new event) and is shown only when `events.create` permission is granted via role/configuration.
+- Quick-action stack popup UI is currently disabled (kept in code), and tapping `+` directly routes to event creation flow.
+- Contribution payment UX currently runs in manual UPI mode:
+  - Configured UPI ID is displayed for external app payment.
+  - Resident submits UTR/proof for committee verification.
+  - Auto-capture from UPI apps and auto-receipt on payment callback is not relied on in current static flow.
+- Resident-facing help note is shown for manager/committee assisted upload/update intent.
 
 Core implementation:
 - `assets/js/views/contribute.js`
@@ -149,3 +158,16 @@ Not included in this implemented-state document:
 - Public receipt verification backend expansion beyond current local path
 - Multi-language content rollout
 - Other roadmap-only items listed in README roadmap
+
+## 12) Admin and Settings Dense Grid Defaults
+
+Implemented:
+- Grid-heavy sections in Admin are rendered as collapsible panels and start collapsed by default.
+- Resident email governance grid section in Settings starts collapsed by default.
+- Sections remain expandable on demand without changing role/permission behavior.
+- Roles and permission matrix in Admin are rendered in transposed role-first form for improved readability.
+
+Core implementation:
+- `assets/js/views/admin.js`
+- `assets/js/views/settings.js`
+- `assets/css/base.css`

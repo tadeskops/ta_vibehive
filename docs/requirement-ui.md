@@ -9,7 +9,10 @@ Implemented:
 - Header navigation: Home, Events, Verify receipt; role-gated links for Reports/Settings/Admin.
 - Auth state controls in header: sign-in for signed-out users, sign-out for signed-in users, and whoami role chip.
 - Route-driven SPA with stable hash routes for all main surfaces.
-- Mobile-first guardrails: sign-out remains visible on mobile; desktop-only export icon is suppressed on small screens to prevent header crowding.
+- Quick action `+` is reserved for "Create a new event" only.
+- Quick action `+` visibility is role/config driven through `events.create` permission.
+- Quick action stack popup is temporarily disabled (code retained); tapping `+` directly routes to the event-create surface.
+- Mobile-first guardrails: sign-out remains visible on mobile; export icon remains visible in compact icon-only form.
 - Mobile header layout follows a two-row right-cluster pattern (icons + auth on first row, role chip on second row).
 - Auth buttons use TSH-style in/out icon semantics (right-to-bracket / right-from-bracket) with compact labels.
 - Interactive elements show a subtle translucent hover/press feedback layer on desktop and touch press states.
@@ -61,6 +64,11 @@ Implemented:
 - Contribution form supports event payment instructions and validation helpers.
 - Note field and verification details support resident update edge cases.
 - Draft persistence prevents data loss on refresh.
+- Manual UPI mode UI:
+  - Shows configurable UPI ID and copy action.
+  - Resident pays in external UPI app, then submits UTR/proof.
+  - Payment-mode chooser is not exposed for app-triggered auto payment capture.
+- Resident-only help note copy explicitly routes issue handling to society manager / cultural committee for assisted upload and post-verification receipt sharing.
 
 Core UI files:
 - `assets/js/views/contribute.js`
@@ -70,8 +78,11 @@ Core UI files:
 Implemented:
 - Event-specific list report route (`#/reports/event/:id`) with access controls.
 - Filter controls: scope, statuses, grouping, columns.
+- Event-based filter is available before export so report download can be scoped to one selected event.
+- Event selector list includes live events and past events.
 - Export/print/archive actions are visibility-gated by feature settings.
 - UI cleanup completed: removed literal `null` artifacts during conditional section rendering.
+- Export action label is explicit (`Export report (CSV)`) for discoverability.
 
 Core UI files:
 - `assets/js/views/reports.js`
@@ -81,15 +92,28 @@ Core UI files:
 Implemented:
 - Society settings page with grouped sections (branding, payment, receipts, dashboard, event flow, privacy defaults).
 - Desktop footer visibility toggles.
+- Footer brand-row chips (`source` and build/version tag) are configurable and default to hidden, leaving only society brand text visible.
 - Resident email governance tools:
   - Bulk gmail parser
   - Role-to-email mapping (one or more IDs per role)
   - Admin-only editability for admin role mappings; secretary/mgmt can edit non-admin role mappings
   - Access table visibility state
-- Desktop footer legal/source meta-line controls removed from settings; these lines are intentionally suppressed on desktop.
+- Desktop footer legal line remains suppressed by policy; source/build chips are configurable from settings.
+- Dense resident-governance grid in Settings is collapsed by default and expands on tap.
 
 Core UI files:
 - `assets/js/views/settings.js`
+
+## 7) Admin UX
+
+Implemented:
+- Grid/table-heavy sections in Admin (roles, permission matrix, users, audit, bug reports) are collapsed by default.
+- Sections expand inline without navigation, preserving existing permissions.
+- Roles and permissions presentation is transposed to role-first cards for readability on narrow screens.
+
+Core UI files:
+- `assets/js/views/admin.js`
+- `assets/css/base.css`
 
 ## 7) Admin UX (Archive Operations)
 

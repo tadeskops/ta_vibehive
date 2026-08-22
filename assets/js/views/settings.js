@@ -158,6 +158,15 @@ async function renderAttributes(user, canUsersManage) {
     hint ? el('p', { class: 'sub', text: hint }) : null,
     ...rows
   );
+  const collapsiblePanel = (title, hint, collapsedByDefault, ...rows) => el('details', { class: 'panel panel-collapsible', open: !collapsedByDefault },
+    el('summary', { class: 'panel-summary' },
+      el('span', { class: 'panel-summary-title', text: title })
+    ),
+    el('div', { class: 'panel-body' },
+      hint ? el('p', { class: 'sub', text: hint }) : null,
+      ...rows
+    )
+  );
 
   const row = (label, help, control) => el('div', { class: 'field', style: 'margin-top:14px' },
     el('label', { class: 'lbl', text: label }),
@@ -247,6 +256,8 @@ async function renderAttributes(user, canUsersManage) {
   const showFooterSocial = !!(((soc.footer || {}).desktop || {}).show_social);
   const showFooterBug = !!(((soc.footer || {}).desktop || {}).show_bug_report);
   const showFooterVerify = !!(((soc.footer || {}).desktop || {}).show_verify);
+  const showFooterBrandSource = !!(((soc.footer || {}).desktop || {}).show_brand_source);
+  const showFooterBrandBuild = !!(((soc.footer || {}).desktop || {}).show_brand_build);
   const cbFootSocial = el('input', {
     type: 'checkbox', checked: showFooterSocial,
     on: { change: (e) => saveAttr('footer.desktop.show_social', e.target.checked ? true : undefined) }
@@ -258,6 +269,14 @@ async function renderAttributes(user, canUsersManage) {
   const cbFootVerify = el('input', {
     type: 'checkbox', checked: showFooterVerify,
     on: { change: (e) => saveAttr('footer.desktop.show_verify', e.target.checked ? true : undefined) }
+  });
+  const cbFootBrandSource = el('input', {
+    type: 'checkbox', checked: showFooterBrandSource,
+    on: { change: (e) => saveAttr('footer.desktop.show_brand_source', e.target.checked ? true : undefined) }
+  });
+  const cbFootBrandBuild = el('input', {
+    type: 'checkbox', checked: showFooterBrandBuild,
+    on: { change: (e) => saveAttr('footer.desktop.show_brand_build', e.target.checked ? true : undefined) }
   });
 
   /* --- Resident email governance (gmail only for now) --- */
@@ -458,13 +477,17 @@ async function renderAttributes(user, canUsersManage) {
       ),
     ),
     panel('Desktop footer visibility',
-      'Control which footer actions are visible on desktop view. Mobile compact footer behavior is preserved. Legal/source meta lines are intentionally hidden on desktop.',
+      'Control which footer actions and brand chips are visible. Legal line remains hidden on desktop by policy.',
       el('label', { class: 'row', style: 'gap:8px;margin-top:14px;cursor:pointer' }, cbFootSocial, el('span', { text: 'Show society social pill' })),
       el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootBug, el('span', { text: 'Show "Report site bug" action' })),
-      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootVerify, el('span', { text: 'Show "Verify receipt" action' }))
+      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootVerify, el('span', { text: 'Show "Verify receipt" action' })),
+      el('label', { class: 'row', style: 'gap:8px;margin-top:12px;cursor:pointer' }, cbFootBrandSource, el('span', { text: 'Show footer source link' })),
+      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootBrandBuild, el('span', { text: 'Show footer build tag (theme/version)' })),
+      el('small', { class: 'sub', style: 'display:block;margin-top:6px', text: 'When both are OFF, only the society brand text (e.g. "The Address · Baner") is shown in the right meta row.' })
     ),
-    panel('Resident email governance (gmail only)',
+    collapsiblePanel('Resident email governance (gmail only)',
       'Use this list to mark verified resident emails. Event reports can optionally be restricted to this allowlist.',
+      true,
       row('Bulk paste resident gmail IDs', 'Separators supported: newline, comma, semicolon, or spaces.', taEmailBulk),
       el('div', { class: 'row', style: 'gap:8px' }, btnAddBulk, btnClearAllowed),
       allowedPreview,

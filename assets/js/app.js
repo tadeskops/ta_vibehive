@@ -204,12 +204,27 @@ async function applyFooterDesktopVisibility() {
       if (!n) return;
       if (isDesktop) n.hidden = !show;
     };
+    const setAny = (id, show) => {
+      const n = document.getElementById(id);
+      if (!n) return;
+      n.hidden = !show;
+    };
     setFoot('footpad-social', desk.show_social !== false);
     setFoot('footpad-report-btn', desk.show_bug_report !== false);
     setFoot('footpad-verify-link', desk.show_verify !== false);
-    /* Per UX decision: hide legal/source meta block on desktop footer. */
+    /* Legal line remains desktop-hidden by policy. Brand row remains
+     * visible and its optional chips (source/build) are configurable. */
     setFoot('footpad-legal-line', isDesktop ? false : (desk.show_legal !== false));
-    setFoot('footpad-source-line', isDesktop ? false : (desk.show_source !== false));
+    setAny('footpad-source-line', desk.show_brand_line !== false);
+    const showBrandSource = desk.show_brand_source === true;
+    const showBrandBuild = desk.show_brand_build === true;
+    setAny('footpad-source-link', showBrandSource);
+    setAny('footpad-build-text', showBrandBuild);
+    /* Dot choreography:
+     * - sep1 is used before source OR build (if source is hidden).
+     * - sep2 appears only when both source and build are visible. */
+    setAny('footpad-sep-brand-source', showBrandSource || showBrandBuild);
+    setAny('footpad-sep-source-build', showBrandSource && showBrandBuild);
     const dot = document.getElementById('footpad-center-dot');
     if (dot && isDesktop) {
       const bug = document.getElementById('footpad-report-btn');
@@ -249,24 +264,30 @@ function mountSheet() {
   const back  = document.getElementById('tvhSheetBack');
   const sheet = document.getElementById('tvhSheet');
   const list  = document.getElementById('tvhSheetList');
+  /* Temporary product switch: keep stack sheet code in place but bypass
+   * its UI so `+` directly routes to event creation. */
+  const USE_QUICK_ACTION_STACK_POPUP = false;
   if (!fab || !back || !sheet || !list || sheet.__wired) return;
   sheet.__wired = true;
+  fab.hidden = true;
   const closeBtn = sheet.querySelector('.tvh-sheet-close');
 
   async function populate() {
     const user = session();
-    /* Sheet is now a focused two-action launcher: create + contribute.
-     * "New event" is gated on `events.create` (admin/mgmt/committee).
-     * "Add contribution" always goes to /events so the resident picks
-     * the event tile they want to give to - the tile has an inline
-     * "＋ Contribute" button that deep-links straight into the form.
-     * Verify / Sign-in / Admin already live in the tab-bar and topnav. */
-    const items = [];
-    if (user && await can(user, 'events.create')) {
-      items.push({ href: '#/events', ico: '🎉', label: 'Create a new event', sub: 'Pick a template · publish when ready',
-        onClick: () => { try { sessionStorage.setItem('tvh:new-event', '1'); } catch (_e) {} } });
+    /* Quick action is create-only. Visibility is role/config gated via
+     * `events.create` permission (roles.json / RBAC policy). */
+    const canCreate = !!(user && await can(user, 'events.create'));
+    fab.hidden = !canCreate;
+    if (!canCreate) {
+      clear(list);
+      close();
+      return;
     }
-    items.push({ href: '#/events', ico: '💛', label: 'Add a contribution', sub: user ? 'Pick an event and give' : 'Sign in when you contribute' });
+
+    const items = [];
+    items.push({ href: '#/events', ico: '🎉', label: 'Create a new event', sub: 'Pick a template · publish when ready',
+      onClick: () => { try { sessionStorage.setItem('tvh:new-event', '1'); } catch (_e) {} }
+    });
     clear(list);
     for (const it of items) {
       const anchor = el('a', { href: it.href },
@@ -279,8 +300,9 @@ function mountSheet() {
     }
   }
 
-  function open() {
-    populate();
+  async function open() {
+    await populate();
+    if (fab.hidden) return;
     back.hidden = false; sheet.hidden = false;
     /* two-frame delay so the transition actually plays */
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -295,12 +317,27 @@ function mountSheet() {
     sheet.setAttribute('aria-hidden', 'true');
     setTimeout(() => { back.hidden = true; sheet.hidden = true; }, 220);
   }
-  fab.addEventListener('click', () => (fab.getAttribute('aria-expanded') === 'true' ? close() : open()));
+  fab.addEventListener('click', async () => {
+    if (!USE_QUICK_ACTION_STACK_POPUP) {
+      const user = session();
+      const canCreate = !!(user && await can(user, 'events.create'));
+      if (!canCreate) {
+        fab.hidden = true;
+        return;
+      }
+      try { sessionStorage.setItem('tvh:new-event', '1'); } catch (_e) {}
+      location.hash = '#/events';
+      return;
+    }
+    if (fab.getAttribute('aria-expanded') === 'true') close();
+    else await open();
+  });
   back.addEventListener('click', close);
   closeBtn && closeBtn.addEventListener('click', close);
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !sheet.hidden) close(); });
   list.addEventListener('click', (e) => { if (e.target.closest('a')) close(); });
-  window.addEventListener('hashchange', () => { if (!sheet.hidden) close(); });
+  window.addEventListener('hashchange', () => { if (!sheet.hidden) close(); populate(); });
+  populate();
 }
 
 /* Floating "Back to top" button — visible once the user has scrolled

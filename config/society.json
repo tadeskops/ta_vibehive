@@ -60,7 +60,9 @@
       "show_bug_report": true,
       "show_verify": true,
       "show_legal": false,
-      "show_source": false
+      "show_source": false,
+      "show_brand_source": false,
+      "show_brand_build": false
     }
   },
   "residents": {

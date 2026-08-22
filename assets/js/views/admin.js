@@ -56,6 +56,18 @@ function tabLink(id, label, active) {
   return a;
 }
 
+function collapsiblePanel(title, hint, bodyNodes, collapsedByDefault = true) {
+  return el('details', { class: 'panel panel-collapsible', open: !collapsedByDefault },
+    el('summary', { class: 'panel-summary' },
+      el('span', { class: 'panel-summary-title', text: title })
+    ),
+    el('div', { class: 'panel-body' },
+      hint ? el('p', { class: 'sub', text: hint }) : null,
+      ...(Array.isArray(bodyNodes) ? bodyNodes : [bodyNodes])
+    )
+  );
+}
+
 async function renderFeatures(user) {
   const cat = await catalog();
   const container = el('div', {});
@@ -88,40 +100,49 @@ async function renderFeatures(user) {
 
 async function renderRoles() {
   const rolesCfg = await cfg.roles();
+  const hierarchy = rolesCfg.hierarchy || [];
+  const permissions = rolesCfg.permissions || {};
+
+  const roleCards = el('div', { class: 'role-hierarchy-list' },
+    ...hierarchy.map((r) => el('article', { class: 'role-hierarchy-card' },
+      el('div', { class: 'role-hierarchy-head' },
+        el('span', { class: r.badge || ('role-badge ' + roleBadgeCls(r.id)), text: r.label }),
+        el('span', { class: 'role-rank', text: 'Rank ' + String(r.rank) })
+      ),
+      el('p', { class: 'role-hierarchy-desc', text: r.description || '—' })
+    ))
+  );
+
+  const permsByRole = el('div', { class: 'perm-matrix-by-role' },
+    ...hierarchy.map((r) => {
+      const granted = Object.entries(permissions)
+        .filter(([, allowed]) => Array.isArray(allowed) && allowed.includes(r.id))
+        .map(([perm]) => perm)
+        .sort();
+      return el('article', { class: 'perm-role-card' },
+        el('div', { class: 'perm-role-head' },
+          el('span', { class: r.badge || ('role-badge ' + roleBadgeCls(r.id)), text: r.label }),
+          el('small', { class: 'sub', text: `${granted.length} permission${granted.length === 1 ? '' : 's'}` })
+        ),
+        granted.length
+          ? el('div', { class: 'perm-chip-wrap' },
+              ...granted.map((perm) => el('span', { class: 'pill perm-chip', text: perm }))
+            )
+          : el('small', { class: 'sub', text: 'No explicit permissions configured.' })
+      );
+    })
+  );
+
   const list = el('div', {},
-    el('div', { class: 'panel' },
-      el('h3', { text: 'Role hierarchy' }),
-      el('p', { class: 'sub', text: 'Higher rank inherits lower-rank read scope. Actions are still permission-checked.' }),
-      el('table', { class: 'table' },
-        el('thead', {}, el('tr', {}, el('th', { text: 'Role' }), el('th', { text: 'Rank' }), el('th', { text: 'What they do' }))),
-        el('tbody', {}, ...rolesCfg.hierarchy.map(r => el('tr', {},
-          el('td', {}, el('span', { class: r.badge, text: r.label })),
-          el('td', { text: String(r.rank) }),
-          el('td', { text: r.description })
-        )))
-      )
-    ),
-    el('div', { class: 'panel' },
-      el('h3', { text: 'Permission matrix' }),
-      el('table', { class: 'table' },
-        el('thead', {}, el('tr', {},
-          el('th', { text: 'Permission' }),
-          ...rolesCfg.hierarchy.map(r => el('th', { text: r.label }))
-        )),
-        el('tbody', {}, ...Object.entries(rolesCfg.permissions).map(([perm, allowed]) => el('tr', {},
-          el('td', { text: perm }),
-          ...rolesCfg.hierarchy.map(r => el('td', { text: allowed.includes(r.id) ? '✓' : '' }))
-        )))
-      )
-    )
+    collapsiblePanel('Role hierarchy', 'Higher rank inherits lower-rank read scope. Actions are still permission-checked.', roleCards),
+    collapsiblePanel('Permission matrix', 'Transposed by role for easier reading on compact screens.', permsByRole)
   );
   return list;
 }
 
 function renderUsers() {
   const users = state.users();
-  return el('div', { class: 'panel' },
-    el('h3', { text: 'Users' }),
+  return collapsiblePanel('Users', null, [
     el('table', { class: 'table' },
       el('thead', {}, el('tr', {}, el('th', { text: 'Name' }), el('th', { text: 'Email' }), el('th', { text: 'Flat' }), el('th', { text: 'Role' }))),
       el('tbody', {}, ...users.map(u => el('tr', {},
@@ -139,14 +160,13 @@ function renderUsers() {
       )))
     ),
     el('p', { class: 'sub', style: 'margin-top:10px', text: 'Users are auto-provisioned on their first Google sign-in as role="resident". Promote them from here. Rows marked 🔒 Lab are baked into the code as bootstrap admins and cannot be demoted or deleted (see assets/js/lab-admin.js).' })
-  );
+  ]);
 }
 function roleBadgeCls(r) { return ({ admin: '', secretary: 'sec', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[r] || ''; }
 
 function renderAudit() {
   const log = state.auditLog().slice().reverse();
-  return el('div', { class: 'panel' },
-    el('h3', { text: 'Audit log · newest first' }),
+  return collapsiblePanel('Audit log · newest first', null,
     el('table', { class: 'table' },
       el('thead', {}, el('tr', {}, el('th', { text: 'When' }), el('th', { text: 'Actor' }), el('th', { text: 'Action' }), el('th', { text: 'Detail' }))),
       el('tbody', {}, ...(log.length ? log.map(e => el('tr', {},
@@ -282,12 +302,11 @@ function renderBugReports({ canExport, user }) {
     )
   );
 
-  return el('div', { class: 'panel' },
-    el('h3', { text: 'Site-bug reports · newest first' }),
+  return collapsiblePanel('Site-bug reports · newest first', null, [
     summary,
     actions,
     table
-  );
+  ]);
 }
 
 /* ---------- society settings ---------- */

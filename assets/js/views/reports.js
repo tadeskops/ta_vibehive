@@ -115,6 +115,7 @@ export async function render(root, { match } = {}) {
     range:    saved.range    || 'monthly',    // 'monthly' | 'yearly' | 'custom'
     from:     saved.from     || '',
     to:       saved.to       || '',
+    downloadEventId: saved.downloadEventId || '',
     statuses: saved.statuses || ['verified'],
     groupBy:  saved.groupBy  || 'event',      // 'none' | 'event' | 'month' | 'year' | 'method'
     columns:  saved.columns  || DEFAULT_COLS.filter(c => c.default).map(c => c.id),
@@ -159,6 +160,7 @@ export async function render(root, { match } = {}) {
           }))
         )
       ),
+      downloadEventPicker(),
       section('Group summary by',
         radios('groupBy', st.groupBy, [
           { v: 'event',   label: 'Event' },
@@ -229,6 +231,47 @@ export async function render(root, { match } = {}) {
     );
   }
 
+  function downloadEventPicker() {
+    const isLive = (e) => e && e.status === 'published';
+    const isPast = (e) => e && (e.status === 'closed' || e.status === 'archived');
+    const labelOf = (e) => `${e.title || e.id} · ${e.status || 'draft'}`;
+    const live = events.filter(isLive);
+    const past = events.filter(isPast);
+    const other = events.filter(e => !isLive(e) && !isPast(e));
+    return section('Event for download',
+      el('label', {},
+        el('span', { text: 'Select event: ' }),
+        el('select', {
+          on: { change: e => { st.downloadEventId = e.target.value || ''; refresh(); } }
+        },
+          el('option', { value: '', selected: !st.downloadEventId }, 'All selected rows (current filters)'),
+          live.length ? el('optgroup', { label: 'Live events' },
+            ...live.map(e => el('option', {
+              value: e.id,
+              selected: st.downloadEventId === e.id,
+              text: labelOf(e)
+            }))
+          ) : null,
+          past.length ? el('optgroup', { label: 'Past events' },
+            ...past.map(e => el('option', {
+              value: e.id,
+              selected: st.downloadEventId === e.id,
+              text: labelOf(e)
+            }))
+          ) : null,
+          other.length ? el('optgroup', { label: 'Other events' },
+            ...other.map(e => el('option', {
+              value: e.id,
+              selected: st.downloadEventId === e.id,
+              text: labelOf(e)
+            }))
+          ) : null
+        )
+      ),
+      el('small', { class: 'sub', text: 'Includes both live and past events. Pick one event to download its report directly.' })
+    );
+  }
+
   function section(title, ...body) {
     return el('div', { style: 'margin-top:14px' },
       el('div', { class: 'lbl', style: 'font-weight:600;margin-bottom:6px', text: title }),
@@ -274,6 +317,11 @@ export async function render(root, { match } = {}) {
     }
     list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     return list;
+  }
+
+  function rowsForDownload(rows) {
+    if (!st.downloadEventId) return rows;
+    return rows.filter(c => c.event === st.downloadEventId);
   }
 
   function refresh() {
@@ -369,10 +417,11 @@ export async function render(root, { match } = {}) {
     const shown = rows.slice(0, previewCap);
     const cols = DEFAULT_COLS.filter(c => st.columns.includes(c.id));
 
+    const downloadRows = rowsForDownload(rows);
     const actionNodes = [
-      exportOn ? el('button', { class: 'btn', on: { click: () => downloadCSV(rows) } }, '⬇ Download CSV') : null,
-      exportOn ? el('button', { class: 'btn btn-ghost', on: { click: () => printReport(rows) } }, '🖨 Print / Save as PDF') : null,
-      exportOn ? el('button', { class: 'btn btn-sage', on: { click: () => saveToArchive(rows) } }, '☁ Save snapshot to archive') : null,
+      exportOn ? el('button', { class: 'btn', on: { click: () => downloadCSV(downloadRows) } }, '⬇ Export report (CSV)') : null,
+      exportOn ? el('button', { class: 'btn btn-ghost', on: { click: () => printReport(downloadRows) } }, '🖨 Print / Save as PDF') : null,
+      exportOn ? el('button', { class: 'btn btn-sage', on: { click: () => saveToArchive(downloadRows) } }, '☁ Save snapshot to archive') : null,
       !exportOn ? el('small', { class: 'sub', text: 'Export actions are disabled by admin. List view remains available.' }) : null,
     ].filter(Boolean);
     const actions = el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' }, ...actionNodes);

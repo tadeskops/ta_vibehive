@@ -409,6 +409,26 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 /* Admin panels */
 .panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px}
 .panel h3{border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:14px}
+.panel.panel-collapsible{padding:0;overflow:hidden}
+.panel.panel-collapsible>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:14px 18px;color:var(--ink);font-weight:800}
+.panel.panel-collapsible>summary::-webkit-details-marker{display:none}
+.panel.panel-collapsible>summary::after{content:'▾';color:var(--muted);font-size:14px;line-height:1}
+.panel.panel-collapsible:not([open])>summary::after{content:'▸'}
+.panel.panel-collapsible .panel-summary-title{display:inline-flex;align-items:center;gap:6px}
+.panel.panel-collapsible .panel-body{border-top:1px solid var(--line);padding:14px 18px 18px}
+.panel.panel-collapsible .panel-body .sub:first-child{margin-top:0}
+
+/* Roles tab — transposed, role-first cards for compact readability. */
+.role-hierarchy-list,.perm-matrix-by-role{display:grid;gap:10px}
+.role-hierarchy-card,.perm-role-card{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px}
+.role-hierarchy-head,.perm-role-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.role-rank{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--terra)}
+.role-hierarchy-desc{margin:8px 0 0;color:var(--ink);line-height:1.45}
+.perm-chip-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.perm-chip{text-transform:none;letter-spacing:.02em;background:#efe4d0;color:var(--ink)}
+@media (min-width: 980px){
+  .role-hierarchy-list,.perm-matrix-by-role{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 .feature-row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg);border-radius:10px;margin-bottom:6px}
 .feature-row .name{font-weight:700;font-size:14px}
 .feature-row small{color:var(--muted);font-size:12px}
