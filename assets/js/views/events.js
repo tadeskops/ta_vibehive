@@ -166,7 +166,15 @@ async function openTemplatePicker(user, opts) {
         navigate('/e/' + evt.id + (propose ? '' : '/edit'));
       } catch (err) {
         creating = false;
-        toast(err && err.message ? err.message : 'Could not create draft', 'err');
+        const msg = err && err.message ? err.message : 'Could not create draft';
+        if ((err && (err.code === 'ARCHIVE_NOT_CONFIGURED' || err.code === 'ARCHIVE_DISABLED'))
+            || /archive repo\/pat not configured|archive is disabled/i.test(msg)) {
+          toast('Archive persistence is not configured. Open Settings -> Attributes -> Archive persistence, then save and try again.', 'warn');
+          close();
+          navigate('/settings/attributes');
+          return;
+        }
+        toast(msg, 'err');
       }
     } } },
       el('div', { class: 'row', style: 'font-size:32px' }, t.glyph),

@@ -332,6 +332,42 @@ async function renderAttributes(user, canUsersManage) {
     on: { change: (e) => stageAttr('payment.qr_asset_url', e.target.value.trim()) },
     placeholder: 'assets/images/upi-qr.png (optional)'
   });
+
+  /* --- Archive sub-panel ---
+   * Event/settings saves are repo-gated. Keep these controls visible in
+   * attributes so operators can unblock the workflow without code edits. */
+  const rcfg = (vm && vm.receipts) || {};
+  const inpArchiveRepo = el('input', {
+    type: 'text',
+    value: rcfg.archive_repo || '',
+    on: { change: (e) => stageAttr('receipts.archive_repo', e.target.value.trim()) },
+    placeholder: 'owner/repo (e.g. tadeskops/tvh_record)'
+  });
+  const inpArchiveFallback = el('input', {
+    type: 'text',
+    value: rcfg.archive_repo_fallback || '',
+    on: { change: (e) => stageAttr('receipts.archive_repo_fallback', e.target.value.trim()) },
+    placeholder: 'owner/repo (optional fallback target)'
+  });
+  const inpArchiveBranch = el('input', {
+    type: 'text',
+    value: rcfg.archive_branch || 'main',
+    on: { change: (e) => stageAttr('receipts.archive_branch', (e.target.value || 'main').trim()) },
+    placeholder: 'main'
+  });
+  const inpArchivePat = el('input', {
+    type: 'password',
+    value: rcfg.archive_pat || '',
+    autocomplete: 'off',
+    spellcheck: 'false',
+    on: { change: (e) => stageAttr('receipts.archive_pat', e.target.value.trim()) },
+    placeholder: 'Fine-grained PAT with repo contents read/write'
+  });
+  const cbArchiveEnabled = el('input', {
+    type: 'checkbox',
+    checked: !!((rcfg.archive || {}).enabled),
+    on: { change: (e) => stageAttr('receipts.archive.enabled', !!e.target.checked) }
+  });
   let qrDataUrl = (pay.qr_data_url || '').trim();
   const qrInp = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp' });
   const qrStatus = el('small', { class: 'sub',
@@ -717,6 +753,18 @@ async function renderAttributes(user, canUsersManage) {
       row('UPI VPA', 'Handle residents pay into (e.g. society@bank).', inpVpa),
       row('Attach UPI QR image', 'Recommended: upload once here so residents can directly view/save on phone while paying.', qrAttachWrap),
       row('UPI QR image path', 'Optional. Falls back to auto-generated QR from the VPA.', inpQr),
+    ),
+    panel('Archive persistence (required for Save)',
+      'Event/settings saves are blocked when archive is not configured. Configure these once, then Save all settings changes.',
+      row('Archive repository', 'Private target where event/receipt/report snapshots are committed.', inpArchiveRepo),
+      row('Fallback repository', 'Optional secondary target if primary push fails.', inpArchiveFallback),
+      row('Archive branch', 'Usually main.', inpArchiveBranch),
+      row('Archive PAT', 'Fine-grained token (Contents read/write) for the archive repo.', inpArchivePat),
+      el('label', { class: 'row', style: 'gap:8px;margin-top:14px;cursor:pointer' },
+        cbArchiveEnabled,
+        el('span', { text: 'Enable archive writes' }),
+      ),
+      el('small', { class: 'sub', style: 'display:block;margin-top:6px', text: 'Without this configuration, create/edit/publish and settings Save actions are intentionally blocked to avoid local-only drift.' })
     ),
     panel('Receipts',
       'Active template drives what the printable receipt looks like. Manage templates in the Receipt templates tab.',

@@ -69,18 +69,24 @@ function sanitizeForPath(v) {
 }
 
 function archiveErrorFromResult(res) {
-  if (!res) return 'Archive push failed.';
+  if (!res) return { code: 'ARCHIVE_PUSH_FAILED', message: 'Archive push failed.' };
   if (res.reason === 'archive_not_configured') {
-    return 'Archive repo/PAT not configured. Save cannot continue until archive is configured.';
+    return {
+      code: 'ARCHIVE_NOT_CONFIGURED',
+      message: 'Archive repo/PAT not configured. Save cannot continue until archive is configured.'
+    };
   }
   if (res.reason === 'archive_disabled') {
-    return 'Archive is disabled. Enable archive in settings to save events.';
+    return {
+      code: 'ARCHIVE_DISABLED',
+      message: 'Archive is disabled. Enable archive in settings to save events.'
+    };
   }
   if (res.reason === 'push_failed') {
     const detail = res.error && res.error.message ? ` ${res.error.message}` : '';
-    return `Archive push failed.${detail}`.trim();
+    return { code: 'ARCHIVE_PUSH_FAILED', message: `Archive push failed.${detail}`.trim() };
   }
-  return 'Archive push failed.';
+  return { code: 'ARCHIVE_PUSH_FAILED', message: 'Archive push failed.' };
 }
 
 export async function canViewEventDetailedReport(evt, user, canPermission) {
@@ -166,7 +172,10 @@ export async function saveEvent(evt, actor) {
   });
   if (!archiveRes || !archiveRes.ok) {
     state.saveEvents(before);
-    throw new Error(archiveErrorFromResult(archiveRes));
+    const info = archiveErrorFromResult(archiveRes);
+    const err = new Error(info.message);
+    err.code = info.code;
+    throw err;
   }
 
   state.audit({ actor: actor ? actor.id : null, action: 'event.save', event: evt.id, status: evt.status });
