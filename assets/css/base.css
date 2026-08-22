@@ -337,12 +337,15 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .card-pad{padding:18px}
 .card-content{padding:12px}
-.card-hero{height:72px;position:relative;background:linear-gradient(135deg,var(--terra-soft),#f4c9a8)}
+.card-hero{height:120px;position:relative;overflow:hidden;background:linear-gradient(135deg,var(--terra-soft),#f4c9a8)}
 .card-hero.sage{background:linear-gradient(135deg,var(--sage-soft),#b9d4a4)}
 .card-hero.gold{background:linear-gradient(135deg,#f7dfad,#e6c078)}
 .card-hero.emerg{background:linear-gradient(135deg,#f2c9c1,#e59d92)}
-.card-hero .glyph{position:absolute;bottom:6px;right:12px;font-size:36px;opacity:.75}
-.card-hero .badge{position:absolute;top:8px;left:10px;background:rgba(255,255,255,.9);color:var(--ink);font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px}
+.card-hero .card-hero-visual{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;display:block}
+.card-hero .glyph{position:absolute;bottom:6px;right:12px;font-size:36px;opacity:.75;z-index:1}
+.card-hero .badge{position:absolute;top:8px;left:10px;background:rgba(255,255,255,.92);color:var(--ink);font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;z-index:1}
+.hero-visual{margin-top:14px;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 4px 16px rgba(163,67,40,.12)}
+.hero-visual img{display:block;width:100%;height:auto;max-height:280px;object-fit:cover;object-position:center}
 .card-title{font-size:16px;margin-bottom:2px;font-weight:800}
 .card-sub{color:var(--muted);font-size:12px;margin:0 0 8px}
 .stat{padding:14px}

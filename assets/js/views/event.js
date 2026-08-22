@@ -6,7 +6,7 @@ import { catalog, isEventOn, validateEventFeatures } from '../features.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { navigate } from '../router.js';
-import { getSociety, state } from '../store.js';
+import { cfg, getSociety, state } from '../store.js';
 
 /* ---------- payment-input validation helpers ----------
  * Both used ONLY inside the event editor (renderEdit). Kept module-
@@ -100,6 +100,12 @@ export async function render(root, { match }) {
       )
     )
   );
+  const chosenVisual = await resolveFestivalVisual(evt);
+  if (chosenVisual && chosenVisual.image) {
+    hero.append(el('div', { class: 'hero-visual' },
+      el('img', { src: chosenVisual.image, alt: chosenVisual.label || '', loading: 'lazy' })
+    ));
+  }
 
   const showProgress = await isEventOn('reporting.progress', evt);
   const showBoard = await isEventOn('privacy.public_board', evt);
@@ -216,6 +222,22 @@ function heroBg(evt) {
   return '';
 }
 
+let _festivalVisualsCache = null;
+async function loadFestivalCatalog(cluster) {
+  if (!_festivalVisualsCache) {
+    try { _festivalVisualsCache = await cfg.festivalVisuals(); }
+    catch (_e) { _festivalVisualsCache = { visuals: [] }; }
+  }
+  const list = Array.isArray(_festivalVisualsCache.visuals) ? _festivalVisualsCache.visuals : [];
+  if (!cluster || cluster === 'festival') return list.filter(v => !v.cluster || v.cluster === 'festival');
+  return [];
+}
+export async function resolveFestivalVisual(evt) {
+  if (!evt || !evt.festival_visual_id) return null;
+  const catalogList = await loadFestivalCatalog(evt.cluster);
+  return catalogList.find(v => v.id === evt.festival_visual_id) || null;
+}
+
 function statCard(k, v) {
   return el('div', { class: 'card stat' },
     el('div', { class: 'k', text: k }),
@@ -321,6 +343,44 @@ async function renderEdit(root, evt, user, caps) {
   const cat = await catalog();
   const canHistoryConfigure = await can(user, 'events.history.configure');
   const form = el('form', { class: 'card card-pad', on: { submit: e => e.preventDefault() } });
+
+  const festivalCatalog = await loadFestivalCatalog(evt.cluster);
+  const visualSel = festivalCatalog.length
+    ? el('select', {},
+        el('option', { value: '', selected: !evt.festival_visual_id, text: 'No image (use gradient hero)' }),
+        ...festivalCatalog.map(v => el('option', {
+          value: v.id,
+          selected: evt.festival_visual_id === v.id,
+          text: v.label,
+        }))
+      )
+    : null;
+  const visualPreview = el('img', {
+    alt: '',
+    style: 'display:none;max-width:100%;border-radius:12px;margin-top:8px;border:1px solid var(--line);background:#fff',
+  });
+  function refreshVisualPreview() {
+    const chosen = festivalCatalog.find(v => v.id === (visualSel && visualSel.value));
+    if (chosen && chosen.image) {
+      visualPreview.src = chosen.image;
+      visualPreview.style.display = 'block';
+    } else {
+      visualPreview.removeAttribute('src');
+      visualPreview.style.display = 'none';
+    }
+  }
+  if (visualSel) {
+    visualSel.addEventListener('change', refreshVisualPreview);
+    refreshVisualPreview();
+  }
+  const visualI = visualSel
+    ? el('div', { class: 'field' },
+        el('label', { text: 'Festival visual (shown on event card + hero)' }),
+        visualSel,
+        el('small', { class: 'sub', text: 'Optional. Choose a curated festival visual so residents recognise the event at a glance.' }),
+        visualPreview
+      )
+    : null;
 
   const titleI = field('title', 'Event title', el('input', { type: 'text', value: evt.title, required: true }));
   const purposeI = field('purpose', 'Purpose (1-line)', el('input', { type: 'text', value: evt.purpose || '' }));
@@ -549,6 +609,7 @@ async function renderEdit(root, evt, user, caps) {
           report_restrict_allowlist: !!reportAllowlistChk.checked,
           features: updatedFeatures,
           status: statusSel.value,
+          festival_visual_id: visualSel ? (visualSel.value || '') : (evt.festival_visual_id || ''),
         };
         const errs = await validateEventFeatures(updated.features);
         if (errs.length) { toast(`Fix dependencies: ${errs[0].id} needs ${errs[0].missing}`, 'err'); return; }
@@ -584,6 +645,11 @@ async function renderEdit(root, evt, user, caps) {
 
   form.append(el('h2', { text: 'Edit event' }),
     el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI, suggestedI, appreciateI),
+    visualI ? el('section', { style: 'margin-top:14px' },
+      el('h3', { text: 'Event visual' }),
+      el('p', { class: 'sub', style: 'margin-bottom:10px', text: 'Cultural / festival events can display a curated illustration on the event grid and hero.' }),
+      visualI
+    ) : null,
     el('section', { style: 'margin-top:14px' },
       el('h3', { text: 'Payment / collection' }),
       el('p', { class: 'sub', style: 'margin-bottom:10px', text: 'Publish a UPI VPA and/or a QR code so residents can pay. If both are blank, society-wide payment settings are used.' }),

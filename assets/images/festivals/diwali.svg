@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" role="img" aria-label="Diwali — diyas and rangoli">
+  <defs>
+    <radialGradient id="diwali-bg" cx="50%" cy="40%" r="80%">
+      <stop offset="0%" stop-color="#3a2244"/>
+      <stop offset="60%" stop-color="#2b1a3a"/>
+      <stop offset="100%" stop-color="#150a20"/>
+    </radialGradient>
+    <radialGradient id="flame" cx="50%" cy="60%" r="70%">
+      <stop offset="0%" stop-color="#fff2b3"/>
+      <stop offset="45%" stop-color="#ffb020"/>
+      <stop offset="100%" stop-color="#c9450a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="diya" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d98a2b"/>
+      <stop offset="100%" stop-color="#5a2f0a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#fff2b3" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ffb020" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="800" height="500" fill="url(#diwali-bg)"/>
+
+  <!-- Rangoli petals -->
+  <g transform="translate(400 300)" opacity="0.9">
+    <g fill="#c94a75">
+      <ellipse cx="0" cy="-120" rx="20" ry="60"/>
+      <ellipse cx="0" cy="120" rx="20" ry="60"/>
+      <ellipse cx="-120" cy="0" rx="60" ry="20"/>
+      <ellipse cx="120" cy="0" rx="60" ry="20"/>
+    </g>
+    <g fill="#f2c94c" transform="rotate(45)">
+      <ellipse cx="0" cy="-100" rx="16" ry="48"/>
+      <ellipse cx="0" cy="100" rx="16" ry="48"/>
+      <ellipse cx="-100" cy="0" rx="48" ry="16"/>
+      <ellipse cx="100" cy="0" rx="48" ry="16"/>
+    </g>
+    <circle r="30" fill="#fff2b3"/>
+    <circle r="18" fill="#c1272d"/>
+    <circle r="6" fill="#fff"/>
+  </g>
+
+  <!-- Diyas ring -->
+  <g>
+    <g transform="translate(150 380)">
+      <ellipse cx="0" cy="60" rx="80" ry="12" fill="#000" opacity="0.35"/>
+      <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+      <path d="M-30 20 Q0 40 30 20 L20 40 Q0 46 -20 40 Z" fill="url(#diya)"/>
+      <path d="M-2 -30 Q10 -10 0 5 Q-10 -10 -2 -30 Z" fill="url(#flame)"/>
+      <line x1="0" y1="5" x2="0" y2="22" stroke="#7a4b0a" stroke-width="2"/>
+    </g>
+    <g transform="translate(650 380)">
+      <ellipse cx="0" cy="60" rx="80" ry="12" fill="#000" opacity="0.35"/>
+      <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+      <path d="M-30 20 Q0 40 30 20 L20 40 Q0 46 -20 40 Z" fill="url(#diya)"/>
+      <path d="M-2 -30 Q10 -10 0 5 Q-10 -10 -2 -30 Z" fill="url(#flame)"/>
+      <line x1="0" y1="5" x2="0" y2="22" stroke="#7a4b0a" stroke-width="2"/>
+    </g>
+    <g transform="translate(400 130)">
+      <circle cx="0" cy="0" r="70" fill="url(#glow)"/>
+      <path d="M-36 24 Q0 46 36 24 L26 46 Q0 54 -26 46 Z" fill="url(#diya)"/>
+      <path d="M-3 -38 Q12 -14 0 6 Q-12 -14 -3 -38 Z" fill="url(#flame)"/>
+      <line x1="0" y1="6" x2="0" y2="26" stroke="#7a4b0a" stroke-width="2"/>
+    </g>
+  </g>
+
+  <!-- Sparkle stars -->
+  <g fill="#fff2b3">
+    <circle cx="120" cy="120" r="3"/>
+    <circle cx="180" cy="80" r="2"/>
+    <circle cx="720" cy="120" r="3"/>
+    <circle cx="670" cy="80" r="2"/>
+    <circle cx="80" cy="240" r="2"/>
+    <circle cx="740" cy="240" r="2"/>
+    <circle cx="260" cy="60" r="2"/>
+    <circle cx="560" cy="60" r="2"/>
+  </g>
+
+  <!-- Marigold garland -->
+  <g fill="#ffb020">
+    <circle cx="60"  cy="60" r="10"/>
+    <circle cx="100" cy="50" r="10"/>
+    <circle cx="140" cy="60" r="10"/>
+    <circle cx="180" cy="52" r="10"/>
+    <circle cx="620" cy="52" r="10"/>
+    <circle cx="660" cy="60" r="10"/>
+    <circle cx="700" cy="52" r="10"/>
+    <circle cx="740" cy="60" r="10"/>
+  </g>
+</svg>

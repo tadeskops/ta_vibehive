@@ -5,7 +5,7 @@ import { publicEvents, totalFor, verifiedCount, STATUS } from '../events.js';
 import { session } from '../auth.js';
 import { navigate } from '../router.js';
 import { isEventOn, isSystemOn } from '../features.js';
-import { getSociety, state } from '../store.js';
+import { cfg, getSociety, state } from '../store.js';
 import { can } from '../rbac.js';
 import { renderVisitCard } from '../visit-counter.js';
 
@@ -45,6 +45,13 @@ export async function shouldMaskPublic(user) {
 /* Options the dashboard "Latest contributions" widget offers when
  * configuring how many rows to show. Change here to expand. */
 const RECENT_N_CHOICES = [5, 10, 20];
+
+let _festivalVisualsList = null;
+cfg.festivalVisuals().then(v => { _festivalVisualsList = Array.isArray(v && v.visuals) ? v.visuals : []; }).catch(() => { _festivalVisualsList = []; });
+function festivalVisualForSync(evt) {
+  if (!evt || !evt.festival_visual_id || !Array.isArray(_festivalVisualsList)) return null;
+  return _festivalVisualsList.find(v => v.id === evt.festival_visual_id) || null;
+}
 
 export async function render(root) {
   const user = session();
@@ -428,6 +435,7 @@ export function eventCard(evt, opts) {
   const pct = evt.goal ? Math.min(100, Math.round((totalFor(evt.id) / evt.goal) * 100)) : 0;
   const dl = daysLeft(evt.end_at);
   const heroCls = 'card-hero ' + (evt.hero_class || '');
+  const visual = festivalVisualForSync(evt);
   const canContribute = evt.status === STATUS.PUBLISHED && !masked;
   /* Anonymous / masked view: keep the tile lightweight — only the
    * template glyph, event title, and a single "sign in to see
@@ -436,6 +444,7 @@ export function eventCard(evt, opts) {
   if (masked) {
     return el('article', { class: 'card' },
       el('div', { class: heroCls.trim() },
+        visual && visual.image ? el('img', { class: 'card-hero-visual', src: visual.image, alt: '', loading: 'lazy' }) : null,
         el('span', { class: 'badge', text: evt.glyph + ' ' + (evt.template || 'event') }),
         el('span', { class: 'glyph', text: evt.glyph || '' })
       ),
@@ -451,6 +460,7 @@ export function eventCard(evt, opts) {
   }
   return el('article', { class: 'card' },
     el('div', { class: heroCls.trim() },
+      visual && visual.image ? el('img', { class: 'card-hero-visual', src: visual.image, alt: '', loading: 'lazy' }) : null,
       el('span', { class: 'badge', text: evt.glyph + ' ' + (evt.template || 'event') }),
       el('span', { class: 'glyph', text: evt.glyph || '' })
     ),

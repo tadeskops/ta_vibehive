@@ -34,6 +34,7 @@ export const cfg = {
   features: () => loadJSON('config/features.json'),
   templates:() => loadJSON('config/event-templates.json'),
   auth:     () => loadJSON('config/auth.json'),
+  festivalVisuals: () => loadJSON('config/festival-visuals.json').catch(() => ({ visuals: [] })),
 };
 
 /* Effective society config = shipped defaults ⊕ admin overrides (localStorage).

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" role="img" aria-label="Holi — color splashes">
+  <defs>
+    <linearGradient id="holi-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff2b3"/>
+      <stop offset="100%" stop-color="#f7dfad"/>
+    </linearGradient>
+    <radialGradient id="pink" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#ffb3d1"/>
+      <stop offset="100%" stop-color="#c94a75" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="green" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#c6e6a3"/>
+      <stop offset="100%" stop-color="#3f5c34" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blue" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#a3c6ff"/>
+      <stop offset="100%" stop-color="#3E5A9E" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="yellow" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#ffe97a"/>
+      <stop offset="100%" stop-color="#c9a349" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="orange" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#ffc084"/>
+      <stop offset="100%" stop-color="#c9770a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="800" height="500" fill="url(#holi-bg)"/>
+
+  <circle cx="180" cy="180" r="180" fill="url(#pink)"/>
+  <circle cx="620" cy="140" r="180" fill="url(#yellow)"/>
+  <circle cx="140" cy="380" r="190" fill="url(#green)"/>
+  <circle cx="660" cy="380" r="190" fill="url(#blue)"/>
+  <circle cx="400" cy="260" r="200" fill="url(#orange)"/>
+
+  <!-- Powder splats -->
+  <g fill="#c94a75" opacity="0.85">
+    <circle cx="220" cy="140" r="18"/>
+    <circle cx="240" cy="170" r="10"/>
+    <circle cx="200" cy="180" r="8"/>
+  </g>
+  <g fill="#3f5c34" opacity="0.75">
+    <circle cx="600" cy="330" r="16"/>
+    <circle cx="620" cy="360" r="9"/>
+    <circle cx="580" cy="360" r="7"/>
+  </g>
+  <g fill="#3E5A9E" opacity="0.75">
+    <circle cx="140" cy="360" r="16"/>
+    <circle cx="160" cy="390" r="9"/>
+    <circle cx="120" cy="390" r="7"/>
+  </g>
+  <g fill="#c9a349" opacity="0.85">
+    <circle cx="640" cy="140" r="16"/>
+    <circle cx="660" cy="170" r="9"/>
+    <circle cx="620" cy="170" r="7"/>
+  </g>
+
+  <!-- Pichkari water jets -->
+  <g stroke="#c94a75" stroke-width="4" stroke-linecap="round" opacity="0.6">
+    <path d="M100 300 Q220 260 340 280"/>
+    <path d="M700 300 Q580 260 460 280"/>
+  </g>
+</svg>

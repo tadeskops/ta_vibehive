@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" role="img" aria-label="Ganpati Utsav — Ganesh idol with modaks">
+  <defs>
+    <radialGradient id="ganpati-bg" cx="50%" cy="35%" r="80%">
+      <stop offset="0%" stop-color="#fff6dc"/>
+      <stop offset="60%" stop-color="#f7dfad"/>
+      <stop offset="100%" stop-color="#c9770a"/>
+    </radialGradient>
+    <radialGradient id="ganpati-halo" cx="50%" cy="42%" r="45%">
+      <stop offset="0%" stop-color="#fff2b3" stop-opacity="0.95"/>
+      <stop offset="60%" stop-color="#f2c94c" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#c9770a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ganpati-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f6c05a"/>
+      <stop offset="55%" stop-color="#d98a2b"/>
+      <stop offset="100%" stop-color="#8f4a10"/>
+    </linearGradient>
+    <linearGradient id="ganpati-crown" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff1a8"/>
+      <stop offset="100%" stop-color="#c9770a"/>
+    </linearGradient>
+    <linearGradient id="ganpati-dhoti" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffd25a"/>
+      <stop offset="100%" stop-color="#a34328"/>
+    </linearGradient>
+    <radialGradient id="modak" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#fff2b3"/>
+      <stop offset="60%" stop-color="#f2c94c"/>
+      <stop offset="100%" stop-color="#a3690e"/>
+    </radialGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+
+  <rect width="800" height="500" fill="url(#ganpati-bg)"/>
+  <circle cx="400" cy="220" r="230" fill="url(#ganpati-halo)"/>
+
+  <!-- Pedestal -->
+  <ellipse cx="400" cy="440" rx="230" ry="26" fill="#5a2f0a" opacity="0.35" filter="url(#soft)"/>
+  <path d="M180 430 Q400 380 620 430 L600 470 Q400 440 200 470 Z" fill="#8f4a10"/>
+  <path d="M180 430 Q400 380 620 430 L620 420 Q400 370 180 420 Z" fill="#c9770a"/>
+
+  <!-- Idol body -->
+  <path d="M270 420 Q260 340 300 300 Q280 260 320 220 Q330 190 400 180 Q470 190 480 220 Q520 260 500 300 Q540 340 530 420 Z" fill="url(#ganpati-body)"/>
+  <!-- Belly highlight -->
+  <ellipse cx="380" cy="360" rx="80" ry="55" fill="#ffd58a" opacity="0.35"/>
+
+  <!-- Head -->
+  <path d="M310 210 Q290 150 340 120 Q400 90 460 120 Q510 150 490 210 Q485 240 460 250 L340 250 Q315 240 310 210 Z" fill="url(#ganpati-body)"/>
+  <!-- Ears -->
+  <path d="M300 170 Q250 175 240 220 Q245 260 285 245 Z" fill="#d98a2b"/>
+  <path d="M500 170 Q550 175 560 220 Q555 260 515 245 Z" fill="#d98a2b"/>
+
+  <!-- Trunk curled to left -->
+  <path d="M395 220 Q415 260 380 280 Q345 300 355 335 Q365 360 395 350" fill="none" stroke="#a3690e" stroke-width="26" stroke-linecap="round"/>
+  <path d="M395 220 Q415 260 380 280 Q345 300 355 335 Q365 360 395 350" fill="none" stroke="#f6c05a" stroke-width="10" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- Tusks -->
+  <path d="M370 240 L360 275" stroke="#fff2b3" stroke-width="7" stroke-linecap="round"/>
+  <path d="M425 240 L438 275" stroke="#fff2b3" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- Eyes -->
+  <circle cx="360" cy="200" r="7" fill="#2f1400"/>
+  <circle cx="440" cy="200" r="7" fill="#2f1400"/>
+  <circle cx="362" cy="197" r="2" fill="#fff"/>
+  <circle cx="442" cy="197" r="2" fill="#fff"/>
+  <!-- Tilak -->
+  <path d="M395 160 L405 195 L400 205 L390 195 Z" fill="#a3690e"/>
+  <circle cx="400" cy="205" r="4" fill="#c1272d"/>
+
+  <!-- Crown -->
+  <path d="M320 130 L340 80 L360 120 L380 70 L400 115 L420 70 L440 120 L460 80 L480 130 Z" fill="url(#ganpati-crown)" stroke="#7a4b0a" stroke-width="2"/>
+  <circle cx="400" cy="80" r="8" fill="#c1272d" stroke="#7a4b0a" stroke-width="2"/>
+
+  <!-- Dhoti -->
+  <path d="M280 420 Q400 400 520 420 L510 480 Q400 460 290 480 Z" fill="url(#ganpati-dhoti)"/>
+  <path d="M290 445 L510 445" stroke="#7a4b0a" stroke-width="2" opacity="0.5"/>
+
+  <!-- Modak plate -->
+  <ellipse cx="400" cy="470" rx="120" ry="12" fill="#5a2f0a" opacity="0.4"/>
+  <circle cx="350" cy="462" r="18" fill="url(#modak)" stroke="#7a4b0a" stroke-width="1.5"/>
+  <path d="M350 444 L350 480 M340 448 L360 476 M360 448 L340 476" stroke="#7a4b0a" stroke-width="1" opacity="0.6"/>
+  <circle cx="400" cy="462" r="18" fill="url(#modak)" stroke="#7a4b0a" stroke-width="1.5"/>
+  <path d="M400 444 L400 480 M390 448 L410 476 M410 448 L390 476" stroke="#7a4b0a" stroke-width="1" opacity="0.6"/>
+  <circle cx="450" cy="462" r="18" fill="url(#modak)" stroke="#7a4b0a" stroke-width="1.5"/>
+  <path d="M450 444 L450 480 M440 448 L460 476 M460 448 L440 476" stroke="#7a4b0a" stroke-width="1" opacity="0.6"/>
+
+  <!-- Sparkles -->
+  <g fill="#fff2b3" opacity="0.9">
+    <circle cx="180" cy="150" r="3"/>
+    <circle cx="640" cy="130" r="3"/>
+    <circle cx="120" cy="280" r="2"/>
+    <circle cx="700" cy="270" r="2"/>
+    <circle cx="220" cy="80" r="2"/>
+    <circle cx="600" cy="70" r="2"/>
+  </g>
+</svg>

@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "notes": "Curated visuals available in the event editor for cultural / festival cluster events. Each `image` path is a shipped SVG under assets/images/festivals/*.svg — swap to a PNG/JPG (same path shape, different extension) if a photo-real 3D render is added later.",
+  "visuals": [
+    {
+      "id": "ganpati",
+      "label": "Ganpati Utsav",
+      "cluster": "festival",
+      "keywords": ["ganesh", "ganpati", "chaturthi", "modak", "bappa"],
+      "image": "assets/images/festivals/ganpati.svg",
+      "accent": "#c9770a",
+      "hero_class": "gold"
+    },
+    {
+      "id": "diwali",
+      "label": "Diwali",
+      "cluster": "festival",
+      "keywords": ["diwali", "deepavali", "diya", "lights", "rangoli"],
+      "image": "assets/images/festivals/diwali.svg",
+      "accent": "#c9a349",
+      "hero_class": "gold"
+    },
+    {
+      "id": "holi",
+      "label": "Holi",
+      "cluster": "festival",
+      "keywords": ["holi", "colors", "gulal", "rang"],
+      "image": "assets/images/festivals/holi.svg",
+      "accent": "#c94a75",
+      "hero_class": ""
+    },
+    {
+      "id": "navratri",
+      "label": "Navratri / Dandiya",
+      "cluster": "festival",
+      "keywords": ["navratri", "dandiya", "garba", "durga"],
+      "image": "assets/images/festivals/navratri.svg",
+      "accent": "#a34328",
+      "hero_class": "sage"
+    },
+    {
+      "id": "christmas",
+      "label": "Christmas",
+      "cluster": "festival",
+      "keywords": ["christmas", "xmas", "tree", "star"],
+      "image": "assets/images/festivals/christmas.svg",
+      "accent": "#3f5c34",
+      "hero_class": "sage"
+    },
+    {
+      "id": "new_year",
+      "label": "New Year",
+      "cluster": "festival",
+      "keywords": ["new year", "nye", "fireworks"],
+      "image": "assets/images/festivals/new-year.svg",
+      "accent": "#3E5A9E",
+      "hero_class": "gold"
+    }
+  ]
+}

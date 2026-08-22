@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" role="img" aria-label="Christmas — tree and star">
+  <defs>
+    <linearGradient id="xmas-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f2a1a"/>
+      <stop offset="100%" stop-color="#050f08"/>
+    </linearGradient>
+    <linearGradient id="tree" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3f5c34"/>
+      <stop offset="100%" stop-color="#1a3a1e"/>
+    </linearGradient>
+    <radialGradient id="star" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#fff2b3"/>
+      <stop offset="100%" stop-color="#ffb020" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="trunk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7a4b0a"/>
+      <stop offset="100%" stop-color="#3a2308"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="500" fill="url(#xmas-bg)"/>
+
+  <!-- Snowfall -->
+  <g fill="#ffffff" opacity="0.85">
+    <circle cx="80"  cy="60"  r="3"/>
+    <circle cx="140" cy="140" r="2"/>
+    <circle cx="220" cy="80"  r="3"/>
+    <circle cx="300" cy="200" r="2"/>
+    <circle cx="500" cy="120" r="3"/>
+    <circle cx="580" cy="60"  r="2"/>
+    <circle cx="640" cy="180" r="3"/>
+    <circle cx="720" cy="120" r="2"/>
+    <circle cx="740" cy="260" r="2"/>
+    <circle cx="60"  cy="240" r="2"/>
+  </g>
+
+  <!-- Ground -->
+  <ellipse cx="400" cy="470" rx="360" ry="20" fill="#e2e8f0" opacity="0.5"/>
+
+  <!-- Tree layers -->
+  <g transform="translate(400 90)">
+    <path d="M0 0 L-120 200 L120 200 Z" fill="url(#tree)"/>
+    <path d="M0 60 L-150 260 L150 260 Z" fill="url(#tree)"/>
+    <path d="M0 130 L-190 340 L190 340 Z" fill="url(#tree)"/>
+    <!-- Trunk -->
+    <rect x="-18" y="340" width="36" height="50" fill="url(#trunk)"/>
+  </g>
+
+  <!-- Ornaments -->
+  <g>
+    <circle cx="360" cy="180" r="10" fill="#c1272d"/>
+    <circle cx="440" cy="200" r="10" fill="#3E5A9E"/>
+    <circle cx="330" cy="260" r="10" fill="#f2c94c"/>
+    <circle cx="470" cy="270" r="10" fill="#c94a75"/>
+    <circle cx="300" cy="340" r="10" fill="#3E5A9E"/>
+    <circle cx="500" cy="340" r="10" fill="#c1272d"/>
+    <circle cx="400" cy="360" r="10" fill="#f2c94c"/>
+  </g>
+
+  <!-- Star on top -->
+  <g transform="translate(400 80)">
+    <circle r="40" fill="url(#star)"/>
+    <path d="M0 -32 L8 -10 L30 -8 L12 6 L18 28 L0 16 L-18 28 L-12 6 L-30 -8 L-8 -10 Z" fill="#fff2b3" stroke="#ffb020" stroke-width="1.5"/>
+  </g>
+</svg>
