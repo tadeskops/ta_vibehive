@@ -3,6 +3,7 @@ import { ok, err } from '../lib/envelope.ts';
 import { readJson, writeJson } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
+import { invalidateAccessCache } from '../config/loader.ts';
 
 const OVERRIDES_PATH = 'settings/society-overrides.json';
 
@@ -47,6 +48,10 @@ export async function putSettings(ctx: Ctx): Promise<Response> {
   const message = `settings: overrides save by ${ctx.identity?.email ?? 'unknown'}`;
   try {
     const result = await writeJson(ctx.env, OVERRIDES_PATH, sanitized, message, body.expectedSha);
+    /* Any change to overrides may touch `access.role_emails`, so bust
+     * the merged access-map cache immediately. The next whoami call
+     * will reflect the fresh mapping without waiting for TTL. */
+    invalidateAccessCache();
     return ok(ctx.env, ctx.req, { sha: result.sha, commitSha: result.commitSha });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
