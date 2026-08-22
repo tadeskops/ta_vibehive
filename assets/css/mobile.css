@@ -77,14 +77,21 @@
   #whoami button.btn-ghost {
     display: inline-flex;
     align-items: center;
-    min-height: 30px;
+    min-height: 36px;
     padding: 4px 8px;
-    font-size: 11px;
+    font-size: 12px;
     border-radius: 999px;
     white-space: nowrap;
   }
-  #whoami .btn-auth { min-height: 30px; padding: 4px 8px; font-size: 11px; }
-  #whoami .btn-auth .btn-ico svg { width: 13px; height: 13px; }
+  #whoami .btn-auth {
+    min-height: 40px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    font-size: 12px;
+    justify-content: center;
+  }
+  #whoami .btn-auth .btn-ico svg { width: 18px; height: 18px; }
   #whoami .btn-auth .btn-label { display: none; }
   /* Keep export visible on mobile as icon-only so reporting parity with TSH remains discoverable. */
   .topbar-right .tvh-export-btn { display: inline-flex !important; }
@@ -144,8 +151,15 @@
      Legacy override kept only to trim tap-target by a hair on
      phones (34 px vs 36 px on desktop). The shared `.tvh-icon-btn`
      skin from base.css supplies border, hover and focus rules. */
-  .tvh-header-ig {
-    width: 34px; height: 34px;
+  .topbar-right .tvh-icon-btn,
+  .topbar-right .tvh-header-ig {
+    width: 40px;
+    height: 40px;
+  }
+  .topbar-right .tvh-icon-btn svg,
+  .topbar-right .tvh-header-ig svg {
+    width: 20px;
+    height: 20px;
   }
   .tvh-header-ig svg { display: block; }
 
