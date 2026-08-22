@@ -205,12 +205,19 @@ async function applyFooterDesktopVisibility() {
     const setFoot = (id, show) => {
       const n = document.getElementById(id);
       if (!n) return;
-      if (isDesktop) n.hidden = !show;
+      if (isDesktop) {
+        n.hidden = !show;
+        n.style.display = show ? '' : 'none';
+      } else {
+        n.hidden = false;
+        n.style.display = '';
+      }
     };
     const setAny = (id, show) => {
       const n = document.getElementById(id);
       if (!n) return;
       n.hidden = !show;
+      n.style.display = show ? '' : 'none';
     };
     setFoot('footpad-social', desk.show_social !== false);
     setFoot('footpad-report-btn', desk.show_bug_report !== false);

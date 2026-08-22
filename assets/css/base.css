@@ -158,6 +158,9 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 /* Stage / footer */
 .stage{max-width:1200px;margin:0 auto;padding:26px max(20px,env(safe-area-inset-right)) 60px max(20px,env(safe-area-inset-left));width:100%}
 .stage-narrow{max-width:640px}
+/* Guardrail: any element marked hidden must stay hidden even when
+ * component classes set display:flex/grid elsewhere. */
+[hidden]{display:none!important}
 .footpad{background:var(--card);border-top:1px solid var(--line);margin-top:auto;padding-bottom:env(safe-area-inset-bottom)}
 /* Three-zone footer inspired by ta-society-helpdesk: social pill on the
  * left, primary CTA (verify receipt) centered, legal meta pinned right.

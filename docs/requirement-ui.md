@@ -104,6 +104,7 @@ Implemented:
   - Role-to-email mapping (one or more IDs per role)
   - Admin-only editability for admin role mappings; secretary/mgmt can edit non-admin role mappings
   - Access table visibility state
+  - Resident access/role-email section is expanded by default for easier discoverability
 - Desktop footer legal/source meta lines remain suppressed by policy.
 - Dense resident-governance grid in Settings is collapsed by default and expands on tap.
 
@@ -116,6 +117,7 @@ Implemented:
 - Grid/table-heavy sections in Admin (feature clusters, roles, permission matrix, users, audit, bug reports, admin settings panels) are collapsed by default.
 - Sections expand inline without navigation, preserving existing permissions.
 - Roles and permissions presentation is transposed to role-first cards for readability on narrow screens.
+- Roles tab includes a direct shortcut to the Settings role-email access mapping section.
 
 Core UI files:
 - `assets/js/views/admin.js`

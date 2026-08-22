@@ -135,7 +135,11 @@ async function renderRoles() {
 
   const list = el('div', {},
     collapsiblePanel('Role hierarchy', 'Higher rank inherits lower-rank read scope. Actions are still permission-checked.', roleCards),
-    collapsiblePanel('Permission matrix', 'Transposed by role for easier reading on compact screens.', permsByRole)
+    collapsiblePanel('Permission matrix', 'Transposed by role for easier reading on compact screens.', permsByRole),
+    collapsiblePanel('Role email access mapping', 'Manage resident allowlist and role-to-email access tiers in Settings.', [
+      el('p', { class: 'sub', text: 'Open Settings → Attributes and use the section "Resident access and role email mapping (gmail only)".' }),
+      el('a', { class: 'btn btn-sm', href: '#/settings/attributes', text: 'Open role-email access mapping →' })
+    ], false)
   );
   return list;
 }

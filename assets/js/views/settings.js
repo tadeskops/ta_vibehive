@@ -751,9 +751,9 @@ async function renderAttributes(user, canUsersManage) {
       el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootBrandBuild, el('span', { text: 'Show footer build tag (theme/version)' })),
       el('small', { class: 'sub', style: 'display:block;margin-top:6px', text: 'When both are OFF, only the society brand text (e.g. "The Address · Baner") is shown in the right meta row.' })
     ),
-    collapsiblePanel('Resident email governance (gmail only)',
+    collapsiblePanel('Resident access and role email mapping (gmail only)',
       'Use this list to mark verified resident emails. Event reports can optionally be restricted to this allowlist.',
-      true,
+      false,
       row('Bulk paste resident gmail IDs', 'Separators supported: newline, comma, semicolon, or spaces.', taEmailBulk),
       el('div', { class: 'row', style: 'gap:8px' }, btnAddBulk, btnClearAllowed),
       allowedPreview,
