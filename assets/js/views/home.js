@@ -169,6 +169,7 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
   const canVerifyContrib = user ? await can(user, 'contributions.verify') : false;
   const canVerifyExpense = user ? await can(user, 'expenses.verify') : false;
   const canReceiptDownload = user ? await can(user, 'receipts.download') : false;
+  const isResident = !!(user && user.role === 'resident');
   const canRoleReceiptView = !!(user && user.role && user.role !== 'resident' && canReceiptDownload);
 
   /* When public-mask is on and the viewer is signed out, do not render
@@ -215,7 +216,8 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
       const amt = c.hide_amount ? '—' : fmtINR(Number(c.amount || 0));
       const stCls = c.status === 'verified' ? 'ok' : 'warn';
       const dateShort = (c.created_at || '').slice(0, 10);
-      const showReceiptIcon = c.status === 'verified' && canReceiptDownload && (canRoleReceiptView || ownedByMe(c));
+      const showRoleViewIcon = c.status === 'verified' && canRoleReceiptView;
+      const showResidentDownloadIcon = c.status === 'verified' && isResident && canReceiptDownload && ownedByMe(c);
       const showVerifyIcon = canVerifyContrib && c.status === 'pending';
       return el('div', { class: 'row row-between', style: 'gap:10px;padding:10px 0;border-top:1px solid var(--line)' },
         el('div', { style: 'min-width:0;flex:1' },
@@ -226,7 +228,8 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
           el('div', { style: 'font-weight:800', text: amt }),
           el('div', { class: 'row', style: 'gap:6px;align-items:center;justify-content:flex-end' },
             el('small', { class: 'pill ' + stCls, text: c.status }),
-            showReceiptIcon ? receiptViewIconLink(c.id) : null,
+            showRoleViewIcon ? receiptViewIconLink(c.id) : null,
+            showResidentDownloadIcon ? receiptDownloadIconLink(c.id) : null,
             showVerifyIcon ? verifyContribIconBtn(c, user, evt) : null
           )
         )
@@ -284,6 +287,15 @@ function receiptViewIconLink(contribId) {
     title: 'View receipt',
     'aria-label': 'View receipt'
   }, '👁');
+}
+
+function receiptDownloadIconLink(contribId) {
+  return el('a', {
+    class: 'tvh-mini-icon-btn',
+    href: `#/receipt/${encodeURIComponent(String(contribId || ''))}?download=1`,
+    title: 'Download receipt PDF',
+    'aria-label': 'Download receipt PDF'
+  }, '⬇');
 }
 
 /* Sleek inline verify icon button (check glyph) for the

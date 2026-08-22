@@ -224,14 +224,29 @@ function statCard(k, v) {
 }
 
 async function renderPublicBoard(evt, hideAmount, user) {
-  const rows = publicBoardFor(evt.id);
+  const isResident = !!(user && user.role === 'resident');
+  const rows = isResident
+    ? publicBoardFor(evt.id)
+    : contribsFor(evt.id)
+        .filter(c => c.status !== 'void')
+        .map(c => ({
+          when: c.verified_at || c.created_at,
+          name: c.anonymous ? 'Anonymous' : (c.contributor_name || '—'),
+          flat: c.anonymous ? '' : (c.flat || ''),
+          amount: c.hide_amount ? null : c.amount,
+          status: c.status || 'pending',
+          contribId: c.id,
+          contributor: c.contributor || '',
+          contributorEmail: c.contributor_email || '',
+          createdBy: c.created_by || '',
+          filledByEmail: c.filled_by_email || '',
+        }))
+        .sort((a, b) => (b.when || '').localeCompare(a.when || ''));
   const canReceiptDownload = user ? await can(user, 'receipts.download') : false;
   const userEmail = user && user.email ? String(user.email).toLowerCase() : '';
   const userId = user && user.id ? String(user.id).toLowerCase() : '';
   const userName = user && user.name ? String(user.name).trim().toLowerCase() : '';
-  const canOpenReceipt = (r) => {
-    if (!user || !canReceiptDownload || !r.contribId) return false;
-    if (user.role !== 'resident') return true;
+  const ownsRow = (r) => {
     const rowIds = [r.contributorEmail, r.contributor, r.createdBy, r.filledByEmail]
       .map((v) => String(v || '').toLowerCase())
       .filter(Boolean);
@@ -240,12 +255,15 @@ async function renderPublicBoard(evt, hideAmount, user) {
       || (userId && rowIds.includes(userId))
       || (userName && rowName && userName === rowName);
   };
+  const canViewReceipt = (r) => !!(user && !isResident && canReceiptDownload && r.contribId && String(r.status || '') === 'verified');
+  const canDownloadOwnReceipt = (r) => !!(user && isResident && canReceiptDownload && r.contribId && String(r.status || 'verified') === 'verified' && ownsRow(r));
   const body = el('table', { class: 'table' },
     el('thead', {}, el('tr', {},
       el('th', { text: 'When' }),
       el('th', { text: 'Contributor' }),
       el('th', { text: 'Flat' }),
       el('th', { class: 'num', text: 'Amount' }),
+      !isResident ? el('th', { class: 'num', text: 'Status' }) : null,
       el('th', { class: 'num', text: 'Receipt' })
     )),
     el('tbody', {}, ...(rows.length ? rows.slice(0, 20).map(r => el('tr', {},
@@ -253,8 +271,13 @@ async function renderPublicBoard(evt, hideAmount, user) {
       el('td', { text: r.name }),
       el('td', { text: r.flat }),
       el('td', { class: 'num', text: (r.amount == null || hideAmount) ? '—' : fmtINR(r.amount) }),
+      !isResident
+        ? el('td', { class: 'num' },
+            el('small', { class: 'pill ' + (String(r.status || '') === 'verified' ? 'ok' : 'warn'), text: String(r.status || '').toUpperCase() || 'PENDING' })
+          )
+        : null,
       el('td', { class: 'num' },
-        canOpenReceipt(r)
+        canViewReceipt(r)
           ? el('span', { class: 'tvh-receipt-actions' },
               el('a', {
                 class: 'tvh-mini-icon-btn',
@@ -269,14 +292,25 @@ async function renderPublicBoard(evt, hideAmount, user) {
                 'aria-label': 'Download receipt PDF'
               }, '⬇')
             )
+          : canDownloadOwnReceipt(r)
+            ? el('span', { class: 'tvh-receipt-actions' },
+              el('a', {
+                class: 'tvh-mini-icon-btn',
+                href: `#/receipt/${encodeURIComponent(r.contribId)}?download=1`,
+                title: 'Download receipt PDF',
+                'aria-label': 'Download receipt PDF'
+              }, '⬇')
+            )
           : el('small', { class: 'sub', text: '—' })
       )
-    )) : [el('tr', {}, el('td', { colspan: 5, text: 'No verified contributions yet.', style: 'text-align:center;color:var(--muted)' }))]))
+    )) : [el('tr', {}, el('td', { colspan: isResident ? 5 : 6, text: 'No contributions in scope yet.', style: 'text-align:center;color:var(--muted)' }))]))
   );
   return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
     el('h3', { text: '🌸 Contributor board' }),
     canReceiptDownload
-      ? el('p', { class: 'sub', style: 'margin:0 0 8px', text: 'People with receipt access can view (👁) or download (⬇) from here.' })
+      ? el('p', { class: 'sub', style: 'margin:0 0 8px', text: isResident
+        ? 'Residents can download (⬇) their own verified receipts only.'
+        : 'Access roles can view (👁) and download (⬇) verified receipts from here.' })
       : null,
     body
   );
