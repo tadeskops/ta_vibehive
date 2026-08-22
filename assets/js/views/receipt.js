@@ -1,5 +1,8 @@
-/* Receipt view — printable PDF-ready. Uses window.print() for PDF export
- * so no third-party PDF lib is loaded (CSP-safe, supply-chain-safe). */
+/* Receipt view — printable PDF-ready. Uses jsPDF to generate a real
+ * downloadable PDF (no browser print dialog) and the Web Share API
+ * on mobile so recipients receive the PDF as a proper attachment via
+ * WhatsApp / iMessage / Gmail. Desktop falls back to the standard
+ * wa.me deep link with a message body containing the verify URL. */
 'use strict';
 import { el, mount, fmtINR, fmtDate, toast } from '../dom.js';
 import { state, getSociety } from '../store.js';
@@ -7,6 +10,195 @@ import { findEvent } from '../events.js';
 import { attachReceipt } from '../receipts.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
+
+const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const exists = Array.from(document.querySelectorAll('script[src]')).find(s => s.src === src);
+    if (exists) {
+      if (exists.dataset.ready === '1') { resolve(); return; }
+      exists.addEventListener('load', () => resolve(), { once: true });
+      exists.addEventListener('error', () => reject(new Error('failed to load ' + src)), { once: true });
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = false;
+    s.onload = () => { s.dataset.ready = '1'; resolve(); };
+    s.onerror = () => reject(new Error('failed to load ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureJsPdf() {
+  if (window.jspdf && window.jspdf.jsPDF) return;
+  await loadScriptOnce(JSPDF_URL);
+  if (!(window.jspdf && window.jspdf.jsPDF)) throw new Error('PDF library did not initialise');
+}
+
+/* Build a clean, self-contained receipt PDF. Uses jsPDF's built-in
+ * helvetica so the file stays small and renders identically on every
+ * viewer. Rupee glyph is spelled "Rs." because the default font does
+ * not ship the ₹ codepoint. */
+async function buildReceiptPdf(r, rec, evt, soc, opts) {
+  await ensureJsPdf();
+  const tpl = opts && opts.tpl;
+  const doc = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN');
+
+  /* Header band */
+  doc.setFillColor(62, 90, 158); /* Deep Blue */
+  doc.rect(0, 0, pageW, 22, 'F');
+  doc.setTextColor(252, 211, 77); /* Warm Gold */
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(String(soc.short_name || 'VibeHive').toUpperCase(), 10, 8);
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(15);
+  doc.text('Contribution Receipt', 10, 15);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(226, 232, 240);
+  doc.text(`${soc.legal_name || ''} · Reg ${soc.reg_no || ''}`, 10, 20);
+
+  /* Meta block */
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  let y = 32;
+  const line = (k, v) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(String(k).toUpperCase(), 10, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    const lines = doc.splitTextToSize(String(v || '—'), pageW - 30);
+    doc.text(lines, 70, y);
+    y += Math.max(7, lines.length * 5.5);
+  };
+  line('Receipt no.', r.id);
+  line('Issued on', fmtDate(r.issued_at));
+  line('Event', evt ? evt.title : '—');
+  line('Purpose', evt ? (evt.purpose || evt.template) : '—');
+  line('Contributor', rec.anonymous ? 'Anonymous (record maintained)' : (rec.contributor_name || '—'));
+  line('Flat / Unit', rec.anonymous ? '—' : (rec.flat || '—'));
+  line('Payment method', rec.method || '—');
+  line('Payment reference', rec.ref || '—');
+
+  /* Amount block */
+  y += 4;
+  doc.setFillColor(250, 243, 234);
+  doc.roundedRect(10, y, pageW - 20, 20, 3, 3, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.setTextColor(163, 67, 40);
+  doc.text('Amount received: ' + rs(r.amount), pageW / 2, y + 13, { align: 'center' });
+  y += 26;
+
+  /* Thank-you line */
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  const thankYou = tpl && tpl.thank_you_line
+    ? String(tpl.thank_you_line)
+    : 'Received with thanks. This receipt is issued for records only. No goods or services have been supplied in exchange.';
+  doc.text(doc.splitTextToSize(thankYou, pageW - 20), 10, y);
+  y += 12;
+
+  /* Verify block */
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(30, 41, 59);
+  doc.text('Verification', 10, y);
+  y += 5;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  doc.text('Verify hash: ' + (r.verify_hash || ''), 10, y);
+  y += 5;
+  doc.text('Verify online: ' + verifyUrl(r.id), 10, y);
+  y += 5;
+  doc.text('Signatory: ' + (rec.verified_by || 'Authorised signatory'), 10, y);
+
+  /* Footer */
+  doc.setFontSize(7);
+  doc.setTextColor(148, 163, 184);
+  doc.text('VibeHive · The Address', 10, pageH - 8);
+  doc.text('Page 1/1', pageW - 10, pageH - 8, { align: 'right' });
+
+  return doc;
+}
+
+function pdfFileName(r) {
+  const safeId = String(r && r.id || 'receipt').replace(/[^A-Za-z0-9._-]+/g, '_');
+  return `receipt_${safeId}.pdf`;
+}
+
+async function downloadReceiptPdf(r, rec, evt, soc, tpl) {
+  const doc = await buildReceiptPdf(r, rec, evt, soc, { tpl });
+  doc.save(pdfFileName(r));
+}
+
+/* WhatsApp share:
+ *   - Prefer the Web Share API with `files`, which brings up the
+ *     native share sheet on mobile and lets the user pick WhatsApp
+ *     (or iMessage / Gmail / etc.) with the PDF as a real attachment.
+ *   - Fallback to the wa.me text-only deep link when the browser has
+ *     no share API (most desktops) — the message includes the verify
+ *     URL so the recipient can still open the receipt online. */
+async function shareToWhatsApp(r, rec, evt, soc, tpl) {
+  const shareUrl = verifyUrl(r.id);
+  const short = soc.short_name || 'the society';
+  const body = `Namaste! Your contribution of ${fmtINR(r.amount)} towards ${evt ? evt.title : 'the event'} is receipted.\n\nReceipt no: ${r.id}\nVerify online: ${shareUrl}\n\n— ${short}`;
+  try {
+    const doc = await buildReceiptPdf(r, rec, evt, soc, { tpl });
+    const blob = doc.output('blob');
+    const file = new File([blob], pdfFileName(r), { type: 'application/pdf' });
+    if (typeof navigator !== 'undefined' && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: `Receipt ${r.id}`,
+        text: body,
+      });
+      return;
+    }
+  } catch (e) {
+    /* User cancelled OR share API rejected — fall through to wa.me. */
+    if (e && (e.name === 'AbortError' || String(e.message || '').toLowerCase().includes('abort'))) return;
+    console.warn('[receipt] share sheet unavailable, falling back to wa.me', e);
+  }
+  const waHref = `https://wa.me/?text=${encodeURIComponent(body)}`;
+  window.open(waHref, '_blank', 'noopener');
+  toast('Open WhatsApp and attach the downloaded PDF (if not auto-attached).', 'warn');
+  try { await downloadReceiptPdf(r, rec, evt, soc, tpl); } catch (_e2) { /* ignore */ }
+}
+
+/* Inline WhatsApp SVG glyph — matches the 14×14 style used by other
+ * action buttons. Avoids reliance on the emoji font (renders as a
+ * plain green dot on some Windows browsers). */
+function waIcon() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const s = document.createElementNS(NS, 'svg');
+  s.setAttribute('viewBox', '0 0 32 32');
+  s.setAttribute('width', '14');
+  s.setAttribute('height', '14');
+  s.setAttribute('aria-hidden', 'true');
+  s.setAttribute('fill', '#25D366');
+  const p = document.createElementNS(NS, 'path');
+  p.setAttribute('d', 'M19.11 17.32c-.29-.14-1.7-.83-1.96-.93-.26-.1-.45-.14-.64.14-.19.29-.73.93-.9 1.12-.16.19-.33.21-.62.07-.29-.14-1.22-.45-2.33-1.43-.86-.77-1.44-1.72-1.61-2.01-.17-.29-.02-.44.13-.58.13-.13.29-.34.43-.51.14-.17.19-.29.29-.48.1-.19.05-.36-.02-.5-.07-.14-.64-1.54-.88-2.11-.23-.55-.47-.47-.64-.48-.16-.01-.35-.01-.55-.01-.19 0-.5.07-.76.36-.26.29-1 .98-1 2.39 0 1.41 1.02 2.77 1.16 2.96.14.19 2.02 3.09 4.9 4.33.68.29 1.22.46 1.63.59.68.22 1.31.19 1.8.11.55-.08 1.7-.7 1.94-1.37.24-.68.24-1.26.17-1.37-.07-.11-.26-.18-.55-.32zM16 4C9.37 4 4 9.37 4 16c0 2.12.56 4.1 1.53 5.83L4 28l6.34-1.66A11.95 11.95 0 0 0 16 28c6.63 0 12-5.37 12-12S22.63 4 16 4z');
+  s.appendChild(p);
+  const span = document.createElement('span');
+  span.className = 'oauth-glyph';
+  span.setAttribute('aria-hidden', 'true');
+  span.style.cssText = 'display:inline-flex;margin-right:4px;vertical-align:-2px';
+  span.appendChild(s);
+  return span;
+}
 
 export async function render(root, { match }) {
   const contribs = state.contribs();
@@ -61,14 +253,43 @@ export async function render(root, { match }) {
   const mailtoHref = `mailto:${encodeURIComponent(toEmail)}` +
     `?subject=${encodeURIComponent(shareSubject)}` +
     `&body=${encodeURIComponent(shareBody)}`;
-  const waHref = `https://wa.me/?text=${encodeURIComponent(shareBody)}`;
 
   const actions = el('div', { class: 'row row-end print-hide', style: 'margin-bottom:16px;flex-wrap:wrap;gap:8px' },
     el('a', { class: 'btn btn-ghost', href: `#/e/${rec.event}` }, '← Event'),
     el('a', { class: 'btn btn-ghost', href: `#/verify/${encodeURIComponent(r ? r.id : '')}` }, '🔎 Verify online'),
     el('a', { class: 'btn btn-ghost', href: mailtoHref, title: 'Open your mail client with a pre-filled message' }, '✉ Email'),
-    el('a', { class: 'btn btn-ghost', href: waHref, target: '_blank', rel: 'noopener', title: 'Open WhatsApp with a pre-filled message' }, '🟢 WhatsApp'),
-    el('button', { class: 'btn', on: { click: () => window.print() } }, '🖨 Download PDF / Print')
+    el('button', {
+      class: 'btn btn-ghost',
+      type: 'button',
+      title: 'Share receipt PDF via WhatsApp',
+      on: { click: async (ev) => {
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        try { await shareToWhatsApp(r, rec, evt, soc, tpl); }
+        catch (e) { toast((e && e.message) || 'Could not share via WhatsApp', 'err'); }
+        finally { btn.disabled = false; }
+      } }
+    }, waIcon(), el('span', { text: 'WhatsApp' })),
+    el('button', {
+      class: 'btn',
+      type: 'button',
+      title: 'Download the receipt as a PDF file',
+      on: { click: async (ev) => {
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        const originalLabel = btn.textContent;
+        btn.textContent = 'Preparing…';
+        try {
+          await downloadReceiptPdf(r, rec, evt, soc, tpl);
+          toast('Receipt PDF saved to Downloads.', 'ok');
+        } catch (e) {
+          toast((e && e.message) || 'Could not generate the receipt PDF', 'err');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+        }
+      } }
+    }, '⬇ Download PDF')
   );
 
   const receipt = el('article', { class: 'receipt' },
