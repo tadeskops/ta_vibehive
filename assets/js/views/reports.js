@@ -125,21 +125,22 @@ export async function render(root, { match } = {}) {
     title:    saved.title    || '',
   };
 
-  const head = el('div', {},
+  const head = el('div', { class: 'tvh-reports-head' },
     el('h1', { text: 'Reports' }),
     el('p', { class: 'sub', text: forcedEvent
       ? `Event report list view · ${forcedEvent.title}`
       : 'Export contribution data as PDF — one event, several events, or a whole month / year, then archive to the private repo.' })
   );
 
-  const filtersCard = el('section', { class: 'card card-pad' });
-  const summaryCard = el('section', { class: 'card card-pad' });
-  const tableCard   = el('section', { class: 'card card-pad' });
+  const filtersCard = el('section', { class: 'card card-pad tvh-reports-filters' });
+  const summaryCard = el('section', { class: 'card card-pad tvh-reports-summary' });
+  const tableCard   = el('section', { class: 'card card-pad tvh-reports-preview' });
 
   function renderFilters() {
     clear(filtersCard);
-    const nodes = [
+    const leftCol = [
       el('h3', { text: 'What to report' }),
+      el('p', { class: 'sub', text: 'Pick data scope and status filters first, then tune grouping/columns on the right.' }),
       row('Report title (optional)',
         el('input', { type: 'text', maxlength: '120', value: st.title, placeholder: 'e.g. Ganeshotsav 2026 — verified collections',
           on: { input: e => { st.title = e.target.value; } } })
@@ -156,13 +157,17 @@ export async function render(root, { match } = {}) {
         })
       ),
       section('Status',
-        el('div', { class: 'row', style: 'gap:12px;flex-wrap:wrap' },
+        el('div', { class: 'row tvh-reports-status-wrap', style: 'gap:12px;flex-wrap:wrap' },
           ...STATUSES.map(s => check(s, st.statuses.includes(s), on => {
             st.statuses = on ? [...new Set([...st.statuses, s])] : st.statuses.filter(x => x !== s);
             refresh();
           }))
         )
       ),
+    ];
+    const rightCol = [
+      el('h3', { text: 'How to output' }),
+      el('p', { class: 'sub', text: 'Choose per-event download target, summary grouping, and visible columns in Preview/PDF.' }),
       downloadEventPicker(),
       section('Group summary by',
         radios('groupBy', st.groupBy, [
@@ -175,7 +180,7 @@ export async function render(root, { match } = {}) {
         ], v => { st.groupBy = v; refresh(); })
       ),
       section('Columns',
-        el('div', { class: 'row', style: 'gap:12px;flex-wrap:wrap' },
+        el('div', { class: 'tvh-reports-columns-wrap' },
           ...DEFAULT_COLS.map(c => check(c.label, st.columns.includes(c.id), on => {
             st.columns = on ? [...new Set([...st.columns, c.id])] : st.columns.filter(x => x !== c.id);
             refresh();
@@ -183,9 +188,14 @@ export async function render(root, { match } = {}) {
         )
       ),
     ];
-    if (st.scope === 'events') nodes.splice(3, 0, eventPicker());
-    if (st.scope === 'range' && !forcedEventId) nodes.splice(4, 0, dateRange());
-    filtersCard.append(...nodes);
+    if (st.scope === 'events') leftCol.push(eventPicker());
+    if (st.scope === 'range' && !forcedEventId) leftCol.push(dateRange());
+    filtersCard.append(
+      el('div', { class: 'tvh-reports-filter-grid' },
+        el('div', { class: 'tvh-reports-filter-col' }, ...leftCol),
+        el('div', { class: 'tvh-reports-filter-col' }, ...rightCol)
+      )
+    );
   }
 
   function eventPicker() {
@@ -243,7 +253,7 @@ export async function render(root, { match } = {}) {
     const other = events.filter(e => !isLive(e) && !isPast(e));
     return section('Event for download',
       el('label', {},
-        el('span', { text: 'Select event: ' }),
+        el('span', { class: 'sub', text: 'Select event:' }),
         el('select', {
           on: { change: e => { st.downloadEventId = e.target.value || ''; refresh(); } }
         },
@@ -276,14 +286,14 @@ export async function render(root, { match } = {}) {
   }
 
   function section(title, ...body) {
-    return el('div', { style: 'margin-top:14px' },
-      el('div', { class: 'lbl', style: 'font-weight:600;margin-bottom:6px', text: title }),
+    return el('div', { class: 'tvh-reports-section' },
+      el('div', { class: 'lbl tvh-reports-section-title', text: title }),
       ...body
     );
   }
   function row(label, node) {
-    return el('div', { style: 'margin-top:14px' },
-      el('div', { class: 'lbl', style: 'font-weight:600;margin-bottom:6px', text: label }),
+    return el('div', { class: 'tvh-reports-row' },
+      el('div', { class: 'lbl tvh-reports-section-title', text: label }),
       node
     );
   }
@@ -365,10 +375,16 @@ export async function render(root, { match } = {}) {
     );
 
     const groups = groupRows(rows, st.groupBy);
-    const summaryNodes = [el('h3', { text: 'Summary' }), stats];
+    const summaryNodes = [
+      el('div', { class: 'row row-between', style: 'align-items:flex-start;gap:8px;flex-wrap:wrap' },
+        el('h3', { text: 'Summary' }),
+        el('small', { class: 'sub', text: `${rows.length} row${rows.length === 1 ? '' : 's'} in current scope` })
+      ),
+      stats
+    ];
     if (st.groupBy !== 'none' && groups.length) {
-      summaryNodes.push(el('div', { style: 'margin-top:14px' },
-        el('div', { class: 'lbl', style: 'font-weight:600;margin-bottom:6px', text: `Breakdown by ${labelForGroup(st.groupBy)}` }),
+      summaryNodes.push(el('div', { class: 'tvh-reports-section' },
+        el('div', { class: 'lbl tvh-reports-section-title', text: `Breakdown by ${labelForGroup(st.groupBy)}` }),
         el('table', { class: 'table' },
           el('thead', {}, el('tr', {},
             el('th', { text: labelForGroup(st.groupBy) }),
@@ -398,8 +414,8 @@ export async function render(root, { match } = {}) {
         expenseGroups.set(k, g);
       }
       const expBuckets = [...expenseGroups.values()].sort((a, b) => b.total - a.total);
-      summaryNodes.push(el('div', { style: 'margin-top:14px' },
-        el('div', { class: 'lbl', style: 'font-weight:600;margin-bottom:6px', text: `Expenses in scope (${expenses.length} row${expenses.length === 1 ? '' : 's'} · ${fmtINR(expenseTotal)} spent · ${fmtINR(net)} net)` }),
+      summaryNodes.push(el('div', { class: 'tvh-reports-section' },
+        el('div', { class: 'lbl tvh-reports-section-title', text: `Expenses in scope (${expenses.length} row${expenses.length === 1 ? '' : 's'} · ${fmtINR(expenseTotal)} spent · ${fmtINR(net)} net)` }),
         el('table', { class: 'table' },
           el('thead', {}, el('tr', {},
             el('th', { text: 'Category' }),
@@ -469,11 +485,16 @@ export async function render(root, { match } = {}) {
       !exportOn ? el('small', { class: 'sub', text: 'Export actions are disabled by admin. List view remains available.' }) : null,
       (exportOn && !canExport) ? el('small', { class: 'sub', text: 'You can view reports, but PDF download/archive is restricted to roles with reports.export permission.' }) : null,
     ].filter(Boolean);
-    const actions = el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' }, ...actionNodes);
+    const actions = el('div', { class: 'row tvh-reports-actions' }, ...actionNodes);
 
     tableCard.append(
       el('div', { class: 'row row-between', style: 'align-items:center;flex-wrap:wrap;gap:8px' },
-        el('h3', { text: 'Preview' }),
+        el('div', {},
+          el('h3', { text: 'Preview' }),
+          st.downloadEventId
+            ? el('small', { class: 'sub', text: `Download target: ${(evtById.get(st.downloadEventId) && evtById.get(st.downloadEventId).title) || 'Selected event'}` })
+            : null
+        ),
         el('span', { class: 'sub', text: rows.length > previewCap ? `Showing first ${previewCap} of ${rows.length}` : `${rows.length} row${rows.length === 1 ? '' : 's'}` })
       ),
       actions,

@@ -274,6 +274,53 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .row-end{justify-content:flex-end}
 .stack{display:flex;flex-direction:column;gap:12px}
 
+/* Reports page: clearer grouping + better control placement. */
+.tvh-reports-head .sub{max-width:920px}
+.tvh-reports-filters h3,
+.tvh-reports-summary h3,
+.tvh-reports-preview h3{margin:0 0 4px}
+.tvh-reports-filter-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:18px;
+  align-items:start;
+}
+.tvh-reports-filter-col{
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
+  background:#fff;
+}
+.tvh-reports-filter-col .sub{margin:0 0 6px}
+.tvh-reports-row,
+.tvh-reports-section{margin-top:14px}
+.tvh-reports-section-title{
+  font-weight:700;
+  margin-bottom:6px;
+  color:#2f2217;
+}
+.tvh-reports-actions{
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+.tvh-reports-status-wrap label,
+.tvh-reports-columns-wrap label{
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:6px 10px;
+}
+.tvh-reports-columns-wrap{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:8px;
+}
+
+@media (max-width: 920px){
+  .tvh-reports-filter-grid{grid-template-columns:1fr}
+}
+
 /* Cards */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .card-pad{padding:18px}
