@@ -63,6 +63,7 @@ router.register('/admin/:tab',                (ctx) => mountView(views.admin, ct
 router.register('/settings',                  (ctx) => mountView(views.settings, { ...ctx, match: { tab: 'attributes' } }));
 router.register('/settings/:tab',             (ctx) => mountView(views.settings, ctx));
 router.register('/reports',                   (ctx) => mountView(views.reports, ctx));
+router.register('/reports/event/:id',         (ctx) => mountView(views.reports, ctx));
 router.register('/receipt/:id',               (ctx) => mountView(views.receipt, ctx));
 router.register('/verify',                    (ctx) => mountView(views.verify, ctx));
 router.register('/verify/:id',                (ctx) => mountView(views.verify, ctx));
@@ -145,11 +146,12 @@ async function renderChrome() {
       });
       whoami.append(btn);
     }
-    const roleLabel = ({ admin: 'Admin', mgmt: 'MC', committee: 'Committee', manager: 'Manager', resident: 'Resident' })[user.role] || user.role;
+    const roleLabel = ({ admin: 'Admin', secretary: 'Secretary', mgmt: 'MC', committee: 'Committee', manager: 'Manager', resident: 'Resident' })[user.role] || user.role;
     whoami.append(el('span', { class: 'whoami' },
       el('span', { class: 'avatar', text: (user.name || '?').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase() }),
       el('span', { class: 'whoami-name', text: user.name.split(' ')[0] }),
-      el('span', { class: 'role-badge ' + ({ admin: '', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[user.role], text: roleLabel })
+      el('span', { class: 'role-badge ' + ({ admin: '', secretary: 'sec', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[user.role], text: roleLabel }),
+      user.is_verified_resident ? el('span', { class: 'pill pill-sage', title: 'Verified resident email', text: '🛡' }) : null
     ));
     whoami.append(el('a', { class: 'btn btn-sm btn-ghost', href: '#/login' },
       iconSpan(ICON_SIGNIN), el('span', { text: 'Switch' })));
@@ -160,6 +162,31 @@ async function renderChrome() {
 
   /* Mobile tab-bar: highlight the active tab + adjust the "Me" link. */
   syncMobileTabbar(user);
+  await applyFooterDesktopVisibility();
+}
+
+async function applyFooterDesktopVisibility() {
+  try {
+    const soc = await getSociety();
+    const desk = ((soc.footer || {}).desktop) || {};
+    const isDesktop = window.matchMedia && window.matchMedia('(min-width: 641px)').matches;
+    const setFoot = (id, show) => {
+      const n = document.getElementById(id);
+      if (!n) return;
+      if (isDesktop) n.hidden = !show;
+    };
+    setFoot('footpad-social', desk.show_social !== false);
+    setFoot('footpad-report-btn', desk.show_bug_report !== false);
+    setFoot('footpad-verify-link', desk.show_verify !== false);
+    setFoot('footpad-legal-line', desk.show_legal !== false);
+    setFoot('footpad-source-line', desk.show_source !== false);
+    const dot = document.getElementById('footpad-center-dot');
+    if (dot && isDesktop) {
+      const bug = document.getElementById('footpad-report-btn');
+      const vrf = document.getElementById('footpad-verify-link');
+      dot.hidden = !!(bug && bug.hidden) || !!(vrf && vrf.hidden);
+    }
+  } catch (_e) { /* best-effort */ }
 }
 
 /* Mark the mobile tab that matches the current hash. Also swaps the
@@ -318,6 +345,12 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (socialCfg.label) headerIg.setAttribute('aria-label', 'Follow ' + socialCfg.label + ' on Instagram');
       headerIg.hidden = false;
     }
+
+    /* Desktop footer visibility is configurable from Settings. Each
+     * section has an explicit id so admins can tune which affordances
+     * appear without editing HTML. Mobile compact footer keeps its own
+     * behavior and is not forced by these desktop toggles. */
+    await applyFooterDesktopVisibility();
   } catch (_e) { /* keep shipped fallback */ }
 });
 

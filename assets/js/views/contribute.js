@@ -24,7 +24,7 @@ import { findEvent, addContribution, contribsFor } from '../events.js';
 import { isEventOn } from '../features.js';
 import { session } from '../auth.js';
 import { navigate } from '../router.js';
-import { getSociety } from '../store.js';
+import { getSociety, state } from '../store.js';
 import { emit as notifyEmit } from '../notify.js';
 import { parseFlat, validateMobile, flatRuleText } from '../validators.js';
 
@@ -141,6 +141,36 @@ export async function render(root, { match }) {
     contributor_mobile: user.mobile || '',
     on_behalf: false,
   };
+  const draft = state.contribDraft(evt.id);
+  if (draft && typeof draft === 'object') {
+    if (Number(draft.amount || 0) > 0) st.amount = Number(draft.amount);
+    if (draft.method) st.method = String(draft.method);
+    if (typeof draft.anonymous === 'boolean') st.anonymous = draft.anonymous;
+    if (typeof draft.hide_amount === 'boolean') st.hide_amount = draft.hide_amount;
+    if (draft.ref) st.ref = String(draft.ref);
+    if (draft.remarks) st.remarks = String(draft.remarks);
+    if (draft.contributor_name) st.contributor_name = String(draft.contributor_name);
+    if (draft.contributor_email) st.contributor_email = String(draft.contributor_email);
+    if (draft.contributor_flat) st.contributor_flat = String(draft.contributor_flat);
+    if (draft.contributor_mobile) st.contributor_mobile = String(draft.contributor_mobile);
+    if (typeof draft.on_behalf === 'boolean') st.on_behalf = draft.on_behalf;
+  }
+
+  function persistDraft() {
+    state.saveContribDraft(evt.id, {
+      amount: st.amount,
+      method: st.method,
+      anonymous: st.anonymous,
+      hide_amount: st.hide_amount,
+      ref: st.ref,
+      remarks: st.remarks,
+      contributor_name: st.contributor_name,
+      contributor_email: st.contributor_email,
+      contributor_flat: st.contributor_flat,
+      contributor_mobile: st.contributor_mobile,
+      on_behalf: st.on_behalf,
+    });
+  }
 
   const tierGrid = showTiers ? el('div', { class: 'tier-grid' },
     ...evt.tiers.map((t, i) => {
@@ -154,29 +184,37 @@ export async function render(root, { match }) {
         st.amount = t.amount;
         amtInp.value = String(t.amount);
         refreshPayHint();
+        persistDraft();
       });
       return b;
     })
   ) : null;
 
   const amtInp = el('input', { type: 'number', min: '1', value: String(st.amount) });
-  amtInp.addEventListener('input', () => { st.amount = Number(amtInp.value || 0); refreshPayHint(); });
+  amtInp.addEventListener('input', () => { st.amount = Number(amtInp.value || 0); refreshPayHint(); persistDraft(); });
 
   const methodSel = el('select', {},
     upiOn ? el('option', { value: 'upi', text: 'UPI (scan / pay)' }) : null,
     bankOn ? el('option', { value: 'bank', text: 'Bank transfer (NEFT / IMPS)' }) : null,
     el('option', { value: 'other', text: 'Cash / cheque (record only)' })
   );
-  methodSel.addEventListener('change', () => { st.method = methodSel.value; refreshPayHint(); refreshRefLabel(); });
+  methodSel.value = st.method;
+  methodSel.addEventListener('change', () => { st.method = methodSel.value; refreshPayHint(); refreshRefLabel(); persistDraft(); });
 
   const anonToggle = el('button', { type: 'button', class: 'toggle' + (st.anonymous ? ' on' : ''), 'aria-label': 'Anonymous' });
-  anonToggle.addEventListener('click', () => { st.anonymous = !st.anonymous; anonToggle.classList.toggle('on', st.anonymous); });
+  anonToggle.addEventListener('click', () => { st.anonymous = !st.anonymous; anonToggle.classList.toggle('on', st.anonymous); persistDraft(); });
   const hideToggle = el('button', { type: 'button', class: 'toggle' + (st.hide_amount ? ' on' : ''), 'aria-label': 'Hide amount' });
-  hideToggle.addEventListener('click', () => { st.hide_amount = !st.hide_amount; hideToggle.classList.toggle('on', st.hide_amount); });
+  hideToggle.addEventListener('click', () => { st.hide_amount = !st.hide_amount; hideToggle.classList.toggle('on', st.hide_amount); persistDraft(); });
 
   const refLabel = el('label', { text: 'UPI reference / UTR' });
-  const refInp = el('input', { type: 'text', placeholder: '12-digit UPI reference' });
-  refInp.addEventListener('input', () => { st.ref = refInp.value.trim(); });
+  const refInp = el('input', { type: 'text', placeholder: '12-digit UPI reference', value: st.ref || '' });
+  refInp.addEventListener('input', () => { st.ref = refInp.value.trim(); persistDraft(); });
+  const noteInp = el('textarea', {
+    rows: 3,
+    placeholder: 'Optional: if you cannot update contribution details yourself, leave a note for committee follow-up.',
+    value: st.remarks || ''
+  });
+  noteInp.addEventListener('input', () => { st.remarks = noteInp.value.trim(); persistDraft(); });
   function refreshRefLabel() {
     if (st.method === 'upi')        { refLabel.textContent = 'UPI reference / UTR';       refInp.placeholder = '12-digit UPI reference'; }
     else if (st.method === 'bank')  { refLabel.textContent = 'NEFT / IMPS reference';     refInp.placeholder = 'Bank txn reference'; }
@@ -392,9 +430,9 @@ export async function render(root, { match }) {
   const mobileInp = el('input', { type: 'tel', autocomplete: 'tel-national', required: '',
     'aria-required': 'true', inputmode: 'numeric', maxlength: '10',
     pattern: '[6-9][0-9]{9}', placeholder: '10-digit mobile number', value: st.contributor_mobile });
-  nameInp .addEventListener('input', () => { st.contributor_name  = nameInp.value.trim(); });
-  emailInp.addEventListener('input', () => { st.contributor_email = emailInp.value.trim(); });
-  flatInp .addEventListener('input', () => { st.contributor_flat  = flatInp.value.trim(); });
+  nameInp .addEventListener('input', () => { st.contributor_name  = nameInp.value.trim(); persistDraft(); });
+  emailInp.addEventListener('input', () => { st.contributor_email = emailInp.value.trim(); persistDraft(); });
+  flatInp .addEventListener('input', () => { st.contributor_flat  = flatInp.value.trim(); persistDraft(); });
   /* Blur-time canonicalisation: whatever the resident typed
    * ("a101", "A 101", "a-1301") gets rewritten to the canonical
    * `TOWER-FloorSlot` form the moment they leave the field. If the
@@ -406,6 +444,7 @@ export async function render(root, { match }) {
     if (parsed.valid && parsed.canonical !== flatInp.value) {
       flatInp.value = parsed.canonical;
       st.contributor_flat = parsed.canonical;
+      persistDraft();
     }
   });
   mobileInp.addEventListener('input', () => {
@@ -414,12 +453,13 @@ export async function render(root, { match }) {
     const digits = (mobileInp.value || '').replace(/\D+/g, '').replace(/^91(?=\d{10}$)/, '');
     if (digits !== mobileInp.value) mobileInp.value = digits;
     st.contributor_mobile = digits;
+    persistDraft();
   });
 
   const identityHead = el('div', { class: 'lbl', style: 'font-weight:800;font-size:14px;margin:4px 0 10px', text: 'Contributor details' });
   const identitySub  = el('small', { class: 'sub', style: 'display:block;margin-bottom:10px', text: 'Prefilled from your profile — edit if anything is out of date.' });
 
-  const behalfChk = el('input', { type: 'checkbox' });
+  const behalfChk = el('input', { type: 'checkbox', checked: !!st.on_behalf });
   const behalfRow = el('label', { class: 'check-row', style: 'margin-top:6px' },
     behalfChk,
     el('span', { text: 'I am filling this on behalf of someone else' })
@@ -461,7 +501,7 @@ export async function render(root, { match }) {
     }
     refreshProofLabel();
   }
-  behalfChk.addEventListener('change', () => { st.on_behalf = behalfChk.checked; refreshIdentityLabels(); });
+  behalfChk.addEventListener('change', () => { st.on_behalf = behalfChk.checked; refreshIdentityLabels(); persistDraft(); });
 
   const submitBtn = el('button', { class: 'btn btn-block', on: { click: async () => {
     if (!st.amount || st.amount < 1) return toast('Enter a valid amount', 'err');
@@ -554,6 +594,7 @@ export async function render(root, { match }) {
       }
     } catch (_e) { /* silent */ }
     toast('Submitted · awaiting committee verification', 'ok');
+    state.clearContribDraft(evt.id);
     navigate('/e/' + evt.id);
   } } }, 'Submit for verification');
 
@@ -595,6 +636,11 @@ export async function render(root, { match }) {
       el('div', { style: 'text-align:center;color:var(--muted);font-weight:800;font-size:12px;letter-spacing:.12em;margin:10px 0', text: '— OR —' }),
       el('div', {}, proofLabel, proofInp, proofStatus, proofPreview)
     ),
+    el('div', { class: 'field' },
+      el('label', { text: 'Need help updating contribution details? Add note' }),
+      noteInp,
+      el('small', { class: 'sub', text: 'Use this if a committee member needs to correct your entry or payment details.' })
+    ),
     allowAnon ? el('div', { class: 'callout', style: 'margin:14px 0' },
       el('div', {},
         el('div', { class: 'lbl', text: 'Contribute anonymously' }),
@@ -616,5 +662,6 @@ export async function render(root, { match }) {
   refreshRefLabel();
   refreshPayHint();
   refreshIdentityLabels();
+  persistDraft();
   mount(root, form);
 }

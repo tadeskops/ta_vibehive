@@ -25,9 +25,10 @@
 'use strict';
 import { el, mount, clear, fmtINR, fmtDate, toast } from '../dom.js';
 import { state, getSociety } from '../store.js';
-import { isSystemOn } from '../features.js';
+import { isSystemOn, isEventOn } from '../features.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
+import { findEvent, canViewEventDetailedReport } from '../events.js';
 
 const LS_KEY = 'tvh:v1:reports:filters';
 const STATUSES = ['pending', 'verified', 'void'];
@@ -51,7 +52,8 @@ function saveFilters(f) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(f)); } catch (_e) { /* quota */ }
 }
 
-export async function render(root) {
+export async function render(root, { match } = {}) {
+  const forcedEventId = match && match.id ? match.id : '';
   const user = session();
   if (!user) {
     return mount(root, el('div', { class: 'card card-pad' },
@@ -61,13 +63,39 @@ export async function render(root) {
     ));
   }
   const allowed = await can(user, 'reports.view');
-  if (!allowed) {
+  const eventDetailPerm = await can(user, 'reports.event.detail');
+  let forcedEvent = null;
+  if (forcedEventId) {
+    forcedEvent = findEvent(forcedEventId);
+    if (!forcedEvent) {
+      return mount(root, el('div', { class: 'card card-pad' },
+        el('h2', { text: 'Event not found' }),
+        el('p', { class: 'sub', text: 'The event-specific report link is invalid.' })
+      ));
+    }
+    const onForEvent = await isEventOn('reporting.event_detail_signedin', forcedEvent);
+    if (!onForEvent) {
+      return mount(root, el('div', { class: 'card card-pad' },
+        el('h2', { text: 'Report not enabled' }),
+        el('p', { class: 'sub', text: 'Detailed list report is not enabled for this event.' })
+      ));
+    }
+    const ok = await canViewEventDetailedReport(forcedEvent, user, allowed || eventDetailPerm);
+    if (!ok) {
+      return mount(root, el('div', { class: 'card card-pad' },
+        el('h2', { text: 'No access' }),
+        el('p', { class: 'sub', text: 'This event report is restricted to allowed resident emails or committee roles.' })
+      ));
+    }
+  }
+  if (!allowed && !forcedEventId) {
     return mount(root, el('div', { class: 'card card-pad' },
       el('h2', { text: 'No access' }),
       el('p', { class: 'sub', text: 'Ask an admin to grant reports.view on your role.' })
     ));
   }
-  if (!(await isSystemOn('reporting.export'))) {
+  const exportOn = await isSystemOn('reporting.export');
+  if (!exportOn && !forcedEventId) {
     return mount(root, el('div', { class: 'card card-pad' },
       el('h2', { text: 'Reports export is turned off' }),
       el('p', { class: 'sub', text: 'An admin can enable "reporting.export" in Admin → Feature registry.' })
@@ -81,8 +109,8 @@ export async function render(root) {
   const saved = loadFilters();
 
   const st = {
-    scope:    saved.scope    || 'published',  // 'all' | 'published' | 'events' | 'range'
-    eventIds: saved.eventIds || [],
+    scope:    forcedEventId ? 'events' : (saved.scope || 'published'),  // 'all' | 'published' | 'events' | 'range'
+    eventIds: forcedEventId ? [forcedEventId] : (saved.eventIds || []),
     range:    saved.range    || 'monthly',    // 'monthly' | 'yearly' | 'custom'
     from:     saved.from     || '',
     to:       saved.to       || '',
@@ -94,7 +122,9 @@ export async function render(root) {
 
   const head = el('div', {},
     el('h1', { text: 'Reports' }),
-    el('p', { class: 'sub', text: 'Export contribution data — one event, several events, or a whole month / year. CSV, Print (Save-as-PDF), and auto-save to the private archive.' })
+    el('p', { class: 'sub', text: forcedEvent
+      ? `Event report list view · ${forcedEvent.title}`
+      : 'Export contribution data — one event, several events, or a whole month / year. CSV, Print (Save-as-PDF), and auto-save to the private archive.' })
   );
 
   const filtersCard = el('section', { class: 'card card-pad' });
@@ -115,10 +145,13 @@ export async function render(root) {
           { v: 'all',       label: 'All events (any status)' },
           { v: 'events',    label: 'Select specific events…' },
           { v: 'range',     label: 'Date range (monthly / yearly)' },
-        ], v => { st.scope = v; renderFilters(); refresh(); })
+        ], v => {
+          if (forcedEventId) return;
+          st.scope = v; renderFilters(); refresh();
+        })
       ),
       st.scope === 'events' ? eventPicker() : null,
-      st.scope === 'range' ? dateRange() : null,
+      st.scope === 'range' && !forcedEventId ? dateRange() : null,
       section('Status',
         el('div', { class: 'row', style: 'gap:12px;flex-wrap:wrap' },
           ...STATUSES.map(s => check(s, st.statuses.includes(s), on => {
@@ -149,6 +182,9 @@ export async function render(root) {
   }
 
   function eventPicker() {
+    if (forcedEventId) {
+      return section('Event', el('p', { class: 'sub', text: forcedEvent ? forcedEvent.title : forcedEventId }));
+    }
     return section('Events (pick one or many)',
       events.length ? el('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px' },
         ...events.map(e => check(
@@ -330,9 +366,10 @@ export async function render(root) {
     const cols = DEFAULT_COLS.filter(c => st.columns.includes(c.id));
 
     const actions = el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' },
-      el('button', { class: 'btn', on: { click: () => downloadCSV(rows) } }, '⬇ Download CSV'),
-      el('button', { class: 'btn btn-ghost', on: { click: () => printReport(rows) } }, '🖨 Print / Save as PDF'),
-      el('button', { class: 'btn btn-sage', on: { click: () => saveToArchive(rows) } }, '☁ Save snapshot to archive'),
+      exportOn ? el('button', { class: 'btn', on: { click: () => downloadCSV(rows) } }, '⬇ Download CSV') : null,
+      exportOn ? el('button', { class: 'btn btn-ghost', on: { click: () => printReport(rows) } }, '🖨 Print / Save as PDF') : null,
+      exportOn ? el('button', { class: 'btn btn-sage', on: { click: () => saveToArchive(rows) } }, '☁ Save snapshot to archive') : null,
+      !exportOn ? el('small', { class: 'sub', text: 'Export actions are disabled by admin. List view remains available.' }) : null,
     );
 
     tableCard.append(

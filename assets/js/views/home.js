@@ -25,7 +25,7 @@ import { can } from '../rbac.js';
  *
  * Never applies to signed-in residents/committee/admins -- once you
  * log in you get the full board back. */
-const MASK_LABEL = '\uD83D\uDD12 Sign in to view';
+const MASK_LABEL = '\uD83D\uDD12 Private';
 const MASK_DOTS  = '\u2022\u2022\u2022';
 export async function shouldMaskPublic(user) {
   if (user) return false;
@@ -253,14 +253,14 @@ export function eventCard(evt, opts) {
       el('span', { class: 'glyph', text: evt.glyph || '' })
     ),
     el('div', { class: 'card-content' },
-      el('h3', { class: 'card-title', text: masked ? MASK_LABEL : evt.title }),
+      el('h3', { class: 'card-title' + (masked ? ' tvh-mask-blur' : ''), text: masked ? evt.title : evt.title }),
       el('p', { class: 'card-sub', text: masked
         ? (isSports ? MASK_DOTS + ' venue hidden' : MASK_DOTS)
         : (evt.purpose || 'Community event') }),
       masked
-        ? el('div', { class: 'progress-meta', style: 'margin-top:8px' },
-            el('span', { text: MASK_LABEL }),
-            el('span', { text: MASK_DOTS + ' contributors' })
+          ? el('div', { class: 'progress-meta tvh-mask-blur', style: 'margin-top:8px' },
+            el('span', { text: fmtINR(totalFor(evt.id)) + ' of ' + fmtINR(evt.goal || 0) }),
+            el('span', { text: `${verifiedCount(evt.id)} contributors` })
           )
         : (evt.goal ? el('div', {},
             el('div', { class: 'progress' + (evt.hero_class === 'sage' ? ' sage' : evt.hero_class === 'gold' ? ' gold' : '') }, el('i', { style: { width: pct + '%' } })),
@@ -277,7 +277,7 @@ export function eventCard(evt, opts) {
           ? MASK_DOTS + ' schedule hidden'
           : (dl != null ? (dl > 0 ? `${dl} day${dl === 1 ? '' : 's'} left` : 'Closes today') : (evt.start_at ? 'Starts ' + fmtDate(evt.start_at) : '')) }),
         el('div', { class: 'row', style: 'gap:6px' },
-          el('a', { class: 'btn btn-sm btn-ghost', href: masked ? '#/login' : `#/e/${evt.id}` }, masked ? 'Sign in' : 'View'),
+          el('a', { class: 'btn btn-sm btn-ghost', href: masked ? '#/events' : `#/e/${evt.id}` }, masked ? 'Masked' : 'View'),
           canContribute ? el('a', { class: 'btn btn-sm', href: `#/e/${evt.id}/contribute` }, '＋ Contribute') : null
         )
       )

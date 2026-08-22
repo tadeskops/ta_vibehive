@@ -135,6 +135,7 @@ async function renderAttributes(user) {
   const soc = await getSociety();
   const overrides = state.societyOverrides() || {};
   const templates = state.receiptTemplates() || [];
+  const users = state.users() || [];
 
   /* Small helper — save a single dotted-path attribute back into
    * societyOverrides. Toast is optional (spammy for range inputs). */
@@ -237,6 +238,109 @@ async function renderAttributes(user) {
     on: { change: (e) => saveAttr('contributions.default_hide_amount', e.target.checked ? true : undefined) }
   });
 
+  /* --- Desktop footer visibility controls --- */
+  const showFooterSocial = !!(((soc.footer || {}).desktop || {}).show_social);
+  const showFooterBug = !!(((soc.footer || {}).desktop || {}).show_bug_report);
+  const showFooterVerify = !!(((soc.footer || {}).desktop || {}).show_verify);
+  const showFooterLegal = !!(((soc.footer || {}).desktop || {}).show_legal);
+  const showFooterSource = !!(((soc.footer || {}).desktop || {}).show_source);
+  const cbFootSocial = el('input', {
+    type: 'checkbox', checked: showFooterSocial,
+    on: { change: (e) => saveAttr('footer.desktop.show_social', e.target.checked ? true : undefined) }
+  });
+  const cbFootBug = el('input', {
+    type: 'checkbox', checked: showFooterBug,
+    on: { change: (e) => saveAttr('footer.desktop.show_bug_report', e.target.checked ? true : undefined) }
+  });
+  const cbFootVerify = el('input', {
+    type: 'checkbox', checked: showFooterVerify,
+    on: { change: (e) => saveAttr('footer.desktop.show_verify', e.target.checked ? true : undefined) }
+  });
+  const cbFootLegal = el('input', {
+    type: 'checkbox', checked: showFooterLegal,
+    on: { change: (e) => saveAttr('footer.desktop.show_legal', e.target.checked ? true : undefined) }
+  });
+  const cbFootSource = el('input', {
+    type: 'checkbox', checked: showFooterSource,
+    on: { change: (e) => saveAttr('footer.desktop.show_source', e.target.checked ? true : undefined) }
+  });
+
+  /* --- Resident email governance (gmail only for now) --- */
+  const currentAllowed = (((soc.residents || {}).allowed_gmail) || []).slice();
+  const allowedSet = new Set(currentAllowed.map(v => String(v || '').trim().toLowerCase()).filter(Boolean));
+  const gmailOnly = (v) => /^[a-z0-9._%+-]+@gmail\.com$/i.test(String(v || '').trim());
+  const roleMap = ((((overrides || {}).access || {}).email_roles) || {});
+  const taEmailBulk = el('textarea', {
+    rows: 5,
+    placeholder: 'Paste one or many gmail IDs. Comma, semicolon, newline, or spaces all supported.',
+  });
+  const allowedPreview = el('small', {
+    class: 'sub',
+    text: currentAllowed.length ? `${currentAllowed.length} verified resident email(s) configured.` : 'No verified resident emails configured yet.'
+  });
+  const btnAddBulk = el('button', { class: 'btn btn-sm', type: 'button' }, 'Parse and add');
+  const btnClearAllowed = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Clear list');
+  const taRoleMap = el('textarea', {
+    rows: 5,
+    placeholder: 'email@gmail.com=resident\nsecretary@gmail.com=secretary',
+    value: Object.entries(roleMap).map(([k, v]) => `${k}=${v}`).join('\n')
+  });
+  const btnSaveRoleMap = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Save role mapping');
+  btnSaveRoleMap.addEventListener('click', () => {
+    const lines = String(taRoleMap.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const next = {};
+    const validRoles = new Set(['resident', 'manager', 'committee', 'mgmt', 'secretary', 'admin']);
+    for (const line of lines) {
+      const parts = line.split('=');
+      if (parts.length !== 2) continue;
+      const email = String(parts[0] || '').trim().toLowerCase();
+      const role = String(parts[1] || '').trim().toLowerCase();
+      if (!gmailOnly(email)) continue;
+      if (!validRoles.has(role)) continue;
+      next[email] = role;
+    }
+    saveAttr('access.email_roles', Object.keys(next).length ? next : undefined, { silent: true });
+    toast(`Saved ${Object.keys(next).length} email-role mapping(s).`, 'ok');
+  });
+  btnAddBulk.addEventListener('click', () => {
+    const raw = String(taEmailBulk.value || '');
+    const tokens = raw.split(/[\s,;]+/).map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+    if (!tokens.length) {
+      toast('Paste at least one email first.', 'warn');
+      return;
+    }
+    let good = 0;
+    let bad = 0;
+    for (const t of tokens) {
+      if (!gmailOnly(t)) { bad += 1; continue; }
+      if (!allowedSet.has(t)) {
+        allowedSet.add(t);
+        good += 1;
+      }
+    }
+    const next = Array.from(allowedSet).sort();
+    saveAttr('residents.allowed_gmail', next.length ? next : undefined, { silent: true });
+    taEmailBulk.value = '';
+    allowedPreview.textContent = `${next.length} verified resident email(s) configured.`;
+    toast(`Added ${good} gmail ID(s)${bad ? `, skipped ${bad} invalid/non-gmail` : ''}.`, good ? 'ok' : 'warn');
+  });
+  btnClearAllowed.addEventListener('click', () => {
+    if (!confirm('Clear all verified resident emails?')) return;
+    allowedSet.clear();
+    saveAttr('residents.allowed_gmail', undefined, { silent: true });
+    allowedPreview.textContent = 'No verified resident emails configured yet.';
+    toast('Verified resident email list cleared.', 'ok');
+  });
+  const allowedTableRows = users
+    .map(u => ({
+      name: u.name || '—',
+      email: String(u.email || ''),
+      role: u.role || 'resident',
+      verified: allowedSet.has(String(u.email || '').trim().toLowerCase())
+    }))
+    .filter(r => r.email)
+    .sort((a, b) => a.email.localeCompare(b.email));
+
   return el('div', {},
     panel('Society branding',
       'Public labels shown in the header, footer, and receipts.',
@@ -278,6 +382,38 @@ async function renderAttributes(user) {
         el('span', { text: 'Default the "hide amount from public list" toggle to ON' }),
       ),
     ),
+    panel('Desktop footer visibility',
+      'Control which footer actions are visible on desktop view. Mobile compact footer behavior is preserved.',
+      el('label', { class: 'row', style: 'gap:8px;margin-top:14px;cursor:pointer' }, cbFootSocial, el('span', { text: 'Show society social pill' })),
+      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootBug, el('span', { text: 'Show "Report site bug" action' })),
+      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootVerify, el('span', { text: 'Show "Verify receipt" action' })),
+      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootLegal, el('span', { text: 'Show legal line' })),
+      el('label', { class: 'row', style: 'gap:8px;margin-top:8px;cursor:pointer' }, cbFootSource, el('span', { text: 'Show source/build line' }))
+    ),
+    panel('Resident email governance (gmail only)',
+      'Use this list to mark verified resident emails. Event reports can optionally be restricted to this allowlist.',
+      row('Bulk paste resident gmail IDs', 'Separators supported: newline, comma, semicolon, or spaces.', taEmailBulk),
+      el('div', { class: 'row', style: 'gap:8px' }, btnAddBulk, btnClearAllowed),
+      allowedPreview,
+      row('Email to role mapping', 'Optional: map a gmail ID to a role at sign-in. Format: email=role', taRoleMap),
+      el('div', { class: 'row', style: 'gap:8px' }, btnSaveRoleMap),
+      el('div', { style: 'margin-top:10px;overflow-x:auto' },
+        el('table', { class: 'table' },
+          el('thead', {}, el('tr', {},
+            el('th', { text: 'Email' }),
+            el('th', { text: 'Role access' }),
+            el('th', { text: 'Resident verified' })
+          )),
+          el('tbody', {}, ...(allowedTableRows.length
+            ? allowedTableRows.map(r => el('tr', {},
+              el('td', { text: r.email }),
+              el('td', { text: r.role }),
+              el('td', { text: r.verified ? '🛡 Green armor' : '—' })
+            ))
+            : [el('tr', {}, el('td', { colspan: 3, text: 'No signed-in users yet.', style: 'text-align:center;color:var(--muted)' }))]))
+        )
+      )
+    )
   );
 }
 

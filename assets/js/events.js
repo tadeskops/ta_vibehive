@@ -18,6 +18,52 @@ function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${r[0].toString(36)}${r[1].toString(36)}`;
 }
 
+function normalizeEmail(v) {
+  return String(v || '').trim().toLowerCase();
+}
+function roleIsModerator(role) {
+  return role === 'committee' || role === 'manager';
+}
+function shouldTrackHistory(evt, actor) {
+  return !!(evt && evt.history_enabled && actor && roleIsModerator(actor.role));
+}
+function appendHistory(evt, actor, action, detail) {
+  if (!shouldTrackHistory(evt, actor)) return;
+  const row = {
+    event: evt.id,
+    event_title: evt.title,
+    actor: actor.email || actor.id || '',
+    actor_role: actor.role || '',
+    action,
+    detail,
+  };
+  state.addEventHistory(row);
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    state.enqueueArchive({
+      kind: 'history',
+      path: `history/${sanitizeForPath(evt.slug || evt.id || 'event')}/${ts}.json`,
+      content: JSON.stringify({ ...row, ts: new Date().toISOString() }, null, 2),
+      eventId: evt.id,
+    });
+  } catch (_e) { /* best-effort */ }
+}
+
+function sanitizeForPath(v) {
+  return String(v || '').replace(/[^a-z0-9_.-]+/gi, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '') || 'event';
+}
+
+export async function canViewEventDetailedReport(evt, user, canPermission) {
+  if (!evt || !user) return false;
+  if (canPermission) return true;
+  if (!evt.report_public_signedin) return false;
+  if (!evt.report_restrict_allowlist) return true;
+  const over = state.societyOverrides() || {};
+  const list = (((over || {}).residents || {}).allowed_gmail) || [];
+  if (!Array.isArray(list)) return false;
+  return list.map(normalizeEmail).includes(normalizeEmail(user.email));
+}
+
 export async function listTemplates() {
   return (await cfg.templates()).templates;
 }
@@ -65,6 +111,9 @@ export function saveEvent(evt, actor) {
   if (i >= 0) evts[i] = evt; else evts.push(evt);
   state.saveEvents(evts);
   state.audit({ actor: actor ? actor.id : null, action: 'event.save', event: evt.id, status: evt.status });
+  if (actor) {
+    appendHistory(evt, actor, 'event.save', `status=${evt.status || ''}`);
+  }
   /* Broadcast a community-wide notification only on the transition
    * INTO PUBLISHED. Draft → draft or edits within Published never
    * spam the bell. */
@@ -196,6 +245,10 @@ export function verifyContribution(contribId, actor) {
   rec.verified_at = new Date().toISOString();
   state.saveContribs(list);
   state.audit({ actor: actor ? actor.id : null, action: 'contrib.verify', contrib: rec.id });
+  const evt = state.events().find(e => e.id === rec.event);
+  if (evt && actor) {
+    appendHistory(evt, actor, 'contrib.verify', `contrib=${rec.id};amount=${rec.amount || 0}`);
+  }
   /* Notify the contributor directly (best-effort — falls back to
    * community-wide if we can't infer an email). When the contribution
    * was filed on someone else's behalf, notify the beneficiary AND
@@ -231,6 +284,10 @@ export function voidContribution(contribId, actor, reason) {
   rec.void_reason = reason || '';
   state.saveContribs(list);
   state.audit({ actor: actor ? actor.id : null, action: 'contrib.void', contrib: rec.id, reason });
+  const evt = state.events().find(e => e.id === rec.event);
+  if (evt && actor) {
+    appendHistory(evt, actor, 'contrib.void', `contrib=${rec.id};reason=${reason || ''}`);
+  }
   return rec;
 }
 

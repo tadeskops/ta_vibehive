@@ -152,6 +152,37 @@ export const state = {
     local.set('outbox', []);
     return q;
   },
+  /* Event moderator history. Each row is an immutable append-only fact
+   * captured only when the event has history enabled and a moderator-
+   * class role performs a tracked action. This keeps review surfaces
+   * event-scoped and cheap to query. */
+  eventHistory() { return local.get('eventHistory', []); },
+  saveEventHistory(list) { local.set('eventHistory', Array.isArray(list) ? list : []); },
+  addEventHistory(entry) {
+    const list = local.get('eventHistory', []);
+    list.push({ ...entry, ts: new Date().toISOString() });
+    local.set('eventHistory', list.slice(-2000));
+    return list.length;
+  },
+  /* Draft cache for contribute forms so refresh/navigation does not
+   * wipe in-progress payment refs / notes / proof choices. */
+  contribDrafts() { return local.get('contribDrafts', {}); },
+  contribDraft(eventId) {
+    const all = local.get('contribDrafts', {});
+    return all && eventId ? (all[eventId] || null) : null;
+  },
+  saveContribDraft(eventId, draft) {
+    if (!eventId) return;
+    const all = local.get('contribDrafts', {});
+    all[eventId] = draft;
+    local.set('contribDrafts', all);
+  },
+  clearContribDraft(eventId) {
+    if (!eventId) return;
+    const all = local.get('contribDrafts', {});
+    delete all[eventId];
+    local.set('contribDrafts', all);
+  },
   currentUser() {
     const raw = local.get('session', null);
     /* Drop any stale demo-persona session left over from a pre-production

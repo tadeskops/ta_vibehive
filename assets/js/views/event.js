@@ -1,12 +1,12 @@
 /* Event detail view — public read-only + admin edit tabs. */
 'use strict';
 import { el, mount, fmtDate, fmtINR, daysLeft, toast, modal } from '../dom.js';
-import { findEvent, totalFor, verifiedCount, publicBoardFor, saveEvent, STATUS, contribsFor } from '../events.js';
+import { findEvent, totalFor, verifiedCount, publicBoardFor, saveEvent, STATUS, contribsFor, canViewEventDetailedReport } from '../events.js';
 import { catalog, isEventOn, validateEventFeatures } from '../features.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { navigate } from '../router.js';
-import { getSociety } from '../store.js';
+import { getSociety, state } from '../store.js';
 
 /* ---------- payment-input validation helpers ----------
  * Both used ONLY inside the event editor (renderEdit). Kept module-
@@ -65,9 +65,11 @@ export async function render(root, { match }) {
   const canPublish = await can(user, 'events.publish');
   const canClose = await can(user, 'events.close');
   const canVerify = await can(user, 'contributions.verify');
+  const canHistoryView = await can(user, 'events.history.view');
+  const canReportView = await can(user, 'reports.view');
 
   if (mode === 'edit' && canEdit) return renderEdit(root, evt, user, { canPublish, canClose });
-  if (mode === 'manage' && canVerify) return renderManage(root, evt, user);
+  if (mode === 'manage' && canVerify) return renderManage(root, evt, user, { canHistoryView });
 
   /* View mode: residents (and anonymous) only see the event once it
    * is PUBLISHED (or CLOSED, so past events remain browsable).
@@ -102,6 +104,8 @@ export async function render(root, { match }) {
   const showProgress = await isEventOn('reporting.progress', evt);
   const showBoard = await isEventOn('privacy.public_board', evt);
   const hideAmount = await isEventOn('privacy.amount_hidden', evt);
+  const showSignedInReport = await isEventOn('reporting.event_detail_signedin', evt);
+  const canOpenDetailedReport = showSignedInReport && await canViewEventDetailedReport(evt, user, canReportView);
   const goal = evt.goal || 0;
   const total = totalFor(evt.id);
   const pct = goal ? Math.min(100, Math.round((total / goal) * 100)) : 0;
@@ -122,8 +126,15 @@ export async function render(root, { match }) {
 
   const board = showBoard ? renderPublicBoard(evt, hideAmount) : null;
   const featurePanel = await renderEnabledFeaturePanel(evt);
+  const reportCard = canOpenDetailedReport
+    ? el('section', { class: 'card card-pad', style: 'margin-top:16px' },
+      el('h3', { text: 'Contribution report' }),
+      el('p', { class: 'sub', text: 'Signed-in detailed list view for this event.' }),
+      el('a', { class: 'btn', href: `#/reports/event/${evt.id}` }, 'View list report')
+    )
+    : null;
 
-  mount(root, hero, stats, progress, featurePanel, board);
+  mount(root, hero, stats, progress, featurePanel, board, reportCard);
 }
 
 function heroBg(evt) {
@@ -185,6 +196,7 @@ function labelForCluster(cat, id) { const c = cat.clusters.find(x => x.id === id
 /* ---------- edit view ---------- */
 async function renderEdit(root, evt, user, caps) {
   const cat = await catalog();
+  const canHistoryConfigure = await can(user, 'events.history.configure');
   const form = el('form', { class: 'card card-pad', on: { submit: e => e.preventDefault() } });
 
   const titleI = field('title', 'Event title', el('input', { type: 'text', value: evt.title, required: true }));
@@ -272,6 +284,34 @@ async function renderEdit(root, evt, user, caps) {
       )
     )
   );
+  const histOnChk = el('input', { type: 'checkbox', checked: !!evt.history_enabled, disabled: !canHistoryConfigure });
+  const reportSignedInChk = el('input', { type: 'checkbox', checked: !!evt.report_public_signedin });
+  const reportAllowlistChk = el('input', { type: 'checkbox', checked: !!evt.report_restrict_allowlist });
+  const governanceI = el('div', { class: 'field' },
+    el('label', { class: 'check-row' },
+      histOnChk,
+      el('span', {},
+        el('div', { class: 'name', text: 'Record moderator history for this event' }),
+        el('small', { class: 'sub', text: canHistoryConfigure
+          ? 'Tracks committee/manager actions on this event for MC+ review.'
+          : 'Only Management Committee / Secretary / Admin can toggle this.' })
+      )
+    ),
+    el('label', { class: 'check-row' },
+      reportSignedInChk,
+      el('span', {},
+        el('div', { class: 'name', text: 'Allow signed-in users to view event contribution list report' }),
+        el('small', { class: 'sub', text: 'Publishes a list view at Reports for this specific event.' })
+      )
+    ),
+    el('label', { class: 'check-row' },
+      reportAllowlistChk,
+      el('span', {},
+        el('div', { class: 'name', text: 'Restrict event report to resident email allowlist' }),
+        el('small', { class: 'sub', text: 'Only emails added in Settings -> Resident email governance can open this event report.' })
+      )
+    )
+  );
 
   const clusters = cat.clusters.filter(c => cat.features.some(f => f.cluster === c.id && f.scope === 'event'));
   const featureChecks = new Map();
@@ -320,6 +360,9 @@ async function renderEdit(root, evt, user, caps) {
           payment_upi_name: (upiNameInp.value || '').trim().slice(0, 60),
           payment_qr_data_url: qrDataUrl,
           one_per_flat: !!oncePerFlatChk.checked,
+          history_enabled: canHistoryConfigure ? !!histOnChk.checked : !!evt.history_enabled,
+          report_public_signedin: !!reportSignedInChk.checked,
+          report_restrict_allowlist: !!reportAllowlistChk.checked,
           features: Object.fromEntries(Array.from(featureChecks.entries()).map(([k, cb]) => [k, cb.checked])),
           status: statusSel.value,
         };
@@ -358,7 +401,8 @@ async function renderEdit(root, evt, user, caps) {
       el('p', { class: 'sub', style: 'margin-bottom:10px', text: 'Publish a UPI VPA and/or a QR code so residents can pay. If both are blank, society-wide payment settings are used.' }),
       el('div', { class: 'grid grid-2' }, upiVpaI, upiNameI),
       qrI,
-      oncePerFlatI
+      oncePerFlatI,
+      governanceI
     ),
     featurePanel,
     actions
@@ -371,7 +415,7 @@ function field(id, label, input) {
 }
 
 /* ---------- manage / verify view ---------- */
-async function renderManage(root, evt, user) {
+async function renderManage(root, evt, user, caps) {
   const items = contribsFor(evt.id);
   const head = el('section', { class: 'card card-pad' },
     el('h2', { text: 'Manage · ' + evt.title }),
@@ -388,12 +432,45 @@ async function renderManage(root, evt, user) {
       el('th', { text: 'Status' }),
       el('th', { text: 'Actions' })
     )),
-    el('tbody', {}, ...(items.length ? items.map(c => contribRow(c, evt, user)) : [el('tr', {}, el('td', { colspan: 8, text: 'No contributions yet.', style: 'text-align:center;color:var(--muted)' }))]))
+    el('tbody', {}, ...(items.length ? items.map(c => contribRow(c, evt, user, caps)) : [el('tr', {}, el('td', { colspan: 8, text: 'No contributions yet.', style: 'text-align:center;color:var(--muted)' }))]))
   );
-  mount(root, head, el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' }, tbl));
+  const sections = [head, el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' }, tbl)];
+  if (caps && caps.canHistoryView) sections.push(renderHistoryPanel(evt));
+  mount(root, ...sections);
 }
 
-function contribRow(c, evt, user) {
+function renderHistoryPanel(evt) {
+  const rows = state.eventHistory()
+    .filter(r => r && r.event === evt.id)
+    .slice()
+    .sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
+  return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
+    el('h3', { text: 'Moderator change history' }),
+    evt.history_enabled
+      ? el('p', { class: 'sub', text: 'Recorded committee/manager actions for this event.' })
+      : el('p', { class: 'sub', text: 'History recording is OFF for this event. Enable it in event edit mode.' }),
+    el('table', { class: 'table' },
+      el('thead', {}, el('tr', {},
+        el('th', { text: 'When' }),
+        el('th', { text: 'Actor' }),
+        el('th', { text: 'Role' }),
+        el('th', { text: 'Action' }),
+        el('th', { text: 'Detail' })
+      )),
+      el('tbody', {}, ...(rows.length
+        ? rows.map(r => el('tr', {},
+          el('td', { text: fmtDate(r.ts) + ' · ' + new Date(r.ts).toLocaleTimeString('en-IN', { hour12: false }) }),
+          el('td', { text: r.actor || '—' }),
+          el('td', { text: r.actor_role || '—' }),
+          el('td', { text: r.action || '—' }),
+          el('td', { text: r.detail || '' })
+        ))
+        : [el('tr', {}, el('td', { colspan: 5, text: 'No history records yet.', style: 'text-align:center;color:var(--muted)' }))]))
+    )
+  );
+}
+
+function contribRow(c, evt, user, caps) {
   const proofCell = el('td', {},
     c.ref ? el('div', { style: 'font-family:ui-monospace,monospace;font-size:12px', text: c.ref }) : el('span', { class: 'sub', text: '—' }),
     c.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', style: 'margin-top:4px', on: { click: () => openProof(c) } }, '🖼 View proof') : null
@@ -412,7 +489,7 @@ function contribRow(c, evt, user) {
         const verified = mod.verifyContribution(c.id, user);
         await rec.attachReceipt(verified);
         toast('Verified & receipt minted', 'ok');
-        renderManage(document.getElementById('main'), evt, user);
+        renderManage(document.getElementById('main'), evt, user, caps);
       } } }, 'Verify') : null,
       c.status !== 'void' ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => {
         modal({
@@ -424,7 +501,7 @@ function contribRow(c, evt, user) {
               const mod = await import('../events.js');
               mod.voidContribution(c.id, user, 'manual');
               close(); toast('Voided', 'ok');
-              renderManage(document.getElementById('main'), evt, user);
+              renderManage(document.getElementById('main'), evt, user, caps);
             } }
           ]
         });

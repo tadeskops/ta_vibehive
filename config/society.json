@@ -53,5 +53,17 @@
     "label": "@theaddress_society",
     "instagram": "https://www.instagram.com/theaddress_society",
     "whatsapp": ""
+  },
+  "footer": {
+    "desktop": {
+      "show_social": true,
+      "show_bug_report": true,
+      "show_verify": true,
+      "show_legal": true,
+      "show_source": true
+    }
+  },
+  "residents": {
+    "allowed_gmail": []
   }
 }

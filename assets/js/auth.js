@@ -10,6 +10,25 @@
 'use strict';
 import { state } from './store.js';
 
+function pick(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+function normalizeEmail(v) {
+  return String(v || '').trim().toLowerCase();
+}
+function roleFromEmailMap(email) {
+  const over = state.societyOverrides() || {};
+  const map = pick(over, 'access.email_roles') || {};
+  const role = map[email];
+  return typeof role === 'string' ? role : null;
+}
+function isVerifiedResidentEmail(email) {
+  const over = state.societyOverrides() || {};
+  const list = pick(over, 'residents.allowed_gmail') || [];
+  if (!Array.isArray(list)) return false;
+  return list.map(normalizeEmail).includes(email);
+}
+
 export function session() { return state.currentUser(); }
 
 export function loginAs(userId) {
@@ -26,22 +45,30 @@ export function loginAs(userId) {
  *  flat that they can complete on their profile page later. */
 export function loginWithProfile(profile) {
   const users = state.users();
-  const email = String(profile.email || '').toLowerCase();
+  const email = normalizeEmail(profile.email);
   if (!email) throw new Error('provider returned no email');
+  const mappedRole = roleFromEmailMap(email);
+  const verifiedResident = isVerifiedResidentEmail(email);
   const existing = users.find(u => (u.email || '').toLowerCase() === email);
   let user;
   if (existing) {
     user = { ...existing };
     if (profile.name && (!existing.name || existing.name === existing.email)) user.name = profile.name;
     if (!user.provider) user.provider = profile.provider;
+    if (mappedRole) user.role = mappedRole;
+    user.is_verified_resident = verifiedResident;
+    const idx = users.findIndex(u => u.id === existing.id);
+    if (idx >= 0) users[idx] = user;
+    state.saveUsers(users);
   } else {
     user = {
       id: 'oauth:' + profile.provider + ':' + email,
       name: profile.name || email.split('@')[0],
-      role: 'resident',
+      role: mappedRole || 'resident',
       flat: '',
       email,
       provider: profile.provider,
+      is_verified_resident: verifiedResident,
     };
     users.push(user);
     state.saveUsers(users);

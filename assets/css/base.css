@@ -393,6 +393,7 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 .feature-row small{color:var(--muted);font-size:12px}
 
 .role-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;background:var(--terra-soft);color:var(--terra)}
+.role-badge.sec{background:#f1e1be;color:#6f4b0f}
 .role-badge.mc{background:#dbeacc;color:#3f5c34}
 .role-badge.cmt{background:#f7dfad;color:#7a5410}
 .role-badge.mgr{background:#efe4d0;color:var(--muted)}
@@ -403,10 +404,16 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
  * reads at a glance. Kept variant colours so `mc/cmt/mgr/res` still
  * differentiate; only the default (admin) needed a lift. */
 .whoami .role-badge{background:var(--terra);color:#fff;border:1px solid transparent;padding:3px 8px;font-size:10px;letter-spacing:.08em}
+.whoami .role-badge.sec{background:#6f4b0f;color:#fff}
 .whoami .role-badge.mc{background:#3f5c34;color:#fff}
 .whoami .role-badge.cmt{background:#7a5410;color:#fff}
 .whoami .role-badge.mgr{background:var(--muted);color:#fff}
 .whoami .role-badge.res{background:#fff;color:var(--terra);border-color:var(--line)}
+
+/* Public mask treatment on dashboard cards: keep layout + context but
+ * visually blur sensitive values instead of replacing with a sign-in
+ * gate. */
+.tvh-mask-blur{filter:blur(5px);user-select:none;pointer-events:none}
 
 /* Auth gate */
 .gate{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px;max-width:420px;margin:40px auto}

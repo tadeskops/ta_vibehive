@@ -126,6 +126,7 @@ function renderUsers() {
       el('tbody', {}, ...users.map(u => el('tr', {},
         el('td', {},
           el('span', { text: u.name || '—' }),
+          u.is_verified_resident ? el('span', { class: 'pill pill-sage', style: 'margin-left:8px', text: '🛡 Verified' }) : null,
           /* Lab identity is baked into the code and cannot be demoted
            * from this list. Show a small lock pill so admins understand
            * why. */
@@ -139,7 +140,7 @@ function renderUsers() {
     el('p', { class: 'sub', style: 'margin-top:10px', text: 'Users are auto-provisioned on their first Google sign-in as role="resident". Promote them from here. Rows marked 🔒 Lab are baked into the code as bootstrap admins and cannot be demoted or deleted (see assets/js/lab-admin.js).' })
   );
 }
-function roleBadgeCls(r) { return ({ admin: '', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[r] || ''; }
+function roleBadgeCls(r) { return ({ admin: '', secretary: 'sec', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[r] || ''; }
 
 function renderAudit() {
   const log = state.auditLog().slice().reverse();
