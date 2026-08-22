@@ -428,146 +428,64 @@ async function renderAttributes(user, canUsersManage) {
   const roleMap = ((accessCfg.email_roles) || {});
   const roleEmailsRaw = ((accessCfg.role_emails) || {});
   const tierRaw = ((accessCfg.role_tiers) || []);
-  const defaultTiers = roleDefs.map((r, i) => ({
-    id: r.id,
-    label: r.label,
-    base_role: r.id,
-    rank: (typeof r.rank === 'number' ? r.rank : (100 - i * 10)),
-    emails: [],
-  }));
-  const roleTierState = (Array.isArray(tierRaw) && tierRaw.length ? tierRaw : defaultTiers)
-    .map((t, i) => {
-      const baseRole = roleIds.includes(String(t.base_role || '').toLowerCase())
-        ? String(t.base_role || '').toLowerCase()
-        : 'resident';
-      const emails = Array.from(new Set((Array.isArray(t.emails) ? t.emails : [])
-        .map(v => String(v || '').trim().toLowerCase())
-        .filter(v => gmailOnly(v)))).sort();
-      return {
-        id: String(t.id || slugId('tier')).trim().toLowerCase(),
-        label: String(t.label || '').trim() || ('Tier ' + (i + 1)),
-        base_role: baseRole,
-        rank: Number.isFinite(Number(t.rank)) ? Number(t.rank) : (100 - i * 10),
-        emails,
-      };
-    });
-  /* Compatibility hydrate: if old role_emails/email_roles exist but
-   * role_tiers are absent, fold those emails into default tiers. */
-  if (!(Array.isArray(tierRaw) && tierRaw.length)) {
-    const roleEmailState = {};
-    roleIds.forEach((id) => { roleEmailState[id] = []; });
-    for (const [roleId, list] of Object.entries(roleEmailsRaw)) {
-      const role = String(roleId || '').trim().toLowerCase();
-      if (!roleIds.includes(role) || !Array.isArray(list)) continue;
-      roleEmailState[role] = Array.from(new Set(list
-        .map(v => String(v || '').trim().toLowerCase())
-        .filter(v => gmailOnly(v))));
-    }
-    for (const [emailRaw, roleRaw] of Object.entries(roleMap)) {
-      const email = String(emailRaw || '').trim().toLowerCase();
-      const role = String(roleRaw || '').trim().toLowerCase();
-      if (!gmailOnly(email) || !roleIds.includes(role)) continue;
-      if (!roleEmailState[role].includes(email)) roleEmailState[role].push(email);
-    }
-    roleTierState.forEach((t) => {
-      t.emails = Array.from(new Set((roleEmailState[t.base_role] || []).concat(t.emails || []))).sort();
+  const roleEmailState = {};
+  roleIds.forEach((id) => { roleEmailState[id] = []; });
+  const addRoleEmail = (roleRaw, emailRaw) => {
+    const role = String(roleRaw || '').trim().toLowerCase();
+    const email = String(emailRaw || '').trim().toLowerCase();
+    if (!roleIds.includes(role) || !gmailOnly(email)) return;
+    if (!roleEmailState[role].includes(email)) roleEmailState[role].push(email);
+  };
+  for (const [roleId, list] of Object.entries(roleEmailsRaw)) {
+    if (!Array.isArray(list)) continue;
+    list.forEach((email) => addRoleEmail(roleId, email));
+  }
+  for (const [emailRaw, roleRaw] of Object.entries(roleMap)) addRoleEmail(roleRaw, emailRaw);
+  /* Compatibility hydrate for older tier payloads: flatten tiers into
+   * direct role lists when present. */
+  if (Array.isArray(tierRaw) && tierRaw.length) {
+    tierRaw.forEach((t) => {
+      const baseRole = String(t && t.base_role || '').trim().toLowerCase();
+      const list = Array.isArray(t && t.emails) ? t.emails : [];
+      list.forEach((email) => addRoleEmail(baseRole, email));
     });
   }
+  roleIds.forEach((id) => { roleEmailState[id] = Array.from(new Set(roleEmailState[id] || [])).sort(); });
+  const initialRoleEmailState = structuredClone(roleEmailState);
 
-  const initialRoleTierState = roleTierState.map(t => ({ ...t, emails: (t.emails || []).slice() }));
   const roleEditorWrap = el('div', { class: 'stack' });
-  function renderRoleTierEditors() {
+  function renderRoleEditors() {
     roleEditorWrap.replaceChildren();
-    roleTierState.forEach((tier, idx) => {
-      const adminMapped = tier.base_role === 'admin';
-      const locked = !canEditRoleMap || (!canEditAdminRoleMap && adminMapped);
-      const rankInp = el('input', {
-        type: 'number',
-        value: String(Number.isFinite(Number(tier.rank)) ? Number(tier.rank) : (100 - idx * 10)),
-        disabled: locked,
-        readOnly: locked,
-        style: 'width:120px'
-      });
-      rankInp.addEventListener('change', () => {
-        const n = Number(rankInp.value);
-        tier.rank = Number.isFinite(n) ? n : (100 - idx * 10);
-      });
-      const labelInp = el('input', {
-        type: 'text',
-        value: tier.label,
-        placeholder: 'Tier label (e.g. Chairman)',
-        disabled: locked,
-        readOnly: locked,
-      });
-      labelInp.addEventListener('input', () => { tier.label = String(labelInp.value || '').trim(); });
-      const baseSel = el('select', { disabled: locked },
-        ...roleDefs.map((r) => el('option', {
-          value: r.id,
-          selected: r.id === tier.base_role,
-          text: `${r.label} (${r.id})`
-        }))
-      );
-      baseSel.addEventListener('change', () => { tier.base_role = String(baseSel.value || '').trim().toLowerCase() || 'resident'; });
+    roleDefs.forEach((r) => {
+      const isAdminRole = r.id === 'admin';
+      const locked = !canEditRoleMap || (!canEditAdminRoleMap && isAdminRole);
       const area = el('textarea', {
         rows: 3,
-        placeholder: `${tier.label} gmail IDs. Comma, semicolon, newline, or spaces supported.`,
-        value: (tier.emails || []).join('\n'),
+        placeholder: `${r.label} gmail IDs. Comma, semicolon, newline, or spaces supported.`,
+        value: (roleEmailState[r.id] || []).join('\n'),
         disabled: locked,
         readOnly: locked,
       });
-      area.addEventListener('input', () => { tier.emails = String(area.value || '').split(/[\s,;]+/).map(v => String(v || '').trim().toLowerCase()).filter(Boolean); });
-      const delBtn = el('button', {
-        class: 'btn btn-sm btn-ghost',
-        type: 'button',
-        disabled: locked || roleTierState.length <= 1,
-      }, 'Remove tier');
-      delBtn.addEventListener('click', () => {
-        const next = roleTierState.filter((x) => x.id !== tier.id);
-        roleTierState.length = 0;
-        next.forEach(x => roleTierState.push(x));
-        renderRoleTierEditors();
+      area.addEventListener('input', () => {
+        roleEmailState[r.id] = String(area.value || '')
+          .split(/[\s,;]+/)
+          .map(v => String(v || '').trim().toLowerCase())
+          .filter(Boolean);
       });
       roleEditorWrap.append(
         el('div', { class: 'panel', style: 'margin-top:8px' },
-          el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;align-items:flex-end' },
-            el('div', { class: 'field', style: 'margin:0;min-width:220px;flex:1' },
-              el('label', { class: 'lbl', text: 'Tier label' }),
-              labelInp
-            ),
-            el('div', { class: 'field', style: 'margin:0;min-width:220px;flex:1' },
-              el('label', { class: 'lbl', text: 'Access profile (base role)' }),
-              baseSel
-            ),
-            el('div', { class: 'field', style: 'margin:0' },
-              el('label', { class: 'lbl', text: 'Rank' }),
-              rankInp
-            ),
-            delBtn
-          ),
-          !canEditAdminRoleMap && adminMapped
-            ? el('small', { class: 'sub', text: 'Admin-mapped tier is locked for your role.' })
-            : null,
           el('div', { class: 'field', style: 'margin-top:10px' },
-            el('label', { class: 'lbl', text: 'Email IDs' }),
+            el('label', { class: 'lbl', text: `${r.label} (${r.id})` }),
+            !canEditAdminRoleMap && isAdminRole
+            ? el('small', { class: 'sub', text: 'Admin role list is locked for your role.' })
+            : null,
             area
           )
         )
       );
     });
   }
-  renderRoleTierEditors();
-  const btnAddTier = el('button', { class: 'btn btn-sm', type: 'button', disabled: !canEditRoleMap }, '+ Add access tier');
-  btnAddTier.addEventListener('click', () => {
-    if (!canEditRoleMap) return;
-    roleTierState.push({
-      id: slugId('tier'),
-      label: 'New tier',
-      base_role: 'resident',
-      rank: roleTierState.length ? Number(roleTierState[roleTierState.length - 1].rank || 0) - 10 : 10,
-      emails: [],
-    });
-    renderRoleTierEditors();
-  });
+  renderRoleEditors();
   const taEmailBulk = el('textarea', {
     rows: 5,
     placeholder: 'Paste one or many gmail IDs. Comma, semicolon, newline, or spaces all supported.',
@@ -591,19 +509,11 @@ async function renderAttributes(user, canUsersManage) {
     let invalid = 0;
     let duplicate = 0;
 
-    const byTierId = new Map(initialRoleTierState.map(t => [t.id, t]));
-    const normalizedTiers = [];
-    for (let i = 0; i < roleTierState.length; i++) {
-      const t = roleTierState[i];
-      const label = String(t.label || '').trim() || ('Tier ' + (i + 1));
-      const baseRole = roleIds.includes(String(t.base_role || '').trim().toLowerCase())
-        ? String(t.base_role || '').trim().toLowerCase()
-        : 'resident';
-      const rank = Number.isFinite(Number(t.rank)) ? Number(t.rank) : (100 - i * 10);
-      const lockedAdminTier = (!canEditAdminRoleMap && baseRole === 'admin');
-      const sourceEmails = lockedAdminTier
-        ? ((byTierId.get(t.id) && byTierId.get(t.id).emails) || [])
-        : (Array.isArray(t.emails) ? t.emails : []);
+    for (const roleId of roleIds) {
+      const lockedAdminRole = (!canEditAdminRoleMap && roleId === 'admin');
+      const sourceEmails = lockedAdminRole
+        ? (initialRoleEmailState[roleId] || [])
+        : (Array.isArray(roleEmailState[roleId]) ? roleEmailState[roleId] : []);
       const cleanedEmails = [];
       for (const tokenRaw of sourceEmails) {
         const token = String(tokenRaw || '').trim().toLowerCase();
@@ -614,24 +524,11 @@ async function renderAttributes(user, canUsersManage) {
         cleanedEmails.push(token);
       }
       cleanedEmails.sort();
-      normalizedTiers.push({
-        id: String(t.id || slugId('tier')).trim().toLowerCase(),
-        label,
-        base_role: baseRole,
-        rank,
-        emails: cleanedEmails,
-      });
-      if (!nextRoleEmails[baseRole]) nextRoleEmails[baseRole] = [];
-      nextRoleEmails[baseRole] = Array.from(new Set(nextRoleEmails[baseRole].concat(cleanedEmails)));
-      cleanedEmails.forEach((email) => { nextEmailRoles[email] = baseRole; });
+      if (cleanedEmails.length) nextRoleEmails[roleId] = cleanedEmails;
+      cleanedEmails.forEach((email) => { nextEmailRoles[email] = roleId; });
     }
 
-    Object.keys(nextRoleEmails).forEach((k) => {
-      nextRoleEmails[k] = (nextRoleEmails[k] || []).sort();
-      if (!nextRoleEmails[k].length) delete nextRoleEmails[k];
-    });
-
-    stageAttr('access.role_tiers', normalizedTiers.length ? normalizedTiers : undefined, { silent: true });
+    stageAttr('access.role_tiers', undefined, { silent: true });
     stageAttr('access.role_emails', Object.keys(nextRoleEmails).length ? nextRoleEmails : undefined, { silent: true });
     stageAttr('access.email_roles', Object.keys(nextEmailRoles).length ? nextEmailRoles : undefined, { silent: true });
 
@@ -770,10 +667,10 @@ async function renderAttributes(user, canUsersManage) {
       allowedPreview,
       row('Role to email ID mapping',
         canEditAdminRoleMap
-          ? 'Define access tiers (like TSH), map each tier to a base role profile, and assign one or more gmail IDs. A single email can only belong to one tier.'
-          : 'You can update non-admin tiers. Any tier mapped to Admin is read-only for your role.',
+          ? 'Direct role mapping: add one or more gmail IDs under each role. A single email can only belong to one role.'
+          : 'Direct role mapping: you can edit non-admin roles. Admin role list is read-only for your role.',
         roleEditorWrap),
-      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, btnAddTier, btnSaveRoleMap),
+      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, btnSaveRoleMap),
       el('div', { style: 'margin-top:10px;overflow-x:auto' },
         el('table', { class: 'table' },
           el('thead', {}, el('tr', {},

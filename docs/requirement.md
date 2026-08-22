@@ -46,7 +46,7 @@ Implemented:
 - Event-specific signed-in list report route: `#/reports/event/:id`.
 - Route is gated by event-level feature enablement and permission/allowlist checks.
 - Optional resident allowlist restriction is supported.
-- Report export includes event-based selection so admins/committee can choose a specific event from a list that includes both live and past events, then download that event report.
+- Report export includes event-based selection so roles with `reports.export` permission can choose a specific event from a list that includes both live and past events, then download/archive that event report as PDF.
 
 Core implementation:
 - `assets/js/views/reports.js`
@@ -57,7 +57,7 @@ Core implementation:
 Implemented:
 - Gmail allowlist parser accepts newline/comma/semicolon/space separators.
 - Role-to-email mapping supports one-or-more email IDs per role.
-- TSH-style access-tier lists are supported in Settings (add/remove tier, tier label, rank, base-role profile, assigned emails).
+- Settings now uses a simple direct role-to-email editor (one list per role) instead of tier/rank configuration.
 - Backward-compatible email-to-role index is maintained for runtime lookup.
 - Attributes-tab settings edits are staged and committed through one consolidated "Save all settings changes" action.
 - Receipt templates and expense preferences support explicit staged Save/Discard actions.
@@ -95,6 +95,7 @@ Core implementation:
 Implemented:
 - Contribution form includes note/remarks and validation helpers.
 - Per-event draft cache survives refresh and is cleared on successful submit.
+- Event create/edit/publish writes fail-fast when local browser storage is blocked/full, with explicit error feedback instead of silent success.
 - One-contribution-per-flat event rule is supported and enforced at storage guard level.
 - Mobile/quick-action `+` is create-only (new event) and is shown only when `events.create` permission is granted via role/configuration.
 - Quick-action stack popup UI is currently disabled (kept in code), and tapping `+` directly routes to event creation flow.

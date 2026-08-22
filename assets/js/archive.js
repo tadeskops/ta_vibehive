@@ -68,8 +68,12 @@ export async function pushBatch({ owner, repo, branch, token, entries, message }
   for (const e of entries) {
     const path = String(e.path || '').replace(/^\/+/, '').replace(/\.\.+/g, '.');
     if (!path) continue;
+    const binaryB64 = (e && (e.contentBase64 || e.content_base64)) ? String(e.contentBase64 || e.content_base64) : '';
+    const contentB64 = (e && e.encoding === 'base64')
+      ? String(binaryB64 || e.content || '').replace(/\s+/g, '')
+      : toBase64Utf8(String(e.content || ''));
     const blob = await gh(token, 'POST', `/repos/${enc(owner)}/${enc(repo)}/git/blobs`, {
-      content: toBase64Utf8(String(e.content || '')),
+      content: contentB64,
       encoding: 'base64',
     });
     blobs.push({ path, sha: blob.sha });

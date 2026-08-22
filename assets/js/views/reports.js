@@ -1,4 +1,4 @@
-/* Report builder — export contribution data as CSV / Print / archive.
+/* Report builder — export contribution data as PDF / archive.
  *
  * Scopes:
  *   - all events
@@ -10,12 +10,11 @@
  * Feature:  system-scope flag `reporting.export`.
  *
  * Output:
- *   - Download CSV (native Blob) — works offline.
- *   - Print (browser's Save-as-PDF dialog) — CSP-safe, no CDN scripts.
- *   - Save snapshot to archive — enqueues a CSV to state.outbox so the
+ *   - Download PDF (jsPDF + autoTable, TSH-style).
+ *   - Save snapshot to archive — enqueues a PDF to state.outbox so the
  *     next "Flush archive queue" push commits it to the private
  *     receipt-archive repo alongside the receipt JSONs. Path shape:
- *     `reports/<scope>/YYYY-MM-DDTHHMM.csv`
+ *     `reports/<scope>/YYYY-MM-DDTHHMM.pdf`
  *
  * The scheduled 3×/day server-side snapshot is produced by
  *   .github/workflows/reports-cron.yml -> scripts/generate-reports.mjs
@@ -32,6 +31,8 @@ import { findEvent, canViewEventDetailedReport } from '../events.js';
 import { queueAndMaybePushArchive } from '../archive-runtime.js';
 
 const LS_KEY = 'tvh:v1:reports:filters';
+const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+const AUTOTABLE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
 const STATUSES = ['pending', 'verified', 'void'];
 const DEFAULT_COLS = [
   { id: 'event',       label: 'Event',        default: true },
@@ -64,6 +65,8 @@ export async function render(root, { match } = {}) {
     ));
   }
   const allowed = await can(user, 'reports.view');
+  const canExportRole = ['admin', 'secretary', 'mgmt'].includes(String(user && user.role || ''));
+  const canExport = canExportRole && await can(user, 'reports.export');
   const eventDetailPerm = await can(user, 'reports.event.detail');
   let forcedEvent = null;
   if (forcedEventId) {
@@ -126,7 +129,7 @@ export async function render(root, { match } = {}) {
     el('h1', { text: 'Reports' }),
     el('p', { class: 'sub', text: forcedEvent
       ? `Event report list view · ${forcedEvent.title}`
-      : 'Export contribution data — one event, several events, or a whole month / year. CSV, Print (Save-as-PDF), and auto-save to the private archive.' })
+      : 'Export contribution data as PDF — one event, several events, or a whole month / year, then archive to the private repo.' })
   );
 
   const filtersCard = el('section', { class: 'card card-pad' });
@@ -419,10 +422,10 @@ export async function render(root, { match } = {}) {
 
     const downloadRows = rowsForDownload(rows);
     const actionNodes = [
-      exportOn ? el('button', { class: 'btn', on: { click: () => downloadCSV(downloadRows) } }, '⬇ Export report (CSV)') : null,
-      exportOn ? el('button', { class: 'btn btn-ghost', on: { click: () => printReport(downloadRows) } }, '🖨 Print / Save as PDF') : null,
-      exportOn ? el('button', { class: 'btn btn-sage', on: { click: () => saveToArchive(downloadRows) } }, '☁ Save snapshot to archive') : null,
+      (exportOn && canExport) ? el('button', { class: 'btn', on: { click: () => downloadPDF(downloadRows) } }, '⬇ Download report (PDF)') : null,
+      (exportOn && canExport) ? el('button', { class: 'btn btn-sage', on: { click: () => saveToArchive(downloadRows) } }, '☁ Save PDF to archive') : null,
       !exportOn ? el('small', { class: 'sub', text: 'Export actions are disabled by admin. List view remains available.' }) : null,
+      (exportOn && !canExport) ? el('small', { class: 'sub', text: 'You can view reports, but PDF download/archive is restricted to roles with reports.export permission.' }) : null,
     ].filter(Boolean);
     const actions = el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' }, ...actionNodes);
 
@@ -457,28 +460,90 @@ export async function render(root, { match } = {}) {
     }
   }
 
-  function buildCsv(rows) {
-    const cols = DEFAULT_COLS.filter(c => st.columns.includes(c.id));
-    const escape = v => {
-      const s = (v == null ? '' : String(v));
-      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-    };
-    const header = cols.map(c => escape(c.label)).join(',');
-    const body = rows.map(c => cols.map(col => escape(fmtCell(col.id, c))).join(',')).join('\r\n');
-    return '\ufeff' + header + '\r\n' + body;
+  function loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+      const exists = Array.from(document.querySelectorAll('script[src]')).find(s => s.src === src);
+      if (exists) {
+        if (exists.dataset.ready === '1') { resolve(); return; }
+        exists.addEventListener('load', () => resolve(), { once: true });
+        exists.addEventListener('error', () => reject(new Error('failed to load ' + src)), { once: true });
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = false;
+      s.onload = () => { s.dataset.ready = '1'; resolve(); };
+      s.onerror = () => reject(new Error('failed to load ' + src));
+      document.head.appendChild(s);
+    });
   }
 
-  function downloadCSV(rows) {
-    const csv = buildCsv(rows);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename('csv');
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
-    toast(`CSV exported · ${rows.length} row${rows.length === 1 ? '' : 's'}`, 'ok');
+  async function ensurePdfLibReady() {
+    const hasAutoTable = () => {
+      if (!window.jspdf || !window.jspdf.jsPDF) return false;
+      const proto = window.jspdf.jsPDF.API || window.jspdf.jsPDF.prototype;
+      return !!(proto && typeof proto.autoTable === 'function');
+    };
+    if (hasAutoTable()) return;
+    await loadScriptOnce(JSPDF_URL);
+    await loadScriptOnce(AUTOTABLE_URL);
+    if (!hasAutoTable()) throw new Error('PDF library did not initialise');
+  }
+
+  async function buildPdfDoc(rows) {
+    await ensurePdfLibReady();
+    const cols = DEFAULT_COLS.filter(c => st.columns.includes(c.id));
+    if (!cols.length) throw new Error('Pick at least one column for the report');
+    const totalWidth = cols.reduce((sum, c) => sum + (c.id === 'remarks' ? 50 : c.id === 'description' ? 55 : 24), 0);
+    const landscape = totalWidth > 200 || cols.length > 7;
+    const doc = new window.jspdf.jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+
+    const title = st.title || defaultTitle();
+    const nowStr = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageW, 16, 'F');
+    doc.setTextColor(252, 211, 77);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('VIBEHIVE · CONTRIBUTION REPORT', 10, 6.5);
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(13);
+    doc.text(title, 10, 13);
+    doc.setTextColor(71, 85, 105);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(`Generated ${nowStr} · Rows ${rows.length}`, 10, 21);
+
+    const head = [cols.map(c => c.label)];
+    const body = rows.map(r => cols.map(c => String(fmtCell(c.id, r) || '')));
+    doc.autoTable({
+      head,
+      body,
+      startY: 25,
+      theme: 'grid',
+      margin: { left: 8, right: 8 },
+      styles: { fontSize: 8, cellPadding: 1.4, overflow: 'linebreak', valign: 'top' },
+      headStyles: { fillColor: [30, 41, 59], textColor: [252, 211, 77], fontStyle: 'bold', fontSize: 8 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+    });
+
+    const pages = doc.internal.getNumberOfPages();
+    const pageH = doc.internal.pageSize.getHeight();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text('VibeHive · The Address', 8, pageH - 5);
+      doc.text(`Page ${i}/${pages}`, pageW - 8, pageH - 5, { align: 'right' });
+    }
+    return doc;
+  }
+
+  async function downloadPDF(rows) {
+    const doc = await buildPdfDoc(rows);
+    doc.save(filename('pdf'));
+    toast(`PDF downloaded · ${rows.length} row${rows.length === 1 ? '' : 's'}`, 'ok');
   }
 
   async function saveToArchive(rows) {
@@ -491,17 +556,27 @@ export async function render(root, { match } = {}) {
       }
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16); // YYYY-MM-DDTHH-MM
       const scopeSlug = scopeSlugFor();
-      const path = `reports/${scopeSlug}/${stamp}.csv`;
-      const content = buildCsv(rows);
-      const res = await queueAndMaybePushArchive({ path, content, kind: 'report', createdBy: user.id, scope: scopeSlug, rows: rows.length }, {
+      const path = `reports/${scopeSlug}/${stamp}.pdf`;
+      const doc = await buildPdfDoc(rows);
+      const pdfB64 = String(doc.output('datauristring') || '').split(',')[1] || '';
+      if (!pdfB64) throw new Error('Could not generate PDF bytes for archive');
+      const res = await queueAndMaybePushArchive({
+        path,
+        kind: 'report-pdf',
+        contentBase64: pdfB64,
+        encoding: 'base64',
+        createdBy: user.id,
+        scope: scopeSlug,
+        rows: rows.length,
+      }, {
         actor: user.id,
-        message: `report: ${scopeSlug} (${rows.length} rows)`,
+        message: `report-pdf: ${scopeSlug} (${rows.length} rows)`,
       });
       state.audit({ actor: user.id, action: 'report.enqueue', path, rows: rows.length });
       if (res && res.ok && res.commitSha) {
-        toast(`Saved to tvh_record · ${rows.length} rows`, 'ok');
+        toast(`Saved PDF to tvh_record · ${rows.length} rows`, 'ok');
       } else {
-        toast(`Queued · ${rows.length} rows → ${path} (will retry from outbox)`, 'warn');
+        toast(`Queued PDF · ${rows.length} rows → ${path} (will retry from outbox)`, 'warn');
       }
     } catch (err) {
       console.error('[reports] archive enqueue failed', err);
@@ -518,30 +593,6 @@ export async function render(root, { match } = {}) {
     if (st.scope === 'range')  return `range-${(st.from || 'x')}-to-${(st.to || 'x')}`;
     if (st.scope === 'published') return 'published';
     return 'all';
-  }
-
-  function printReport(rows) {
-    const cols = DEFAULT_COLS.filter(c => st.columns.includes(c.id));
-    const w = window.open('', '_blank', 'noopener,noreferrer');
-    if (!w) { toast('Pop-up blocked — allow pop-ups to print', 'err'); return; }
-    const title = st.title || defaultTitle();
-    const rowsHtml = rows.map(c => '<tr>' + cols.map(col => `<td>${escapeHtml(fmtCell(col.id, c))}</td>`).join('') + '</tr>').join('');
-    const total = rows.reduce((s, c) => s + Number(c.amount || 0), 0);
-    const verified = rows.filter(c => c.status === 'verified').reduce((s, c) => s + Number(c.amount || 0), 0);
-    w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title>
-      <style>
-        body{font:12px/1.35 system-ui,Segoe UI,Arial;color:#222;margin:24px}
-        h1{margin:0 0 4px;font-size:16px} .sub{color:#666;font-size:11px;margin-bottom:12px}
-        table{border-collapse:collapse;width:100%;font-size:11px}
-        th,td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
-        thead th{background:#a34328;color:#fff}
-        tbody tr:nth-child(even){background:#f2d8ca}
-      </style>
-      <h1>${escapeHtml(title)}</h1>
-      <div class="sub">Generated ${new Date().toLocaleString('en-IN')} · ${rows.length} row${rows.length === 1 ? '' : 's'} · Verified total ${escapeHtml(fmtINR(verified))} · All-status total ${escapeHtml(fmtINR(total))}</div>
-      <table><thead><tr>${cols.map(c => `<th>${escapeHtml(c.label)}</th>`).join('')}</tr></thead><tbody>${rowsHtml}</tbody></table>
-      <script>window.onload=()=>window.print()<\/script>`);
-    w.document.close();
   }
 
   function defaultTitle() {

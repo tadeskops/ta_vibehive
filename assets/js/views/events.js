@@ -107,10 +107,14 @@ function adminRow(evt, user) {
       el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
         el('span', { class: 'pill pill-muted', text: evt.status }),
         showApprove ? el('button', { class: 'btn btn-sm', on: { click: async () => {
-          const e2 = { ...evt, status: STATUS.PUBLISHED, approved_by: user.email, approved_at: new Date().toISOString() };
-          saveEvent(e2, user);
-          toast('Event approved and published', 'ok');
-          location.reload();
+          try {
+            const e2 = { ...evt, status: STATUS.PUBLISHED, approved_by: user.email, approved_at: new Date().toISOString() };
+            saveEvent(e2, user);
+            toast('Event approved and published', 'ok');
+            location.reload();
+          } catch (err) {
+            toast((err && err.message) || 'Could not publish event', 'err');
+          }
         } } }, '✓ Approve') : null,
         el('a', { class: 'btn btn-sm btn-ghost', href: `#/e/${evt.id}/edit` }, 'Edit'),
         el('a', { class: 'btn btn-sm', href: `#/e/${evt.id}` }, 'Open')

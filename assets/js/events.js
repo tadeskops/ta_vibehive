@@ -147,7 +147,10 @@ export function saveEvent(evt, actor) {
   evt.updated_at = new Date().toISOString();
   const i = evts.findIndex(e => e.id === evt.id);
   if (i >= 0) evts[i] = evt; else evts.push(evt);
-  state.saveEvents(evts);
+  const persisted = state.saveEvents(evts);
+  if (!persisted) {
+    throw new Error('Could not save event locally. Browser storage is full or blocked.');
+  }
   state.audit({ actor: actor ? actor.id : null, action: 'event.save', event: evt.id, status: evt.status });
   archiveEventSnapshot(evt, actor, priorStatus);
   if (actor) {

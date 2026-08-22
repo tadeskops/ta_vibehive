@@ -101,7 +101,7 @@ export const state = {
     local.set('users', withLabAdmin(cleaned));
   },
   events() { return local.get('events', []); },
-  saveEvents(evts) { local.set('events', evts); },
+  saveEvents(evts) { return local.set('events', evts); },
   contribs() { return local.get('contribs', []); },
   saveContribs(c) { local.set('contribs', c); },
   /* Expenses — per-event outflows recorded by committee/manager. Each

@@ -401,9 +401,13 @@ async function renderEdit(root, evt, user, caps) {
           } catch (_e) { /* if flag lookup fails, keep existing publish behaviour */ }
         }
         if (updated.status === STATUS.CLOSED && !caps.canClose) { toast('Only Management Committee can close.', 'err'); return; }
-        saveEvent(updated, user);
-        toast('Event saved', 'ok');
-        navigate('/e/' + updated.id);
+        try {
+          saveEvent(updated, user);
+          toast('Event saved', 'ok');
+          navigate('/e/' + updated.id);
+        } catch (err) {
+          toast((err && err.message) || 'Could not save event', 'err');
+        }
       } } }, 'Save event')
     )
   );

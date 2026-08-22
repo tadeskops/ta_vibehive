@@ -85,9 +85,9 @@ Implemented:
 - Filter controls: scope, statuses, grouping, columns.
 - Event-based filter is available before export so report download can be scoped to one selected event.
 - Event selector list includes live events and past events.
-- Export/print/archive actions are visibility-gated by feature settings.
+- PDF download/archive actions are visibility-gated by feature settings and `reports.export` permission.
 - UI cleanup completed: removed literal `null` artifacts during conditional section rendering.
-- Export action label is explicit (`Export report (CSV)`) for discoverability.
+- Report action labels are explicit (`Download report (PDF)` and `Save PDF to archive`) for discoverability.
 
 Core UI files:
 - `assets/js/views/reports.js`
@@ -103,8 +103,7 @@ Implemented:
 - Footer brand-row chips (`source` and build/version tag) are configurable and default to hidden, leaving only society brand text visible.
 - Resident email governance tools:
   - Bulk gmail parser
-  - TSH-style access-tier editor (add tier, rename tier, set rank, map to base role profile, assign tier emails)
-  - Role-to-email mapping (one or more IDs per role)
+  - Direct role-to-email mapping (one or more IDs per role)
   - Admin-only editability for admin role mappings; secretary/mgmt can edit non-admin role mappings
   - Access table visibility state
   - Resident access/role-email section is expanded by default for easier discoverability
