@@ -340,15 +340,20 @@ export async function render(root, { match } = {}) {
     const verified = rows.filter(c => c.status === 'verified');
     const pending  = rows.filter(c => c.status === 'pending');
     const voided   = rows.filter(c => c.status === 'void');
-    const contribs = new Set(rows.map(c => c.contributor)).size;
+    const contribs = new Set(
+      rows.map(c => String(c.contributor_email || c.contributor || '').trim().toLowerCase()).filter(Boolean)
+    ).size;
+    const uniqFlats = new Set(
+      rows.map(c => String(c.flat || '').trim().toLowerCase()).filter(Boolean)
+    ).size;
     const eventsInRows = new Set(rows.map(c => c.event)).size;
     const verifiedTotal = verified.reduce((s, c) => s + Number(c.amount || 0), 0);
 
     const stats = el('div', { class: 'grid grid-4' },
-      stat('Entries', String(rows.length)),
-      stat('Verified ₹', fmtINR(verifiedTotal), `${verified.length} / ${rows.length}`),
-      stat('Pending', String(pending.length), voided.length ? `${voided.length} void` : ''),
-      stat('Coverage', `${eventsInRows} event${eventsInRows === 1 ? '' : 's'}`, `${contribs} contributor${contribs === 1 ? '' : 's'}`),
+      stat('Total ₹', fmtINR(total), `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}`),
+      stat('Verified ₹', fmtINR(verifiedTotal), `${verified.length} verified · ${pending.length} pending${voided.length ? ' · ' + voided.length + ' invalid' : ''}`),
+      stat('Unique flats', String(uniqFlats), `${contribs} contributor${contribs === 1 ? '' : 's'}`),
+      stat('Coverage', `${eventsInRows} event${eventsInRows === 1 ? '' : 's'}`, 'in selection'),
     );
 
     const groups = groupRows(rows, st.groupBy);
@@ -501,8 +506,23 @@ export async function render(root, { match } = {}) {
 
     const title = st.title || defaultTitle();
     const nowStr = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+    /* Header aggregates — total accumulated ₹ + unique-flat count give
+     * the reader an at-a-glance summary before they read the table.
+     * Verified-only figure is called out so the "official" money is
+     * unambiguous (pending rows are still shown in the table). */
+    const rupees = rows.reduce((s, c) => s + Number(c.amount || 0), 0);
+    const verifiedRows = rows.filter(c => c.status === 'verified');
+    const verifiedRupees = verifiedRows.reduce((s, c) => s + Number(c.amount || 0), 0);
+    const uniqFlats = new Set(rows.map(c => String(c.flat || '').trim().toLowerCase()).filter(Boolean)).size;
+    const uniqContribs = new Set(
+      rows.map(c => String(c.contributor_email || c.contributor || '').trim().toLowerCase()).filter(Boolean)
+    ).size;
+    /* Plain-ASCII rupee prefix — jsPDF's default helvetica doesn't ship
+     * the ₹ glyph and renders it as a placeholder. Use "Rs." in the PDF
+     * body only; the on-screen HTML report keeps the ₹ symbol. */
+    const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN');
     doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, pageW, 16, 'F');
+    doc.rect(0, 0, pageW, 22, 'F');
     doc.setTextColor(252, 211, 77);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
@@ -510,17 +530,21 @@ export async function render(root, { match } = {}) {
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(13);
     doc.text(title, 10, 13);
-    doc.setTextColor(71, 85, 105);
+    doc.setTextColor(226, 232, 240);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.text(`Generated ${nowStr} · Rows ${rows.length}`, 10, 21);
+    doc.text(
+      `Generated ${nowStr}  ·  Rows ${rows.length}  ·  Total ${rs(rupees)}  ·  Verified ${rs(verifiedRupees)} (${verifiedRows.length})  ·  Unique flats ${uniqFlats}  ·  Contributors ${uniqContribs}`,
+      10,
+      19
+    );
 
     const head = [cols.map(c => c.label)];
     const body = rows.map(r => cols.map(c => String(fmtCell(c.id, r) || '')));
     doc.autoTable({
       head,
       body,
-      startY: 25,
+      startY: 26,
       theme: 'grid',
       margin: { left: 8, right: 8 },
       styles: { fontSize: 8, cellPadding: 1.4, overflow: 'linebreak', valign: 'top' },
