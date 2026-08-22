@@ -532,10 +532,24 @@ async function renderAttributes(user, canUsersManage) {
   const btnAddBulk = el('button', { class: 'btn btn-sm', type: 'button' }, 'Parse and add');
   const btnClearAllowed = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Clear list');
   const btnSaveRoleMap = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', disabled: !canEditRoleMap }, 'Stage role mapping');
-  btnSaveRoleMap.addEventListener('click', () => {
+  const normalizeRoleState = (src) => {
+    const out = {};
+    roleIds.forEach((id) => {
+      const list = Array.isArray(src && src[id]) ? src[id] : [];
+      out[id] = Array.from(new Set(list
+        .map(v => String(v || '').trim().toLowerCase())
+        .filter(Boolean)
+      )).sort();
+    });
+    return out;
+  };
+  const roleStateDirty = () => JSON.stringify(normalizeRoleState(roleEmailState)) !== JSON.stringify(normalizeRoleState(initialRoleEmailState));
+
+  function stageRoleMapping(opts) {
+    const emitToast = !opts || opts.emitToast !== false;
     if (!canEditRoleMap) {
-      toast('Only Admin, Secretary, and Management Committee can edit role mappings.', 'warn');
-      return;
+      if (emitToast) toast('Only Admin, Secretary, and Management Committee can edit role mappings.', 'warn');
+      return { staged: false, total: 0, invalid: 0, duplicate: 0 };
     }
     const nextRoleEmails = {};
     roleIds.forEach((id) => { nextRoleEmails[id] = []; });
@@ -568,7 +582,11 @@ async function renderAttributes(user, canUsersManage) {
     stageAttr('access.email_roles', Object.keys(nextEmailRoles).length ? nextEmailRoles : undefined, { silent: true });
 
     const total = Object.keys(nextEmailRoles).length;
-    toast(`Staged ${total} mapped email ID(s)${invalid ? `, skipped ${invalid} invalid` : ''}${duplicate ? `, skipped ${duplicate} duplicate` : ''}. Click Save all settings changes.`, total ? 'ok' : 'warn');
+    if (emitToast) toast(`Staged ${total} mapped email ID(s)${invalid ? `, skipped ${invalid} invalid` : ''}${duplicate ? `, skipped ${duplicate} duplicate` : ''}. Click Save all settings changes.`, total ? 'ok' : 'warn');
+    return { staged: true, total, invalid, duplicate };
+  }
+  btnSaveRoleMap.addEventListener('click', () => {
+    stageRoleMapping({ emitToast: true });
   });
   btnAddBulk.addEventListener('click', () => {
     const raw = String(taEmailBulk.value || '');
@@ -611,6 +629,11 @@ async function renderAttributes(user, canUsersManage) {
 
   const saveAllBtn = el('button', { class: 'btn', type: 'button' }, 'Save all settings changes');
   saveAllBtn.addEventListener('click', async () => {
+    /* Role editor uses local UI state. Auto-stage it here so users can
+     * simply click Save without needing a separate Stage click first. */
+    if (canEditRoleMap && roleStateDirty()) {
+      stageRoleMapping({ emitToast: false });
+    }
     if (!flatKeys(draft).length) {
       toast('No staged settings changes.', 'warn');
       return;
