@@ -82,6 +82,12 @@ export async function getEvent(ctx: Ctx, params: Record<string, string>): Promis
  * so the caller cannot forge attribution. Returns new sha for chaining.
  */
 export async function putEvent(ctx: Ctx, params: Record<string, string>): Promise<Response> {
+  /* Distinguish an expired-token caller (401) from a signed-in caller
+   * whose role is genuinely too low (403). Without the 401 branch the
+   * frontend's silent-refresh + retry logic can't recover, and admins
+   * whose Google JWT lapsed see a confusing "Committee or above
+   * required" instead of "Sign in required". */
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
   if (!atLeast(ctx.role, 'committee')) return err(ctx.env, ctx.req, 'Committee or above required', 403);
   const path = pathFor(params['slug']);
   let body: { event?: EventDoc; expectedSha?: string };

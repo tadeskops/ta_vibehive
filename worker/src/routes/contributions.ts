@@ -87,6 +87,10 @@ export async function createContribution(ctx: Ctx): Promise<Response> {
  * verified_at/verified_by. Optionally mints a deterministic receipt id.
  */
 export async function verifyContribution(ctx: Ctx, params: Record<string, string>): Promise<Response> {
+  /* Anonymous callers get a 401 so the frontend's silent-refresh
+   * retry can attempt to recover the session. Genuine role
+   * mismatches still fall through to 403. */
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
   if (!atLeast(ctx.role, 'committee')) return err(ctx.env, ctx.req, 'Committee or above required', 403);
   const year = params['year'];
   const month = params['month'];

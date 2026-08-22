@@ -67,10 +67,17 @@ async function request(method, path, body) {
 
   let token = currentToken();
   let res = await doFetch(token);
-  if (res.status === 401 && !token) {
-    /* No fresh token in memory — try to get one silently, then retry. */
-    token = await ensureFreshToken();
-    if (token) res = await doFetch(token);
+  if (res.status === 401) {
+    /* Either no token in memory, or we sent a stale one Google
+     * already invalidated. Trigger a silent GIS re-auth, then retry
+     * once. We always retry — even when a token was already present
+     * — because an expired JWT looks identical to no token from the
+     * Worker's perspective. */
+    const fresh = await ensureFreshToken();
+    if (fresh && fresh !== token) {
+      token = fresh;
+      res = await doFetch(token);
+    }
   }
 
   let payload = null;
