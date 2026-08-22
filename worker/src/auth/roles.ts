@@ -23,7 +23,7 @@ export interface AccessDoc {
   role_emails?: Partial<Record<Exclude<Role, 'anonymous'>, string[]>>;
 }
 
-const ORDER: Role[] = ['admin', 'secretary', 'mgmt', 'committee', 'manager', 'resident'];
+const ORDER: Array<Exclude<Role, 'anonymous'>> = ['admin', 'secretary', 'mgmt', 'committee', 'manager', 'resident'];
 
 export function resolveRole(access: AccessDoc | null | undefined, email: string | null): Role {
   if (!email) return 'anonymous';
