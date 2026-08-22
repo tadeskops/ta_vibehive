@@ -11,22 +11,35 @@ import { eventCard } from './home.js';
 
 export async function render(root) {
   const user = session();
-  const canCreate = await can(user, 'events.create');
-  const canVerify = await can(user, 'contributions.verify');
+  const canCreate  = await can(user, 'events.create');
+  const canPropose = await can(user, 'events.propose');
+  const canApprove = await can(user, 'events.approve');
+  const canVerify  = await can(user, 'contributions.verify');
   /* Draft / Review / Archived are back-of-house. Residents only see
    * PUBLISHED (accepting contributions) and CLOSED (past events -
-   * they can still see the outcome). Anyone with create-or-verify
-   * access sees everything so the pipeline is discoverable. */
+   * they can still see the outcome), plus any REVIEW events THEY
+   * proposed so they can track their own proposal. Anyone with
+   * create-or-verify access sees everything so the pipeline is
+   * discoverable. */
   const canSeeAll = canCreate || canVerify;
   const all = state.events().slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
-  const events = canSeeAll ? all : all.filter(e => e.status === STATUS.PUBLISHED || e.status === STATUS.CLOSED);
+  const myEmail = user && user.email;
+  const events = canSeeAll
+    ? all
+    : all.filter(e => e.status === STATUS.PUBLISHED
+      || e.status === STATUS.CLOSED
+      || (e.status === STATUS.REVIEW && myEmail && e.proposed_by === myEmail));
 
   const head = el('div', { class: 'row row-between', style: 'margin-bottom:18px' },
     el('div', {},
       el('h1', { text: 'Community events' }),
-      el('p', { class: 'sub', text: 'Every event is created by the committee. Nothing is hard-coded.' })
+      el('p', { class: 'sub', text: canCreate
+        ? 'Every event is created by the committee. Nothing is hard-coded.'
+        : (canPropose ? 'Suggest an event — the committee will review and publish it.' : 'Every event is created by the committee.') })
     ),
-    canCreate ? el('button', { class: 'btn', on: { click: () => openTemplatePicker(user) } }, '＋ New event') : null
+    canCreate
+      ? el('button', { class: 'btn', on: { click: () => openTemplatePicker(user, { propose: false }) } }, '＋ New event')
+      : (canPropose ? el('button', { class: 'btn', on: { click: () => openTemplatePicker(user, { propose: true }) } }, '＋ Propose event') : null)
   );
 
   const grouped = groupBy(events, e => e.status);
@@ -67,18 +80,27 @@ export async function render(root) {
 }
 
 function labelForStatus(s) {
-  return ({ draft: 'Drafts', review: 'Under review', published: 'Live now', closed: 'Recently closed', archived: 'Archived' })[s] || s;
+  return ({ draft: 'Drafts', review: 'Pending approval', published: 'Live now', closed: 'Recently closed', archived: 'Archived' })[s] || s;
 }
 
 function adminRow(evt, user) {
+  const canApprove = user && (user.role === 'admin' || user.role === 'mgmt' || user.role === 'committee');
+  const showApprove = canApprove && evt.status === STATUS.REVIEW;
   return el('article', { class: 'card card-content' },
     el('div', { class: 'row row-between' },
       el('div', {},
         el('h3', { class: 'card-title', text: evt.glyph + ' ' + evt.title }),
-        el('p', { class: 'card-sub', text: `Template: ${evt.template} · Updated ${fmtDate(evt.updated_at)}` })
+        el('p', { class: 'card-sub', text: `Template: ${evt.template} · Updated ${fmtDate(evt.updated_at)}`
+          + (evt.proposed_by ? ` · Proposed by ${evt.proposed_by}` : '') })
       ),
-      el('div', { class: 'row' },
+      el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
         el('span', { class: 'pill pill-muted', text: evt.status }),
+        showApprove ? el('button', { class: 'btn btn-sm', on: { click: async () => {
+          const e2 = { ...evt, status: STATUS.PUBLISHED, approved_by: user.email, approved_at: new Date().toISOString() };
+          saveEvent(e2, user);
+          toast('Event approved and published', 'ok');
+          location.reload();
+        } } }, '✓ Approve') : null,
         el('a', { class: 'btn btn-sm btn-ghost', href: `#/e/${evt.id}/edit` }, 'Edit'),
         el('a', { class: 'btn btn-sm', href: `#/e/${evt.id}` }, 'Open')
       )
@@ -96,7 +118,8 @@ function groupBy(items, keyFn) {
   return map;
 }
 
-async function openTemplatePicker(user) {
+async function openTemplatePicker(user, opts) {
+  const propose = !!(opts && opts.propose);
   const tpls = await listTemplates();
   const back = el('div', { class: 'modal-back' });
   const close = () => back.remove();
@@ -114,10 +137,18 @@ async function openTemplatePicker(user) {
         const btn = e.currentTarget;
         if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
         const evt = await newEventFromTemplate(t.id, user);
+        if (propose) {
+          /* Resident proposal — event lands in REVIEW until an
+           * approver publishes it. Author is recorded for the
+           * "Pending approval" surface. */
+          evt.status = STATUS.REVIEW;
+          evt.proposed_by = user && user.email ? user.email : (user && user.id) || null;
+          evt.proposed_at = new Date().toISOString();
+        }
         saveEvent(evt, user);
         close();
-        toast('Draft created', 'ok');
-        navigate('/e/' + evt.id + '/edit');
+        toast(propose ? 'Proposal submitted for review' : 'Draft created', 'ok');
+        navigate('/e/' + evt.id + (propose ? '' : '/edit'));
       } catch (err) {
         creating = false;
         toast(err && err.message ? err.message : 'Could not create draft', 'err');
@@ -130,11 +161,13 @@ async function openTemplatePicker(user) {
   );
   const box = el('div', { class: 'modal', style: 'max-width:720px' },
     el('div', { class: 'modal-head' },
-      el('h3', { text: 'Choose a template' }),
+      el('h3', { text: propose ? 'Suggest an event' : 'Choose a template' }),
       el('button', { class: 'x-close', on: { click: close } }, '×')
     ),
     el('div', { class: 'modal-body' },
-      el('p', { class: 'sub', text: 'Each template pre-configures a feature set. You can override anything per event.' }),
+      el('p', { class: 'sub', text: propose
+        ? 'Pick a template that matches what you have in mind. The committee will review and publish it.'
+        : 'Each template pre-configures a feature set. You can override anything per event.' }),
       cards
     )
   );

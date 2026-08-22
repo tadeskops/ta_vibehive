@@ -78,14 +78,50 @@ export const local = {
 /* Higher-level collections */
 export const state = {
   /* users() / saveUsers() are wrapped through `withLabAdmin` so the
-   * hard-coded lab super-admin (samanasippa@gmail.com) is guaranteed to
-   * exist as role="admin" no matter what any UI or migration does. */
-  users() { return withLabAdmin(local.get('users', seedUsers())); },
-  saveUsers(u) { local.set('users', withLabAdmin(u)); },
+   * hard-coded bootstrap admins (see lab-admin.js) are guaranteed to
+   * exist as role="admin" no matter what any UI or migration does.
+   *
+   * On read we ALSO strip any leftover pre-production placeholder
+   * users (emails ending in `.example`) so a browser that touched an
+   * older dev build doesn't leak Aarav Jain / Ramesh Patil / etc.
+   * into the live admin console. Newly-provisioned residents come in
+   * via `auth.js/loginWithProfile` from a Google-signed JWT and never
+   * have a `.example` email. */
+  users() {
+    const stored = local.get('users', null);
+    const list = Array.isArray(stored)
+      ? stored.filter(u => u && !/\.example$/i.test(String(u.email || '')))
+      : [];
+    return withLabAdmin(list);
+  },
+  saveUsers(u) {
+    const cleaned = Array.isArray(u)
+      ? u.filter(x => x && !/\.example$/i.test(String(x.email || '')))
+      : [];
+    local.set('users', withLabAdmin(cleaned));
+  },
   events() { return local.get('events', []); },
   saveEvents(evts) { local.set('events', evts); },
   contribs() { return local.get('contribs', []); },
   saveContribs(c) { local.set('contribs', c); },
+  /* Expenses — per-event outflows recorded by committee/manager. Each
+   * row: { id, event_id, amount, category, description, receipt_url,
+   * created_at, created_by, visible_to_residents }.  Aggregated in
+   * reports.js + shown inline on the event detail page (respecting the
+   * visibility flag). Not archived — kept local until the future
+   * treasury integration lands. */
+  expenses() { return local.get('expenses', []); },
+  saveExpenses(list) { local.set('expenses', Array.isArray(list) ? list : []); },
+  /* Receipt templates — society may keep multiple presets (e.g. one
+   * for festival donations, one for maintenance dues) and pick which
+   * one is active from settings. Only the active_id (stored in
+   * societyOverrides.receipts.active_template_id) drives rendering;
+   * inactive templates stay around for quick swap during a campaign.
+   * Each template: { id, name, header_note, thank_you_line,
+   * footer_note, show_qr, show_verify_grid, show_watermark,
+   * seal_glyph, created_at }. */
+  receiptTemplates() { return local.get('receiptTemplates', []); },
+  saveReceiptTemplates(list) { local.set('receiptTemplates', Array.isArray(list) ? list : []); },
   featureOverrides() { return local.get('featureOverrides', {}); },
   saveFeatureOverrides(o) { local.set('featureOverrides', o); },
   societyOverrides() { return local.get('societyOverrides', {}); },
@@ -116,7 +152,18 @@ export const state = {
     local.set('outbox', []);
     return q;
   },
-  currentUser() { return normalizeUser(local.get('session', null)); },
+  currentUser() {
+    const raw = local.get('session', null);
+    /* Drop any stale demo-persona session left over from a pre-production
+     * dev build (fake emails end in `.example`). Forces the sign-in gate
+     * for the affected browser instead of silently keeping "Aarav Jain"
+     * signed in against a live deploy. */
+    if (raw && /\.example$/i.test(String(raw.email || ''))) {
+      local.remove('session');
+      return null;
+    }
+    return normalizeUser(raw);
+  },
   setCurrentUser(u) { u ? local.set('session', normalizeUser(u)) : local.remove('session'); },
   audit(entry) {
     const log = local.get('audit', []);
@@ -129,11 +176,9 @@ export const state = {
 };
 
 function seedUsers() {
-  return [
-    { id: 'admin@the-address',    name: 'System Admin',      role: 'admin',     flat: '—',      email: 'admin@the-address.example' },
-    { id: 'chair@the-address',    name: 'Ramesh Patil',      role: 'mgmt',      flat: 'A-101',  email: 'chair@the-address.example' },
-    { id: 'culture@the-address',  name: 'Sunita Kulkarni',   role: 'committee', flat: 'A-505',  email: 'culture@the-address.example' },
-    { id: 'manager@the-address',  name: 'Anil Deshpande',    role: 'manager',   flat: 'GF-01',  email: 'manager@the-address.example' },
-    { id: 'aarav@the-address',    name: 'Aarav Jain',        role: 'resident',  flat: 'B-1605', email: 'aarav@the-address.example' },
-  ];
+  /* Production seed = empty. The bootstrap admins from lab-admin.js are
+   * always injected on top by `withLabAdmin(...)`. Real residents get
+   * auto-provisioned by `auth.js/loginWithProfile` when they first tap
+   * "Continue with Google". */
+  return [];
 }

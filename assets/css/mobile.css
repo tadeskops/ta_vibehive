@@ -50,7 +50,8 @@
     align-items: center;
   }
   .topnav { display: none !important; }
-  .brand-mark img { height: 30px; width: 30px; }
+  .brand-mark { width: 44px; height: 44px; }
+  .brand-mark img { width: 44px; height: 44px; }
   .brand-text b.wordmark { font-size: 17px; }
   .brand-text em { font-size: 10.5px; }
   /* Persona pill: trim padding so it doesn't wrap on 360 px viewports */

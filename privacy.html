@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#faf3ea">
+<title>Privacy Policy · VibeHive · The Address</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px 60px; color: #2a1f18; line-height: 1.55; background: #fdf6ec; }
+  h1 { color: #a34328; border-bottom: 2px solid #c78f2a; padding-bottom: 8px; }
+  h2 { color: #a34328; margin-top: 32px; }
+  a { color: #a34328; }
+  .lead { font-size: 1.05em; color: #5c4a3a; }
+  code { background: #f2e6cf; padding: 1px 6px; border-radius: 4px; font-size: 0.9em; }
+  .footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid #d7c9b0; color: #7a6a58; font-size: 0.9em; }
+</style>
+</head>
+<body>
+
+<h1>Privacy Policy</h1>
+
+<p class="lead"><strong>Last updated:</strong> 22 August 2026</p>
+
+<p><strong>VibeHive</strong> is a community event and contribution management
+app operated by <strong>The Address Co-operative Housing Society Ltd.,
+Baner, Pune</strong> (registration no. PNA/PNA(2)/HSG/(TC)/29730/2025-2026),
+for the sole benefit of its residents and members. This policy explains what
+data we collect when you sign in, and what we do (and do not) do with it.</p>
+
+<h2>1. Who this applies to</h2>
+<p>This policy applies to anyone who signs in to VibeHive at
+<a href="https://tadeskops.github.io/ta_vibehive/">https://tadeskops.github.io/ta_vibehive/</a>
+using a Google, Microsoft, or other supported identity provider.</p>
+
+<h2>2. What data we receive when you sign in</h2>
+<p>When you tap "Continue with Google" (or another provider), the provider
+returns only these fields to us, and nothing else:</p>
+<ul>
+  <li><strong>Email address</strong> — used as your unique identifier inside
+    the app so your contributions are attributed to you.</li>
+  <li><strong>Display name</strong> — shown next to your contributions and
+    on your profile; you can edit it afterwards.</li>
+  <li><strong>Stable user ID</strong> (called <code>sub</code>) — a random
+    string the provider assigns you. Used for account matching only.</li>
+</ul>
+<p>We do <strong>not</strong> receive or request: your phone number, your
+home address, your contacts, your calendar, your emails, your photos, your
+Google Drive files, or any offline access token. The scopes requested are
+strictly the OpenID Connect minimum: <code>openid email profile</code>.</p>
+
+<h2>3. Where your data lives</h2>
+<p>VibeHive is a static single-page web app hosted on GitHub Pages. Your
+identity data is stored in <strong>your browser's local storage</strong> on
+the device you signed in from. There is no VibeHive server-side database and
+no VibeHive backend that can read or aggregate resident data.</p>
+<p>Committee-managed data (event definitions, contribution ledgers, receipts)
+is stored in files inside the app repository. Personally identifying fields
+(name, flat number, email) inside those files are visible to anyone with a
+committee role and to the software supply chain of the repository host
+(GitHub Inc.).</p>
+
+<h2>4. What we do with your data</h2>
+<ul>
+  <li><strong>Attribute contributions</strong> — link the payment you record
+    to your identity so the committee can reconcile receipts.</li>
+  <li><strong>Show contributor lists</strong> — display your name against
+    events you contributed to (you may opt into anonymous mode per event).</li>
+  <li><strong>Notify you</strong> — surface event reminders and receipt
+    confirmations inside the app.</li>
+</ul>
+<p>We do <strong>not</strong> sell, rent, share, or advertise against your
+data. There is no analytics tracker, no cookie banner, and no third-party
+marketing pixel embedded in the site.</p>
+
+<h2>5. What the identity provider knows</h2>
+<p>Google, Microsoft, and any other identity provider you sign in with will
+know that you used them to access VibeHive. They log that access under their
+own privacy policies:</p>
+<ul>
+  <li><a href="https://policies.google.com/privacy">Google Privacy Policy</a></li>
+  <li><a href="https://privacy.microsoft.com/en-us/privacystatement">Microsoft Privacy Statement</a></li>
+</ul>
+
+<h2>6. Deleting your data</h2>
+<p>To remove your account and everything we hold about you:</p>
+<ol>
+  <li>Sign in, open the whoami menu, tap <strong>Sign out</strong>. This
+    clears your session on the device.</li>
+  <li>Email <a href="mailto:ta.deskops@gmail.com">ta.deskops@gmail.com</a>
+    with the subject <em>"Delete my VibeHive account"</em> from your
+    registered email address. We will remove your user record from the
+    committee-managed files within 14 days and confirm by reply.</li>
+  <li>Optionally, revoke VibeHive's access at your identity provider:
+    <a href="https://myaccount.google.com/permissions">Google account
+    permissions</a>.</li>
+</ol>
+
+<h2>7. Access, correction, and portability</h2>
+<p>You can view, edit, and export the data associated with your account from
+inside the app: whoami menu → <strong>Profile</strong>. All fields are
+editable except your email (which is the account key). To export a copy of
+your contribution history, use the <strong>Export</strong> action on your
+profile page (produces a JSON file).</p>
+
+<h2>8. Children</h2>
+<p>VibeHive is intended for adult residents of the society. If a resident
+under the age of 18 signs in, their parent or legal guardian may request
+account deletion using §6.</p>
+
+<h2>9. Security</h2>
+<p>Sign-in uses OAuth 2.0 with PKCE (RFC 7636). No password is transmitted
+to or stored by VibeHive. Data in transit uses HTTPS end-to-end. Because the
+app is client-side and open source, its full source is publicly auditable
+at <a href="https://github.com/tadeskops/ta_vibehive">github.com/tadeskops/ta_vibehive</a>.</p>
+
+<h2>10. Changes to this policy</h2>
+<p>If we ever materially change what data we collect or what we do with it,
+we will update this page and post a banner in the app for at least 30 days
+before the change takes effect.</p>
+
+<h2>11. Contact</h2>
+<p>Questions, corrections, or data-deletion requests:
+<a href="mailto:ta.deskops@gmail.com">ta.deskops@gmail.com</a>.</p>
+
+<div class="footer">
+  <p><a href="./">← Back to VibeHive</a> · <a href="terms.html">Terms of Service</a></p>
+  <p>© 2026 The Address Co-operative Housing Society Ltd. Registered under
+  PNA/PNA(2)/HSG/(TC)/29730/2025-2026.</p>
+</div>
+
+</body>
+</html>

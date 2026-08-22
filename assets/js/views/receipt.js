@@ -29,6 +29,23 @@ export async function render(root, { match }) {
   if (!rec.receipt) { await attachReceipt(rec); }
   const r = state.contribs().find(c => c.id === rec.id).receipt;
 
+  /* Active receipt template — a society may keep multiple presets and
+   * pick which one drives the render from Settings → Receipt templates.
+   * When no template is active (or none exists), the shipped defaults
+   * below are used so nothing regresses for existing installs. */
+  const templates = state.receiptTemplates() || [];
+  const activeTplId = (soc.receipts && soc.receipts.active_template_id) || '';
+  const tpl = templates.find(t => t.id === activeTplId) || null;
+  const showQr        = tpl ? tpl.show_qr !== false          : true;
+  const showGrid      = tpl ? tpl.show_verify_grid !== false : true;
+  const showWatermark = tpl ? tpl.show_watermark !== false   : true;
+  const headerNote    = tpl && tpl.header_note ? String(tpl.header_note) : '';
+  const thankYouLine  = tpl && tpl.thank_you_line
+    ? String(tpl.thank_you_line)
+    : 'Received with thanks. This receipt is issued for records only. No goods or services have been supplied in exchange.';
+  const footerNote    = tpl && tpl.footer_note ? String(tpl.footer_note) : '';
+  const sealGlyph     = tpl && tpl.seal_glyph ? String(tpl.seal_glyph) : '';
+
   /* Share text kept short (WhatsApp UX is best under ~180 chars). The
    * verify URL is the only actionable payload — the recipient clicks
    * it and lands on the public verify page which recomputes the hash. */
@@ -55,15 +72,16 @@ export async function render(root, { match }) {
   );
 
   const receipt = el('article', { class: 'receipt' },
-    textmark(soc.short_name, r.id, r.verify_hash),
+    showWatermark ? textmark(soc.short_name, r.id, r.verify_hash) : null,
     el('header', { class: 'receipt-head' },
-      el('img', { src: 'assets/images/TaLogo.png', alt: '' }),
+      el('img', { src: 'assets/images/bee-circle-512.png', alt: '' }),
       el('div', {},
         el('h2', { text: soc.english_name }),
         el('small', { text: `${soc.legal_name} · Reg ${soc.reg_no} · ${soc.location}` })
       )
     ),
-    el('h3', { style: 'text-align:center;margin:0 0 8px', text: 'Contribution Receipt' }),
+    headerNote ? el('p', { style: 'text-align:center;margin:6px 0 0;font-weight:600;color:var(--terra)', text: headerNote }) : null,
+    el('h3', { style: 'text-align:center;margin:0 0 8px', text: 'Contribution Receipt' + (sealGlyph ? ' ' + sealGlyph : '') }),
     el('div', { class: 'receipt-meta' },
       metaRow('Receipt no.', r.id),
       metaRow('Issued on', fmtDate(r.issued_at)),
@@ -81,19 +99,20 @@ export async function render(root, { match }) {
     el('div', { class: 'receipt-amount-wrap' },
       el('div', { class: 'receipt-total', text: 'Amount received · ' + fmtINR(r.amount) })
     ),
-    el('p', { style: 'font-size:12px;color:var(--muted)', text: 'Received with thanks. This receipt is issued for records only. No goods or services have been supplied in exchange.' }),
+    el('p', { style: 'font-size:12px;color:var(--muted)', text: thankYouLine }),
     el('div', { class: 'receipt-stamp' },
       el('div', {},
         el('small', { text: 'For ' + soc.short_name }),
         el('div', { style: 'font-weight:800;margin-top:20px', text: rec.verified_by || 'Authorised signatory' })
       ),
-      hashGrid(r.verify_hash),
+      showGrid ? hashGrid(r.verify_hash) : el('div', {}),
       el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
     ),
-    el('div', { class: 'receipt-verify' },
+    showQr ? el('div', { class: 'receipt-verify' },
       el('div', {}, el('b', { text: 'Verify hash: ' }), el('span', { text: r.verify_hash })),
       el('div', {}, el('b', { text: 'Verify online: ' }), el('span', { text: verifyUrl(r.id) }))
-    ),
+    ) : null,
+    footerNote ? el('p', { style: 'text-align:center;font-size:11px;color:var(--muted);margin-top:8px', text: footerNote }) : null,
     /* microtext repeats the receipt ID + hash at 5.5px along the bottom;
      * cannot be reproduced by hand-editing / photocopying without smudging. */
     el('div', { class: 'receipt-microtext', 'aria-hidden': 'true', text: microtextLine(r.id, r.verify_hash) })

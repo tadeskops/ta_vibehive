@@ -9,8 +9,8 @@
   "theme_color": "#a34328",
   "description": "Configurable event and contribution platform for The Address Co-op Hsg Society.",
   "icons": [
-    { "src": "assets/images/TaLogo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "assets/images/TaLogo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "assets/images/TaLogo.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "assets/images/bee-circle-256.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/images/bee-circle-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/images/bee-circle-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

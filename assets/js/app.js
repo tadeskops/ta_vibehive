@@ -2,27 +2,32 @@
 'use strict';
 import { $, el, clear } from './dom.js';
 import * as router from './router.js';
-import { session } from './auth.js';
+import { session, bindGis } from './auth.js';
 import { can } from './rbac.js';
-import { isCallbackHit } from './auth-oauth.js';
 import { getSociety, state } from './store.js';
 import { installFetchWrapper } from './busy.js';
 import { mountBell as mountNotifyBell } from './notify.js';
 
 /* Global background-activity tracker: wraps window.fetch so every network
- * call (OAuth, GitHub archive push, config load, …) automatically drives
- * the topbar's golden shimmer stripe. Idempotent — safe to call once. */
+ * call (Google Identity Services, GitHub archive push, config load, …)
+ * automatically drives the topbar's golden shimmer stripe. Idempotent —
+ * safe to call once. */
 installFetchWrapper();
 
-/* If the browser landed on the OAuth redirect_uri (root + ?code=&state=),
- * hand off to the callback view. Rewrites the URL into a hash route so the
- * router picks it up in the normal dispatch. */
-if (isCallbackHit()) {
-  const q = new URLSearchParams(location.search);
-  const preserved = new URLSearchParams({ code: q.get('code'), state: q.get('state') });
-  history.replaceState({}, '', location.pathname);
-  location.hash = '#/auth/callback?' + preserved.toString();
-}
+/* Bootstrap Google Identity Services (GIS). Mirrors the ta-society-helpdesk
+ * pattern (docs/index.html → Auth.init). If TVH_GOOGLE_CLIENT_ID isn't set
+ * (contributor / test build), the shim isn't initialised and the login view
+ * falls back to the demo persona picker. */
+(async function bootAuth() {
+  try {
+    const cid = (typeof window !== 'undefined' && window.TVH_GOOGLE_CLIENT_ID) || '';
+    if (!cid || !window.Auth || typeof window.Auth.init !== 'function') return;
+    // Attach the session bridge BEFORE init so an auto-restored JWT reaches
+    // the app store on first tick.
+    bindGis();
+    await window.Auth.init({ clientId: cid });
+  } catch (e) { console.warn('GIS init failed', e); }
+})();
 
 /* View modules (lazy for first-paint gzip budget) */
 const views = {
@@ -31,10 +36,11 @@ const views = {
   event:      () => import('./views/event.js'),
   contribute: () => import('./views/contribute.js'),
   admin:      () => import('./views/admin.js'),
+  settings:   () => import('./views/settings.js'),
+  reports:    () => import('./views/reports.js'),
   receipt:    () => import('./views/receipt.js'),
   verify:     () => import('./views/verify.js'),
   login:      () => import('./views/login.js'),
-  authcb:     () => import('./views/auth-callback.js'),
 };
 
 async function mountView(loader, ctx) {
@@ -54,12 +60,31 @@ router.register('/e/:id/contribute',          (ctx) => mountView(views.contribut
 router.register('/e/:id/register',            (ctx) => mountView(views.contribute, ctx));
 router.register('/admin',                     (ctx) => mountView(views.admin, { ...ctx, match: { tab: 'features' } }));
 router.register('/admin/:tab',                (ctx) => mountView(views.admin, ctx));
+router.register('/settings',                  (ctx) => mountView(views.settings, { ...ctx, match: { tab: 'attributes' } }));
+router.register('/settings/:tab',             (ctx) => mountView(views.settings, ctx));
+router.register('/reports',                   (ctx) => mountView(views.reports, ctx));
 router.register('/receipt/:id',               (ctx) => mountView(views.receipt, ctx));
 router.register('/verify',                    (ctx) => mountView(views.verify, ctx));
 router.register('/verify/:id',                (ctx) => mountView(views.verify, ctx));
 router.register('/login',                     (ctx) => mountView(views.login, ctx));
-router.register('/auth/callback',             (ctx) => mountView(views.authcb, ctx));
 router.fallback(                              (ctx) => mountView(views.home, ctx));
+
+/* Inline stroke-icon SVG — visual equivalent of ta-society-helpdesk's
+ * FontAwesome fa-right-to-bracket. Matches the header download / bell
+ * icons' stroke weight so the toolbar reads as one icon family. */
+const ICON_SIGNIN =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16">' +
+    '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>' +
+    '<polyline points="10 17 15 12 10 7"/>' +
+    '<line x1="15" x2="3" y1="12" y2="12"/>' +
+  '</svg>';
+function iconSpan(svg) {
+  const s = document.createElement('span');
+  s.className = 'btn-ico';
+  s.setAttribute('aria-hidden', 'true');
+  s.innerHTML = svg;
+  return s;
+}
 
 async function renderChrome() {
   const nav = $('#topnav');
@@ -77,9 +102,13 @@ async function renderChrome() {
    * We tag the invocation with a version and clear+repopulate only if
    * we're still the latest caller when can() resolves. */
   const version = (renderChrome.__v = (renderChrome.__v || 0) + 1);
-  const showAdmin = user && await can(user, 'features.registry.edit');
+  const showAdmin    = user && await can(user, 'features.registry.edit');
+  const showSettings = user && await can(user, 'settings.view');
+  const showReports  = user && await can(user, 'reports.view');
   if (version !== renderChrome.__v) return;
-  if (showAdmin) links.push({ href: '#/admin', text: 'Admin' });
+  if (showReports)  links.push({ href: '#/reports', text: 'Reports' });
+  if (showSettings) links.push({ href: '#/settings', text: 'Settings' });
+  if (showAdmin)    links.push({ href: '#/admin', text: 'Admin' });
   clear(nav); clear(whoami);
   const hash = location.hash || '#/';
   for (const l of links) {
@@ -122,9 +151,11 @@ async function renderChrome() {
       el('span', { class: 'whoami-name', text: user.name.split(' ')[0] }),
       el('span', { class: 'role-badge ' + ({ admin: '', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[user.role], text: roleLabel })
     ));
-    whoami.append(el('a', { class: 'btn btn-sm btn-ghost', href: '#/login' }, 'Switch'));
+    whoami.append(el('a', { class: 'btn btn-sm btn-ghost', href: '#/login' },
+      iconSpan(ICON_SIGNIN), el('span', { text: 'Switch' })));
   } else {
-    whoami.append(el('a', { class: 'btn btn-sm', href: '#/login' }, 'Sign in'));
+    whoami.append(el('a', { class: 'btn btn-sm', href: '#/login' },
+      iconSpan(ICON_SIGNIN), el('span', { text: 'Sign in' })));
   }
 
   /* Mobile tab-bar: highlight the active tab + adjust the "Me" link. */

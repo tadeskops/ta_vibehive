@@ -129,7 +129,7 @@ function renderUsers() {
         el('td', {}, el('span', { class: 'role-badge ' + roleBadgeCls(u.role), text: u.role }))
       )))
     ),
-    el('p', { class: 'sub', style: 'margin-top:10px', text: 'Seeded demo users. Real user CRUD lands with the Cloudflare Worker OTP tier — same shape, same API. Rows marked 🔒 Lab are baked into the code and cannot be demoted or deleted.' })
+    el('p', { class: 'sub', style: 'margin-top:10px', text: 'Users are auto-provisioned on their first Google sign-in as role="resident". Promote them from here. Rows marked 🔒 Lab are baked into the code as bootstrap admins and cannot be demoted or deleted (see assets/js/lab-admin.js).' })
   );
 }
 function roleBadgeCls(r) { return ({ admin: '', mgmt: 'mc', committee: 'cmt', manager: 'mgr', resident: 'res' })[r] || ''; }

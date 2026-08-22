@@ -1,8 +1,10 @@
 /* Auth adapter.
  * Two tiers:
- *   - OAuth 2.0 (Google / Microsoft / Yahoo) via PKCE → real identity.
- *   - Demo persona picker (localhost / when no provider is configured)
- *     → keeps the app usable without any provider setup.
+ *   - Google Identity Services (GIS) via window.Auth (assets/js/auth-gis.js)
+ *     → real identity. Signed JWT decoded client-side, no server needed.
+ *   - Demo persona picker (LOCALHOST ONLY — see views/login.js) → keeps
+ *     the app usable for local iteration without going through Google
+ *     every time. Never reachable from a live deploy.
  * Both funnel through `state.setCurrentUser` so callers never care.
  */
 'use strict';
@@ -54,7 +56,39 @@ export function logout() {
   const u = state.currentUser();
   if (u) state.audit({ actor: u.id, action: 'auth.logout' });
   state.setCurrentUser(null);
+  // Also drop the GIS JWT so a follow-up sign-in re-prompts.
+  try { if (window.Auth && typeof window.Auth.signOut === 'function') window.Auth.signOut(); }
+  catch (_e) { /* ignore */ }
 }
 
 export function isLoggedIn() { return !!state.currentUser(); }
+
+/** Bridge Google Identity Services → VibeHive session.
+ *  Called once at app boot from app.js. Idempotent: subsequent calls
+ *  are no-ops. Listens for GIS token arrivals and upserts the user
+ *  via loginWithProfile. Never fires on plain page loads unless GIS
+ *  actually restores a persisted JWT. */
+let _gisBound = false;
+export function bindGis() {
+  if (_gisBound) return;
+  if (typeof window === 'undefined' || !window.Auth || typeof window.Auth.onChange !== 'function') return;
+  _gisBound = true;
+  window.Auth.onChange((snap) => {
+    if (!snap || !snap.signedIn || !snap.email) return;
+    const current = state.currentUser();
+    // Don't clobber an active demo persona picker session — only auto-sign
+    // in from GIS if there's no session, or the session belongs to a
+    // previously-provisioned Google account.
+    if (current && !String(current.id || '').startsWith('oauth:google')) return;
+    try {
+      loginWithProfile({
+        email: snap.email,
+        name: snap.name || snap.email.split('@')[0],
+        sub: null,
+        provider: 'google',
+      });
+    } catch (e) { console.warn('bindGis: upsert failed', e); }
+  });
+}
+
 
