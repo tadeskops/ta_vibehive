@@ -19,7 +19,20 @@ async function sha256(text) {
 
 function pad(n, w) { return String(n).padStart(w, '0'); }
 function codeFromEvent(evt, fallbackCode, prefixOverride) {
-  const raw = String((evt && evt.title) || fallbackCode || prefixOverride || RECEIPT_PREFIX || 'EVENT')
+  /* Prefer stable event TYPE (cluster > template) over free-form title so
+   * receipt IDs stay consistent even when the organiser edits the event
+   * title. Falls back to fallbackCode, prefixOverride, or a generic
+   * bucket in that order. */
+  const source = String(
+    (evt && evt.cluster) ||
+    (evt && evt.template) ||
+    fallbackCode ||
+    (evt && evt.title) ||
+    prefixOverride ||
+    RECEIPT_PREFIX ||
+    'EVENT'
+  );
+  const raw = source
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
@@ -29,9 +42,10 @@ function hasReceiptId(id) {
   return state.contribs().some(c => c && c.receipt && c.receipt.id === id);
 }
 
-/* <EVENT>_<HH><MM><SS only if conflict><DD><MM><YYYY>
- * Example: CULTURAL_19300514092026
- * Seconds are appended only if the minute-level id already exists. */
+/* <EVENT_TYPE>-<YYYYMMDD>-<HHMM>
+ * Example: FESTIVAL-20260822-1430
+ * Seconds are appended only if the minute-level id already exists.
+ * A short SHA salt is appended if collisions still occur. */
 export async function mintReceiptId(contribution, eventPurposeCode, prefixOverride, evt) {
   const d = new Date(contribution.verified_at || Date.now());
   const code = codeFromEvent(evt, eventPurposeCode, prefixOverride);
@@ -41,12 +55,13 @@ export async function mintReceiptId(contribution, eventPurposeCode, prefixOverri
   const day = pad(d.getDate(), 2);
   const mon = pad(d.getMonth() + 1, 2);
   const year = String(d.getFullYear());
-  const base = `${code}_${hh}${mm}${day}${mon}${year}`;
+  const dateStamp = `${year}${mon}${day}`;
+  const base = `${code}-${dateStamp}-${hh}${mm}`;
   if (!hasReceiptId(base)) return base;
-  const withSec = `${code}_${hh}${mm}${ss}${day}${mon}${year}`;
+  const withSec = `${code}-${dateStamp}-${hh}${mm}${ss}`;
   if (!hasReceiptId(withSec)) return withSec;
   const salt = (await sha256(withSec + '|' + contribution.id)).slice(0, 4).toUpperCase();
-  return `${withSec}_${salt}`;
+  return `${withSec}-${salt}`;
 }
 
 export async function attachReceipt(contribution) {

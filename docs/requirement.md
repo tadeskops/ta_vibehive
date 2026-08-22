@@ -124,6 +124,7 @@ Core implementation:
 
 Implemented:
 - Event-based receipt ID format using time components and collision fallback.
+- Automated receipt naming pattern: `<EVENT_TYPE>-<YYYYMMDD>-<HHMM>` derived from event cluster/type + verification timestamp (e.g. `FESTIVAL-20260822-1430`). Seconds and a short SHA salt append only on collision.
 - Verified receipt generation stores verification hash and archive metadata.
 - Immediate archive push is attempted on write. For event save operations, archive success is mandatory and is treated as the authoritative write gate.
 
