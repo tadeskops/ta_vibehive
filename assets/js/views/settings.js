@@ -97,12 +97,24 @@ function archiveErrorText(res) {
   return 'Archive push failed.';
 }
 
-async function pushArchiveBatchStrict(entries, actor, message) {
+async function pushArchiveBatchStrict(entries, actor, message, opts) {
   for (const e of entries) {
     await queueAndMaybePushArchive(e, { actor, immediate: false, message });
   }
   const out = await flushArchiveQueueNow({ actor, message });
-  if (!out || !out.ok) throw new Error(archiveErrorText(out));
+  if (!out || !out.ok) {
+    /* Bootstrap allowance: when the caller is saving archive
+     * configuration itself, skip the strict repo-gate on "not
+     * configured" / "disabled" reasons. Without this, the very first
+     * save of the PAT can never succeed because the archive it depends
+     * on is not yet reachable. Real push failures (auth/404/network)
+     * still throw so operators see the actual GitHub error. */
+    const reason = out && out.reason;
+    if (opts && opts.bootstrapAllowed && (reason === 'archive_not_configured' || reason === 'archive_disabled')) {
+      return { ok: true, bootstrapped: true, reason };
+    }
+    throw new Error(archiveErrorText(out));
+  }
   return out;
 }
 
@@ -700,18 +712,31 @@ async function renderAttributes(user, canUsersManage) {
       return;
     }
     const beforeOverrides = structuredClone(state.societyOverrides() || {});
+    /* Detect archive-config changes: when present, allow bootstrap
+     * save so the very first PAT / repo / enable-toggle configuration
+     * persists even if the archive push cannot yet succeed. */
+    const draftReceipts = (draft && draft.receipts) || {};
+    const draftArchive = draftReceipts.archive || {};
+    const archiveConfigTouched = Boolean(
+      draftReceipts.archive_repo !== undefined ||
+      draftReceipts.archive_repo_fallback !== undefined ||
+      draftReceipts.archive_branch !== undefined ||
+      draftReceipts.archive_pat !== undefined ||
+      draftArchive.enabled !== undefined
+    );
+    let saveResult = null;
     await runBusy('Saving settings…', async () => {
       const next = mergeDeep(structuredClone(state.societyOverrides() || {}), draft);
       pruneEmpty(next);
       state.saveSocietyOverrides(next);
       try {
-        await pushArchiveBatchStrict([
+        saveResult = await pushArchiveBatchStrict([
           {
             kind: 'settings',
             path: 'settings/society-overrides.json',
             content: JSON.stringify(next, null, 2),
           }
-        ], user.email || user.id || null, `settings: attributes save by ${user.email || user.id || 'unknown'}`);
+        ], user.email || user.id || null, `settings: attributes save by ${user.email || user.id || 'unknown'}`, { bootstrapAllowed: archiveConfigTouched });
       } catch (err) {
         state.saveSocietyOverrides(beforeOverrides);
         throw err;
@@ -721,7 +746,11 @@ async function renderAttributes(user, canUsersManage) {
       draft = {};
       refreshDraftMeta();
     });
-    toast('Settings saved in one consolidated write.', 'ok');
+    if (saveResult && saveResult.bootstrapped) {
+      toast('Settings saved locally. Archive is not yet reachable — save again after PAT/repo details verify to commit remotely.', 'warn');
+    } else {
+      toast('Settings saved in one consolidated write.', 'ok');
+    }
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   });
 
