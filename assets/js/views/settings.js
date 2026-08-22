@@ -725,8 +725,8 @@ async function renderAttributes(user, canUsersManage) {
       allowedPreview,
       row('Role to email ID mapping',
         canEditAdminRoleMap
-          ? 'Direct role mapping: add one or more gmail IDs under each role. A single email can only belong to one role.'
-          : 'Direct role mapping: you can edit non-admin roles. Admin role list is read-only for your role.',
+          ? 'Direct role mapping: add one or more gmail IDs under each role. A single email can only belong to one role. Any email not mapped here is treated as Resident by default.'
+          : 'Direct role mapping: you can edit non-admin roles. Admin role list is read-only for your role. Any email not mapped here is treated as Resident by default.',
         roleEditorWrap),
       el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, btnSaveRoleMap),
       el('div', { style: 'margin-top:10px;overflow-x:auto' },

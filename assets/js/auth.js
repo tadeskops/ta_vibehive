@@ -16,6 +16,10 @@ function pick(obj, path) {
 function normalizeEmail(v) {
   return String(v || '').trim().toLowerCase();
 }
+function normalizeRole(v) {
+  const r = String(v || '').trim().toLowerCase();
+  return ['admin', 'secretary', 'mgmt', 'committee', 'manager', 'resident'].includes(r) ? r : 'resident';
+}
 function roleFromEmailMap(email) {
   const over = state.societyOverrides() || {};
   const tiers = pick(over, 'access.role_tiers') || [];
@@ -51,7 +55,7 @@ export function session() { return state.currentUser(); }
 export function loginAs(userId) {
   const user = state.users().find(u => u.id === userId);
   if (!user) throw new Error('unknown user');
-  state.setCurrentUser({ id: user.id, name: user.name, role: user.role, flat: user.flat, email: user.email });
+  state.setCurrentUser({ id: user.id, name: user.name, role: normalizeRole(user.role), flat: user.flat, email: user.email });
   state.audit({ actor: user.id, action: 'auth.login' });
   return user;
 }
@@ -72,7 +76,10 @@ export function loginWithProfile(profile) {
     user = { ...existing };
     if (profile.name && (!existing.name || existing.name === existing.email)) user.name = profile.name;
     if (!user.provider) user.provider = profile.provider;
-    if (mappedRole) user.role = mappedRole;
+    /* Role mapping is authoritative on sign-in. If an email is not
+     * present in any explicit role list, it becomes resident. This
+     * prevents stale legacy roles from surviving after mapping edits. */
+    user.role = normalizeRole(mappedRole || 'resident');
     user.is_verified_resident = verifiedResident;
     const idx = users.findIndex(u => u.id === existing.id);
     if (idx >= 0) users[idx] = user;
@@ -81,7 +88,7 @@ export function loginWithProfile(profile) {
     user = {
       id: 'oauth:' + profile.provider + ':' + email,
       name: profile.name || email.split('@')[0],
-      role: mappedRole || 'resident',
+      role: normalizeRole(mappedRole || 'resident'),
       flat: '',
       email,
       provider: profile.provider,
@@ -91,7 +98,7 @@ export function loginWithProfile(profile) {
     state.saveUsers(users);
     state.audit({ actor: user.id, action: 'user.provision', detail: profile.provider });
   }
-  state.setCurrentUser({ id: user.id, name: user.name, role: user.role, flat: user.flat, email: user.email });
+  state.setCurrentUser({ id: user.id, name: user.name, role: normalizeRole(user.role), flat: user.flat, email: user.email });
   state.audit({ actor: user.id, action: 'auth.login', detail: profile.provider });
   return user;
 }

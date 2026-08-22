@@ -105,6 +105,7 @@ Implemented:
   - Bulk gmail parser
   - Direct role-to-email mapping (one or more IDs per role) shown as vertical collapsible role cards
   - Role cards include role-specific color markers and member-count chips for quick scanning
+  - Role mapping is authoritative at sign-in; emails not mapped to any explicit role default to Resident access
   - Role mapping edits are auto-included in "Save all settings changes" (manual "Stage role mapping" remains available)
   - Admin-only editability for admin role mappings; secretary/mgmt can edit non-admin role mappings
   - Access table visibility state
