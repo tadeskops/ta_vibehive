@@ -352,19 +352,19 @@ async function renderAttributes(user, canUsersManage) {
   const inpArchiveRepo = el('input', {
     type: 'text',
     value: rcfg.archive_repo || '',
-    on: { change: (e) => stageAttr('receipts.archive_repo', e.target.value.trim()) },
+    on: { input: (e) => stageAttr('receipts.archive_repo', e.target.value.trim(), { silent: true }) },
     placeholder: 'owner/repo (e.g. tadeskops/tvh_record)'
   });
   const inpArchiveFallback = el('input', {
     type: 'text',
     value: rcfg.archive_repo_fallback || '',
-    on: { change: (e) => stageAttr('receipts.archive_repo_fallback', e.target.value.trim()) },
+    on: { input: (e) => stageAttr('receipts.archive_repo_fallback', e.target.value.trim(), { silent: true }) },
     placeholder: 'owner/repo (optional fallback target)'
   });
   const inpArchiveBranch = el('input', {
     type: 'text',
     value: rcfg.archive_branch || 'main',
-    on: { change: (e) => stageAttr('receipts.archive_branch', (e.target.value || 'main').trim()) },
+    on: { input: (e) => stageAttr('receipts.archive_branch', (e.target.value || 'main').trim(), { silent: true }) },
     placeholder: 'main'
   });
   const inpArchivePat = el('input', {
@@ -372,13 +372,13 @@ async function renderAttributes(user, canUsersManage) {
     value: rcfg.archive_pat || '',
     autocomplete: 'off',
     spellcheck: 'false',
-    on: { change: (e) => stageAttr('receipts.archive_pat', e.target.value.trim()) },
+    on: { input: (e) => stageAttr('receipts.archive_pat', e.target.value.trim(), { silent: true }) },
     placeholder: 'Fine-grained PAT with repo contents read/write'
   });
   const cbArchiveEnabled = el('input', {
     type: 'checkbox',
     checked: !!((rcfg.archive || {}).enabled),
-    on: { change: (e) => stageAttr('receipts.archive.enabled', !!e.target.checked) }
+    on: { change: (e) => stageAttr('receipts.archive.enabled', !!e.target.checked, { silent: true }) }
   });
   let qrDataUrl = (pay.qr_data_url || '').trim();
   const qrInp = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp' });
