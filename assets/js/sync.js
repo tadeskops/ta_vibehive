@@ -23,6 +23,28 @@ import { applyRecoveryOverridesToState } from './events.js';
 
 let _running = false;
 
+// True when the user is on an editing surface OR has focus in a form
+// input. Used to skip destructive background hydration + re-render so
+// in-progress input (event title, contribute form, settings draft) is
+// not silently wiped on the next 60 s tick or tab refocus.
+function isUserEditing() {
+  try {
+    const hash = String(location.hash || '');
+    if (/\/(edit|manage|contribute|register|settings|admin|receipt)(\/|$|\?)/i.test(hash)) return true;
+    const active = document.activeElement;
+    if (active) {
+      const tag = String(active.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+      if (active.isContentEditable) return true;
+    }
+    // Any form that has taken focus at some point AND has a value delta.
+    // Cheap heuristic — presence of an open <details data-tvh-editing> or
+    // an element flagged data-tvh-dirty by a view.
+    if (document.querySelector('[data-tvh-dirty="1"], [data-tvh-editing="1"]')) return true;
+    return false;
+  } catch (_e) { return false; }
+}
+
 /** Local-only fields that must survive when merging with the server's
  *  authoritative record (e.g. proof attachments live only in the
  *  browser that submitted the contribution). */
@@ -121,7 +143,12 @@ export async function syncFromWorker() {
     // and restored statuses survive every server refresh on every device.
     try { applyRecoveryOverridesToState(); } catch (_e) { /* never block sync */ }
 
-    try { window.dispatchEvent(new HashChangeEvent('hashchange')); } catch (_e) { /* older browsers */ }
+    // Skip the re-render dispatch while the user is actively editing so
+    // in-progress form input (event title, contribute amount, etc.) is
+    // not wiped by the router re-mounting the view.
+    if (!isUserEditing()) {
+      try { window.dispatchEvent(new HashChangeEvent('hashchange')); } catch (_e) { /* older browsers */ }
+    }
   } catch (e) {
     /* Log-only. Never block the app on sync failures. */
     // eslint-disable-next-line no-console
@@ -155,6 +182,7 @@ function _throttledSync(reason) {
   if (typeof document === 'undefined') return;
   if (document.hidden) return;                     /* skip while tab in background */
   if (Date.now() - _lastRunAt < MIN_GAP_MS) return; /* respect the min-gap window   */
+  if (isUserEditing()) return;                     /* never overwrite in-progress edits */
   syncFromWorker().catch((e) => {
     // eslint-disable-next-line no-console
     console.warn(`[sync/${reason}] failed`, e && e.message ? e.message : e);
