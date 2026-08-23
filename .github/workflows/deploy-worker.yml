@@ -57,3 +57,36 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Smoke test deployed worker
+        # Fails the run if the just-deployed worker returns anything
+        # other than the expected status for each contract endpoint.
+        # This is what would have caught the 2026-08-23 CF-1102
+        # regression the moment it landed instead of days later.
+        env:
+          BASE: https://tvh-worker.tadeskops.workers.dev
+        run: |
+          set -euo pipefail
+          # CF edge sometimes needs a few seconds after `wrangler deploy`
+          # before the new isolate is warm and reachable.
+          sleep 8
+          fail=0
+          check() {
+            local path=$1 want=$2 label=$3
+            local got
+            got=$(curl -sS -o /tmp/body.$$ -w '%{http_code}' -m 15 "$BASE$path" || echo 000)
+            if [ "$got" != "$want" ]; then
+              echo "::error::SMOKE FAIL $label $path expected=$want got=$got"
+              head -c 300 /tmp/body.$$ || true
+              echo
+              fail=1
+            else
+              echo "OK $label $path -> $got"
+            fi
+            rm -f /tmp/body.$$
+          }
+          check /          200 'health root'
+          check /events    200 'anon events list'
+          check /whoami    401 'anon whoami (expected 401)'
+          check /doesnotexist 404 'unknown route'
+          exit $fail
