@@ -7,6 +7,7 @@ import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { navigate } from '../router.js';
 import { cfg, getSociety, state } from '../store.js';
+import { promptVerifyComment } from '../verify-prompt.js';
 
 /* ---------- payment-input validation helpers ----------
  * Both used ONLY inside the event editor (renderEdit). Kept module-
@@ -724,6 +725,7 @@ async function renderManage(root, evt, user, caps) {
   const canViewExpense   = await can(user, 'expenses.view');
   if (canViewExpense) sections.push(await renderExpensesPanel(evt, user, { canRecord: canRecordExpense, caps }));
   if (caps && caps.canHistoryView) sections.push(renderHistoryPanel(evt));
+  else sections.push(renderVerifyHistoryPanel(evt));
   mount(root, ...sections);
 }
 
@@ -819,17 +821,30 @@ function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
   );
 }
 
-function verifyExpense(r, evt, user, caps) {
+async function verifyExpense(r, evt, user, caps) {
   const list = state.expenses();
   const rec = list.find(x => x && x.id === r.id);
   if (!rec) return;
+  const subject = `${rec.category || 'Expense'} · ${fmtINR(Number(rec.amount || 0))} · ${(evt && evt.title) || ''}`;
+  const comment = await promptVerifyComment({
+    title: 'Verify this expense?',
+    subject,
+    helpText: 'Optional — note anything you cross-checked (invoice attached, cash counted, cheque number…). Saved to the event history.',
+    confirmLabel: 'Verify expense',
+  });
+  if (comment === null) return;
   const nowIso = new Date().toISOString();
   rec.status = 'verified';
   rec.verified_at = nowIso;
   rec.verified_by = user && (user.email || user.id) || 'unknown';
+  if (comment) rec.verified_comment = comment;
   rec.updated_at = nowIso;
   state.saveExpenses(list);
-  state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: rec.id, event: evt.id, amount: rec.amount });
+  state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: rec.id, event: evt.id, amount: rec.amount, comment: comment || undefined });
+  try {
+    const mod = await import('../events.js');
+    if (mod && typeof mod.recordExpenseVerify === 'function') mod.recordExpenseVerify(rec, user, comment);
+  } catch (_e) { /* silent */ }
   toast('Expense verified. Now counts in the ledger.', 'ok');
   renderManage(document.getElementById('main'), evt, user, caps);
 }
@@ -1097,25 +1112,73 @@ function renderHistoryPanel(evt) {
   return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
     el('h3', { text: 'Moderator change history' }),
     evt.history_enabled
-      ? el('p', { class: 'sub', text: 'Recorded committee/manager actions for this event.' })
-      : el('p', { class: 'sub', text: 'History recording is OFF for this event. Enable it in event edit mode.' }),
+      ? el('p', { class: 'sub', text: 'Recorded committee/manager actions for this event. Verification actions are always logged, even when general history is off.' })
+      : el('p', { class: 'sub', text: 'Only verification actions are recorded on this event. Enable "moderator history" in edit mode to log more.' }),
     el('table', { class: 'table' },
       el('thead', {}, el('tr', {},
         el('th', { text: 'When' }),
         el('th', { text: 'Actor' }),
-        el('th', { text: 'Role' }),
         el('th', { text: 'Action' }),
-        el('th', { text: 'Detail' })
+        el('th', { text: 'Note / detail' })
       )),
       el('tbody', {}, ...(rows.length
-        ? rows.map(r => el('tr', {},
-          el('td', { text: fmtDate(r.ts) + ' · ' + new Date(r.ts).toLocaleTimeString('en-IN', { hour12: false }) }),
-          el('td', { text: r.actor || '—' }),
-          el('td', { text: r.actor_role || '—' }),
-          el('td', { text: r.action || '—' }),
-          el('td', { text: r.detail || '' })
-        ))
-        : [el('tr', {}, el('td', { colspan: 5, text: 'No history records yet.', style: 'text-align:center;color:var(--muted)' }))]))
+        ? rows.map(r => renderHistoryRow(r))
+        : [el('tr', {}, el('td', { colspan: 4, text: 'No history records yet.', style: 'text-align:center;color:var(--muted)' }))]))
+    )
+  );
+}
+
+// Verify-only history panel for viewers without events.history.view.
+// Surfaces the audit trail every access-role should be able to see so
+// people know who signed off on each contribution / expense.
+function renderVerifyHistoryPanel(evt) {
+  const rows = state.eventHistory()
+    .filter(r => r && r.event === evt.id && /^(contrib|expense)\./.test(String(r.action || '')))
+    .slice()
+    .sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
+  return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
+    el('h3', { text: 'Verification history' }),
+    el('p', { class: 'sub', text: 'Who signed off on each contribution and expense for this event, and any notes they left.' }),
+    el('table', { class: 'table' },
+      el('thead', {}, el('tr', {},
+        el('th', { text: 'When' }),
+        el('th', { text: 'Verifier' }),
+        el('th', { text: 'Action' }),
+        el('th', { text: 'Note / detail' })
+      )),
+      el('tbody', {}, ...(rows.length
+        ? rows.map(r => renderHistoryRow(r))
+        : [el('tr', {}, el('td', { colspan: 4, text: 'Nothing verified yet.', style: 'text-align:center;color:var(--muted)' }))]))
+    )
+  );
+}
+
+function renderHistoryRow(r) {
+  const parts = String(r.detail || '').split(';').filter(Boolean);
+  const kv = {};
+  for (const p of parts) {
+    const idx = p.indexOf('=');
+    if (idx > 0) kv[p.slice(0, idx).trim()] = p.slice(idx + 1);
+  }
+  const note = kv.note || kv.reason || '';
+  const rest = parts.filter(p => !/^(note|reason)=/.test(p)).join(' · ');
+  const actionLabel = {
+    'contrib.verify': 'Contribution verified',
+    'contrib.void':   'Contribution marked invalid',
+    'expense.verify': 'Expense verified',
+    'event.save':     'Event saved',
+  }[r.action] || (r.action || '—');
+  const when = r.ts ? (fmtDate(r.ts) + ' · ' + new Date(r.ts).toLocaleTimeString('en-IN', { hour12: false })) : '—';
+  return el('tr', {},
+    el('td', { text: when }),
+    el('td', {},
+      el('div', { style: 'font-weight:600', text: r.actor || '—' }),
+      el('small', { class: 'sub', text: r.actor_role || '' })
+    ),
+    el('td', {}, el('span', { class: 'pill ' + (r.action === 'contrib.verify' || r.action === 'expense.verify' ? 'pill-sage' : (r.action === 'contrib.void' ? 'pill-muted' : '')), text: actionLabel })),
+    el('td', {},
+      note ? el('div', { style: 'font-weight:600;color:var(--ink);white-space:normal', text: '“' + note + '”' }) : null,
+      rest ? el('small', { class: 'sub', style: 'display:block;font-family:ui-monospace,monospace;font-size:11px', text: rest }) : null
     )
   );
 }
@@ -1136,8 +1199,16 @@ function contribRow(c, evt, user, caps) {
     el('td', {}, el('div', { class: 'row' },
       c.status === 'pending' ? el('button', { class: 'btn btn-sm', on: { click: async () => {
         try {
+          const subject = `${c.contributor_name || 'Contributor'}${c.flat ? ' · Flat ' + c.flat : ''} · ${fmtINR(Number(c.amount || 0))}`;
+          const comment = await promptVerifyComment({
+            title: 'Verify contribution',
+            subject,
+            helpText: 'Optional — note anything you cross-checked (UPI reference, bank statement, cash counted…). Saved to the event history.',
+            confirmLabel: 'Verify & mint receipt',
+          });
+          if (comment === null) return;
           const mod = await import('../events.js'); const rec = await import('../receipts.js');
-          const verified = await mod.verifyContribution(c.id, user);
+          const verified = await mod.verifyContribution(c.id, user, comment);
           await rec.attachReceipt(verified);
           toast('Verified & receipt minted', 'ok');
           renderManage(document.getElementById('main'), evt, user, caps);

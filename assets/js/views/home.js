@@ -8,6 +8,7 @@ import { isEventOn, isSystemOn } from '../features.js';
 import { cfg, getSociety, state } from '../store.js';
 import { can } from '../rbac.js';
 import { renderVisitCard } from '../visit-counter.js';
+import { promptVerifyComment } from '../verify-prompt.js';
 
 /* Community Warmth · v0.1 -- privacy.public_mask
  *
@@ -320,6 +321,14 @@ function verifyContribIconBtn(c, user, evt) {
   btn.addEventListener('click', async (ev) => {
     ev.stopPropagation();
     if (btn.disabled) return;
+    const subject = `${c.contributor_name || 'Contributor'}${c.flat ? ' · Flat ' + c.flat : ''} · ${fmtINR(Number(c.amount || 0))} · ${(evt && evt.title) || 'Event'}`;
+    const comment = await promptVerifyComment({
+      title: 'Verify contribution',
+      subject,
+      helpText: 'Optional — note anything you cross-checked (UPI reference, bank statement, cash counted with treasurer…). Saved to the event history.',
+      confirmLabel: 'Verify & mint receipt',
+    });
+    if (comment === null) return; // user cancelled
     btn.disabled = true;
     const originalText = btn.textContent;
     btn.textContent = '…';
@@ -328,11 +337,9 @@ function verifyContribIconBtn(c, user, evt) {
         import('../events.js'),
         import('../receipts.js'),
       ]);
-      const verified = await mod.verifyContribution(c.id, user);
+      const verified = await mod.verifyContribution(c.id, user, comment);
       await rec.attachReceipt(verified);
       toast(`Verified · ${(evt && evt.title) || 'Event'} · receipt minted`, 'ok');
-      /* Re-render the dashboard to reflect the new status without a
-       * full reload. */
       const root = document.getElementById('main');
       if (root) render(root); else location.reload();
     } catch (err) {
@@ -351,31 +358,38 @@ function verifyExpenseIconBtn(x, user, evt) {
     'aria-label': `Verify expense from ${x.created_by || 'user'}`,
     title: 'Verify expense'
   }, '✏');
-  btn.addEventListener('click', (ev) => {
+  btn.addEventListener('click', async (ev) => {
     ev.stopPropagation();
     if (btn.disabled) return;
-    modal({
+    const subject = `${x.category || 'Expense'} · ${fmtINR(x.amount)} · ${(evt && evt.title) || 'this event'}`;
+    const comment = await promptVerifyComment({
       title: 'Verify this expense?',
-      body: el('p', { text: `${x.category || 'Expense'} · ${fmtINR(x.amount)} against ${(evt && evt.title) || 'this event'}. Once verified it will count in the dashboard and reports.` }),
-      actions: [
-        { label: 'Cancel', close: true },
-        { label: 'Verify', kind: '', onClick: (close) => {
-          const list = state.expenses();
-          const rec = list.find(r => r && r.id === x.id);
-          if (!rec) { close(); return; }
-          const nowIso = new Date().toISOString();
-          rec.status = 'verified';
-          rec.verified_at = nowIso;
-          rec.verified_by = user && (user.email || user.id) || 'unknown';
-          rec.updated_at = nowIso;
-          state.saveExpenses(list);
-          state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: rec.id, event: rec.event_id, amount: rec.amount });
-          close(); toast('Expense verified.', 'ok');
-          const root = document.getElementById('main');
-          if (root) render(root); else location.reload();
-        } }
-      ]
+      subject,
+      helpText: 'Optional — note anything you cross-checked (invoice attached, cash counted, cheque number…). Saved to the event history.',
+      confirmLabel: 'Verify expense',
     });
+    if (comment === null) return;
+    const list = state.expenses();
+    const rec = list.find(r => r && r.id === x.id);
+    if (!rec) return;
+    const nowIso = new Date().toISOString();
+    rec.status = 'verified';
+    rec.verified_at = nowIso;
+    rec.verified_by = user && (user.email || user.id) || 'unknown';
+    if (comment) rec.verified_comment = comment;
+    rec.updated_at = nowIso;
+    state.saveExpenses(list);
+    state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: rec.id, event: rec.event_id, amount: rec.amount, comment: comment || undefined });
+    // Record in event-history so admins see who verified what and why.
+    try {
+      const eventsMod = await import('../events.js');
+      if (eventsMod && typeof eventsMod.recordExpenseVerify === 'function') {
+        eventsMod.recordExpenseVerify(rec, user, comment);
+      }
+    } catch (_e) { /* silent */ }
+    toast('Expense verified.', 'ok');
+    const root = document.getElementById('main');
+    if (root) render(root); else location.reload();
   });
   return btn;
 }

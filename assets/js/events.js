@@ -67,11 +67,16 @@ function normalizeEmail(v) {
 function roleIsModerator(role) {
   return role === 'committee' || role === 'manager';
 }
-function shouldTrackHistory(evt, actor) {
-  return !!(evt && evt.history_enabled && actor && roleIsModerator(actor.role));
+// Actions we always log to event history, even when the moderator-history
+// toggle is off — these are financial/verification-audit events.
+const ALWAYS_TRACKED_ACTIONS = new Set(['contrib.verify', 'contrib.void', 'expense.verify']);
+function shouldTrackHistory(evt, actor, action) {
+  if (!evt || !actor) return false;
+  if (action && ALWAYS_TRACKED_ACTIONS.has(action)) return true;
+  return !!(evt.history_enabled && roleIsModerator(actor.role));
 }
 function appendHistory(evt, actor, action, detail) {
-  if (!shouldTrackHistory(evt, actor)) return;
+  if (!shouldTrackHistory(evt, actor, action)) return;
   const row = {
     event: evt.id,
     event_title: evt.title,
@@ -79,6 +84,7 @@ function appendHistory(evt, actor, action, detail) {
     actor_role: actor.role || '',
     action,
     detail,
+    ts: new Date().toISOString(),
   };
   state.addEventHistory(row);
   /* History archival is now piggybacked on the event save through the
@@ -415,10 +421,11 @@ export async function addContribution(payload, actor) {
   return rec;
 }
 
-export async function verifyContribution(contribId, actor) {
+export async function verifyContribution(contribId, actor, comment) {
   const list = state.contribs();
   const rec = list.find(c => c.id === contribId);
   if (!rec) throw new Error('unknown contribution');
+  const trimmedComment = String(comment || '').trim().slice(0, 240);
   /* Prefer server-side verify so the archive commit carries the true
    * verifier identity + timestamp. We update local mirror from the
    * server response. */
@@ -440,14 +447,16 @@ export async function verifyContribution(contribId, actor) {
   rec.status = 'verified';
   rec.verified_by = (serverContrib && serverContrib.verified_by) || (actor ? actor.id : null);
   rec.verified_at = (serverContrib && serverContrib.verified_at) || nowIso;
+  if (trimmedComment) rec.verified_comment = trimmedComment;
   if (serverContrib && serverContrib.receipt_id && !rec.receipt) {
     rec.receipt = { id: serverContrib.receipt_id };
   }
   state.saveContribs(list);
-  state.audit({ actor: actor ? actor.id : null, action: 'contrib.verify', contrib: rec.id });
+  state.audit({ actor: actor ? actor.id : null, action: 'contrib.verify', contrib: rec.id, comment: trimmedComment || undefined });
   const evt = state.events().find(e => e.id === rec.event);
   if (evt && actor) {
-    appendHistory(evt, actor, 'contrib.verify', `contrib=${rec.id};amount=${rec.amount || 0}`);
+    const detail = `contrib=${rec.id};amount=${rec.amount || 0}` + (trimmedComment ? `;note=${trimmedComment}` : '');
+    appendHistory(evt, actor, 'contrib.verify', detail);
   }
   /* Notify the contributor directly (best-effort — falls back to
    * community-wide if we can't infer an email). When the contribution
@@ -489,6 +498,18 @@ export function voidContribution(contribId, actor, reason) {
     appendHistory(evt, actor, 'contrib.void', `contrib=${rec.id};reason=${reason || ''}`);
   }
   return rec;
+}
+
+// Called by expense-verify handlers so the always-tracked audit trail
+// stays consistent between contribution and expense verification.
+export function recordExpenseVerify(rec, actor, comment) {
+  if (!rec || !actor) return;
+  const evt = state.events().find(e => e.id === rec.event_id);
+  if (!evt) return;
+  const trimmed = String(comment || '').trim().slice(0, 240);
+  const detail = `expense=${rec.id};amount=${rec.amount || 0};category=${rec.category || ''}`
+    + (trimmed ? `;note=${trimmed}` : '');
+  appendHistory(evt, actor, 'expense.verify', detail);
 }
 
 export function publicBoardFor(eventId) {
