@@ -35,6 +35,7 @@ import {
   OPS_STATUS, OPS_STATUS_LABEL,
   DEFAULT_CATEGORIES,
 } from '../operations.js';
+import { listArchives, archiveEvent, deleteArchive } from '../operations-archive.js';
 
 /* ---------- entry ---------- */
 
@@ -77,13 +78,14 @@ export async function render(root, ctx = {}) {
   // Sub-feature flags pre-resolved so every render helper can stay
   // synchronous. Each flag defaults to true if the master workspace
   // flag is on but the sub-feature toggle is missing.
-  const [peopleOn, tasksOn, matrixOn, contactOn, timelineOn, wizardOn] = await Promise.all([
+  const [peopleOn, tasksOn, matrixOn, contactOn, timelineOn, wizardOn, archiveOn] = await Promise.all([
     isEventOn('operations.people', evt),
     isEventOn('operations.tasks', evt),
     isEventOn('operations.matrix', evt),
     isEventOn('operations.contact_directory', evt),
     isEventOn('operations.timeline', evt),
     isEventOn('operations.wizard', evt),
+    isEventOn('operations.archive', evt),
   ]);
   const caps = {
     opsManage: canManage,
@@ -95,6 +97,7 @@ export async function render(root, ctx = {}) {
     opsContactOn: contactOn,
     opsTimelineOn: timelineOn,
     opsWizardOn: wizardOn,
+    opsArchiveOn: archiveOn,
   };
 
   const sub  = (ctx && ctx.match && ctx.match.sub) || 'overview';
@@ -203,6 +206,11 @@ function renderOverview(evt, doc, health, selfPid, user, caps) {
   // Ownership grid
   wrap.append(renderOwnershipSection(evt, doc, user, caps, selfPid));
 
+  // Archive snapshots (Slice 4) — hidden unless operations.archive flag on.
+  if (caps.opsArchiveOn) {
+    wrap.append(renderArchivePanel(evt, doc, user, caps));
+  }
+
   // Empty-state nudge
   if (!health.activities.total) {
     wrap.append(el('section', { class: 'card card-pad tvh-ops-empty', style: 'margin-top:16px;text-align:center' },
@@ -211,6 +219,56 @@ function renderOverview(evt, doc, health, selfPid, user, caps) {
       caps.opsManage ? el('a', { class: 'btn', href: `#/e/${evt.id}/operations/activities` }, 'Start planning') : null
     ));
   }
+  return wrap;
+}
+
+/* ---------- Archive snapshots (Slice 4) ---------- */
+
+function renderArchivePanel(evt, doc, user, caps) {
+  const snaps = listArchives(evt.id);
+  const wrap = el('section', { class: 'card card-pad', style: 'margin-top:16px' });
+  wrap.append(el('div', { class: 'row row-between', style: 'align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px' },
+    el('div', {},
+      el('h3', { style: 'margin:0', text: '🗄 Event snapshots' }),
+      el('small', { class: 'sub', text: 'Point-in-time backups of this event\u2019s operations doc.' })
+    ),
+    caps.opsManage ? el('button', {
+      class: 'btn btn-sm',
+      'data-testid': 'archive-snapshot-btn',
+      on: { click: async () => {
+        const res = await archiveEvent(evt.id, doc, user);
+        if (res.ok) {
+          toast('Snapshot saved (' + Math.round(res.size_bytes / 1024) + ' KB)');
+          navigate(location.hash);
+        } else {
+          toast('Snapshot failed: ' + res.error);
+        }
+      } }
+    }, '＋ Snapshot now') : null
+  ));
+  if (!snaps.length) {
+    wrap.append(el('small', { class: 'sub', text: 'No snapshots yet. Take one before any big cut-over so you can always roll back.' }));
+    return wrap;
+  }
+  wrap.append(el('ul', { class: 'tvh-ops-archive-list' },
+    ...snaps.map(s => el('li', { class: 'tvh-ops-archive-item' },
+      el('div', {},
+        el('div', { style: 'font-weight:600', text: fmtDate(s.ts) + ' · ' + new Date(s.ts).toLocaleTimeString() }),
+        el('small', { class: 'sub', text: `${s.activity_count} activities · ${s.person_count} people · ${Math.round(s.size_bytes / 1024)} KB` }),
+        s.actor_name ? el('small', { class: 'sub', style: 'display:block', text: 'By ' + s.actor_name }) : null
+      ),
+      caps.opsManage ? el('button', {
+        class: 'tvh-ops-icon-btn',
+        title: 'Delete snapshot',
+        on: { click: () => {
+          if (!confirm('Delete this snapshot? This cannot be undone.')) return;
+          const res = deleteArchive(evt.id, s.id, user);
+          if (res.ok) { toast('Snapshot deleted'); navigate(location.hash); }
+          else toast('Delete failed: ' + res.error);
+        } }
+      }, '🗑') : null
+    ))
+  ));
   return wrap;
 }
 
