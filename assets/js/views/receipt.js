@@ -561,6 +561,25 @@ export async function downloadReceiptDirect(contribId, format /* 'pdf' | 'png' *
   return downloadReceiptPdf(r, rec, evt, soc, tpl, theme);
 }
 
+/** Programmatic WhatsApp share used by the inline share icon on
+ *  Home / Event contribution rows. Reuses the same code path as the
+ *  receipt-page WhatsApp button so behaviour stays consistent. */
+export async function shareReceiptDirect(contribId) {
+  const rec = state.contribs().find(c => c && c.id === contribId);
+  if (!rec) throw new Error('Contribution not found.');
+  if (rec.status !== 'verified') throw new Error('Only verified contributions can be shared.');
+  if (!rec.receipt) { await attachReceipt(rec); }
+  const r = state.contribs().find(c => c.id === rec.id).receipt;
+  const evt = findEvent(rec.event);
+  const soc = await getSociety();
+  const templates = state.receiptTemplates() || [];
+  const tpl = templates.find(t => t.active) || null;
+  const theme = (evt && evt.receipt_theme)
+    || (soc && soc.receipts && (soc.receipts.theme || soc.receipts.default_theme))
+    || 'default';
+  return shareToWhatsApp(r, rec, evt, soc, tpl, theme);
+}
+
 async function archiveReceiptPdfIfMissing(doc, r, rec, evt, soc) {
   const archiveCfg = (soc && soc.receipts && soc.receipts.archive) || DEFAULT_ARCHIVE;
   if (!archiveCfg || !archiveCfg.enabled) return;

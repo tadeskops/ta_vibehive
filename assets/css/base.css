@@ -81,6 +81,11 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .tvh-mini-icon-btn:hover{background:var(--terra-soft);color:#8b3f2a;border-color:#d9c2a5;text-decoration:none}
 .tvh-mini-icon-btn:active{transform:scale(0.96)}
 .tvh-mini-icon-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+/* WhatsApp-tinted variant — green hover surface so the share icon
+ * reads as a WhatsApp affordance without stealing terracotta focus. */
+.tvh-mini-icon-whatsapp{padding:0}
+.tvh-mini-icon-whatsapp:hover{background:#e9f6df;border-color:#a3d977;color:#25D366}
+.tvh-mini-icon-whatsapp svg{display:block}
 @media (prefers-reduced-motion:reduce){
   body.is-busy .topbar::after{animation:none;background:linear-gradient(90deg,transparent 0%,rgba(199,143,42,.55) 50%,transparent 100%);background-size:100% 100%;background-position:0 0}
 }

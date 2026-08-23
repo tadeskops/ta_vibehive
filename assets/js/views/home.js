@@ -10,6 +10,7 @@ import { can } from '../rbac.js';
 import { renderVisitCard } from '../visit-counter.js';
 import { promptVerifyComment } from '../verify-prompt.js';
 import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
+import { receiptWhatsAppIconBtn } from '../receipt-download-menu.js';
 import { runDailyReportsBackfill } from '../daily-reports.js';
 import { openExpenseDialog } from './event.js';
 
@@ -256,6 +257,7 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
           el('div', { class: 'row', style: 'gap:6px;align-items:center;justify-content:flex-end' },
             el('small', { class: 'pill ' + stCls, text: c.status }),
             showRoleViewIcon ? receiptViewIconLink(c.id) : null,
+            (showRoleViewIcon || showResidentDownloadIcon) ? receiptWhatsAppIconBtn(c.id) : null,
             showResidentDownloadIcon ? receiptDownloadIconLink(c.id) : null,
             showVerifyIcon ? verifyContribIconBtn(c, user, evt) : null
           )
