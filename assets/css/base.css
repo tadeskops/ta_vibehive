@@ -360,6 +360,11 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
  * single event never spans the full container, and use auto-fill so
  * empty tracks stay empty instead of forcing surviving cards wider. */
 .grid-3 > .card{max-width:clamp(280px,28vw,360px)}
+/* Submit-expense action tile — sits inside the events grid as a CTA
+ * peer. Dashed border + soft tint distinguishes it from real events. */
+.tvh-submit-expense-card{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;background:#fbf6ee;border:1.5px dashed rgba(163,67,40,.35);text-align:left}
+.tvh-submit-expense-card h3{font-size:15px}
+.tvh-submit-expense-card small.sub{font-size:12px;line-height:1.4}
 @media(max-width:640px){
   .grid-3 > .card{max-width:none}
 }

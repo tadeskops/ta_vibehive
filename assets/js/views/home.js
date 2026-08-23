@@ -102,11 +102,19 @@ export async function render(root) {
     el('a', { class: 'btn btn-emerg', href: masked ? '#/login' : `#/e/${emerg.id}` }, masked ? 'Sign in' : 'Help now')
   ) : null;
 
+  // Compute the submit-expense CTA up front so we can place it next
+  // to the event tiles in the same grid instead of on its own row.
+  const canRecordExpenseEarly = user ? await can(user, 'expenses.record') : false;
+  const submitExpense = user && canRecordExpenseEarly ? renderSubmitExpenseCard(user) : null;
+
   const cards = rest.length
-    ? el('div', { class: 'grid grid-3' }, ...rest.map(evt => eventCard(evt, { masked })))
-    : el('div', { class: 'card card-pad' },
-        el('h3', { text: 'No published events yet.' }),
-        el('p', { class: 'sub', text: 'Committee members can create one from the Events page.' })
+    ? el('div', { class: 'grid grid-3' }, ...rest.map(evt => eventCard(evt, { masked })), submitExpense || null)
+    : el('div', { class: 'grid grid-3' },
+        el('article', { class: 'card card-pad' },
+          el('h3', { text: 'No published events yet.' }),
+          el('p', { class: 'sub', text: 'Committee members can create one from the Events page.' })
+        ),
+        submitExpense || null
       );
 
   /* Contributors KPI counts unique residents (by contributor id when
@@ -156,10 +164,6 @@ export async function render(root) {
   // Event spotlight — pick a live/closed event and get its numbers at a
   // glance with a small visual breakdown. Signed-in only.
   const spotlight = user && !masked ? renderEventSpotlight(user, events) : null;
-  // Submit-expense entry — anyone with `expenses.record` can queue an
-  // expense from anywhere (event picker is inside the dialog).
-  const canRecordExpense = user ? await can(user, 'expenses.record') : false;
-  const submitExpense = user && canRecordExpense ? renderSubmitExpenseCard(user) : null;
 
   /* Mobile-first daily visit tile — desktop viewers already see the
    * same figure in the footer chip so we hide this card on wide
@@ -168,7 +172,7 @@ export async function render(root) {
   const visitCardWrap = el('div', { class: 'tvh-visit-card-wrap', style: 'margin-top:12px' });
   renderVisitCard(visitCardWrap).catch(() => { /* silent */ });
 
-  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, spotlight, submitExpense, latest, pendingExpenses, visitCardWrap);
+  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, spotlight, latest, pendingExpenses, visitCardWrap);
 
   // Fire-and-forget: once per session, generate a per-event JSON
   // snapshot for the private archive when >20 h have passed or the
@@ -423,14 +427,12 @@ function renderSubmitExpenseCard(user) {
     const root = document.getElementById('main');
     if (root) render(root); else location.reload();
   }));
-  return el('section', { class: 'card card-pad tvh-widget', style: 'margin-top:16px' },
-    el('div', { class: 'row row-between', style: 'flex-wrap:wrap;gap:10px;align-items:flex-start' },
-      el('div', { style: 'min-width:0' },
-        el('h3', { style: 'margin:0', text: 'Report an expense you paid' }),
-        el('small', { class: 'sub', text: 'Volunteers can log petty-cash spends. Committee verifies before it counts on the dashboard.' })
-      ),
-      btn
-    )
+  // Compact card tuned to sit next to the event tiles in `.grid-3`.
+  return el('article', { class: 'card card-pad tvh-submit-expense-card' },
+    el('div', { style: 'font-size:20px', text: '💸' }),
+    el('h3', { style: 'margin:8px 0 4px', text: 'Report an expense you paid' }),
+    el('small', { class: 'sub', style: 'display:block;margin-bottom:12px', text: 'Volunteers can log petty-cash spends. Committee verifies before it counts on the dashboard.' }),
+    btn
   );
 }
 
