@@ -1387,3 +1387,5 @@ function openExpenseProof(x) {
     actions: [{ label: 'Close', close: true }]
   });
 }
+
+export { openProof, openExpenseProof };

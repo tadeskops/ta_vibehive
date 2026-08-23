@@ -90,15 +90,20 @@ async function voidContribAction(rec, evt, user) {
 }
 
 function renderContribRow(c, evt, user, canVerifyContrib, onDone) {
-  const cells = [
-    el('td', { text: fmtDateTime(c.created_at) }),
-    el('td', {}, el('div', { style: 'font-weight:700', text: `${c.contributor_name || 'Contributor'}${c.flat ? ' · ' + c.flat : ''}` }),
-      el('small', { class: 'sub', style: 'display:block', text: (evt && evt.title) || c.event })),
-    el('td', { text: c.method || '—' }),
-    el('td', { class: 'num', text: fmtINR(Number(c.amount || 0)) }),
-    el('td', {}),
-    el('td', {}),
-  ];
+  const proofCell = el('td', {},
+    c.ref ? el('div', { style: 'font-family:ui-monospace,monospace;font-size:12px', text: c.ref }) : el('span', { class: 'sub', text: '—' }),
+    c.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', style: 'margin-top:4px', type: 'button', on: { click: async () => {
+      try { const m = await import('./event.js'); m.openProof(c); } catch (_e) { /* silent */ }
+    } } }, '🖼 View proof') : null
+  );
+  const contributorCell = el('td', {},
+    el('div', { style: 'font-weight:700', text: c.anonymous ? 'Anonymous' : (c.contributor_name || '—') }),
+    el('small', { class: 'sub', style: 'display:block' },
+      evt
+        ? el('a', { href: `#/e/${evt.id}/manage`, style: 'color:var(--terra);text-decoration:none' }, evt.title || evt.id)
+        : el('span', { text: c.event })
+    )
+  );
   const verifyBtn = el('button', { class: 'btn btn-sm', type: 'button' }, 'Verify');
   const voidBtn   = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Invalid');
   verifyBtn.addEventListener('click', async () => {
@@ -111,12 +116,39 @@ function renderContribRow(c, evt, user, canVerifyContrib, onDone) {
     try { if (await voidContribAction(c, evt, user)) onDone(); } catch (e) { toast((e && e.message) || 'Void failed', 'err'); }
     finally { verifyBtn.disabled = false; voidBtn.disabled = false; }
   });
-  cells[4] = el('td', {}, el('span', { class: 'pill warn', text: 'pending' }));
-  cells[5] = el('td', {}, el('div', { class: 'row', style: 'gap:6px' }, canVerifyContrib ? verifyBtn : null, canVerifyContrib ? voidBtn : null));
-  return el('tr', {}, ...cells);
+  return el('tr', {},
+    el('td', { text: fmtDateTime(c.created_at) }),
+    contributorCell,
+    el('td', { text: c.anonymous ? '' : (c.flat || '') }),
+    el('td', { text: c.method || '—' }),
+    proofCell,
+    el('td', { class: 'num', text: fmtINR(Number(c.amount || 0)) }),
+    el('td', {}, el('span', { class: 'pill warn', text: 'pending' })),
+    el('td', {}, el('div', { class: 'row', style: 'gap:6px' },
+      canVerifyContrib ? verifyBtn : null,
+      canVerifyContrib ? voidBtn : null,
+      evt ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/e/${evt.id}/manage`, title: 'Open the event Manage view' }, 'Open') : null
+    ))
+  );
 }
 
 function renderExpenseRow(x, evt, user, canVerifyExpense, onDone) {
+  const proofCell = el('td', {},
+    x.receipt_url ? el('a', { class: 'btn btn-sm btn-ghost', href: x.receipt_url, target: '_blank', rel: 'noopener' }, '🔗 URL') : null,
+    x.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', style: 'margin-top:4px', type: 'button', on: { click: async () => {
+      try { const m = await import('./event.js'); m.openExpenseProof(x); } catch (_e) { /* silent */ }
+    } } }, '🖼 View proof') : null,
+    (!x.receipt_url && !x.proof_data_url) ? el('span', { class: 'sub', text: '—' }) : null
+  );
+  const categoryCell = el('td', {},
+    el('div', { style: 'font-weight:700', text: x.category || 'Expense' }),
+    el('small', { class: 'sub', style: 'display:block' },
+      evt
+        ? el('a', { href: `#/e/${evt.id}/manage`, style: 'color:var(--terra);text-decoration:none' }, evt.title || evt.id)
+        : el('span', { text: x.event_id })
+    ),
+    x.created_by ? el('small', { class: 'sub', style: 'display:block;margin-top:2px', text: 'by ' + x.created_by }) : null
+  );
   const verifyBtn = el('button', { class: 'btn btn-sm', type: 'button' }, 'Verify');
   verifyBtn.addEventListener('click', async () => {
     verifyBtn.disabled = true;
@@ -125,12 +157,15 @@ function renderExpenseRow(x, evt, user, canVerifyExpense, onDone) {
   });
   return el('tr', {},
     el('td', { text: fmtDateTime(x.created_at) }),
-    el('td', {}, el('div', { style: 'font-weight:700', text: (x.category || 'Expense') + (x.description ? ' · ' + x.description : '') }),
-      el('small', { class: 'sub', style: 'display:block', text: `${(evt && evt.title) || x.event_id}${x.created_by ? ' · by ' + x.created_by : ''}` })),
-    el('td', { text: 'expense' }),
+    categoryCell,
+    el('td', { style: 'max-width:260px;white-space:normal', text: x.description || '—' }),
+    proofCell,
     el('td', { class: 'num', text: fmtINR(Number(x.amount || 0)) }),
     el('td', {}, el('span', { class: 'pill warn', text: 'pending' })),
-    el('td', {}, canVerifyExpense ? verifyBtn : el('small', { class: 'sub', text: '—' }))
+    el('td', {}, el('div', { class: 'row', style: 'gap:6px' },
+      canVerifyExpense ? verifyBtn : null,
+      evt ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/e/${evt.id}/manage`, title: 'Open the event Manage view' }, 'Open') : null
+    ))
   );
 }
 
@@ -217,20 +252,22 @@ export async function render(root) {
     const contribCard = el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' },
       el('div', { style: 'padding:14px 16px' },
         el('h3', { style: 'margin:0', text: '📥 Pending contributions' }),
-        el('small', { class: 'sub', text: canVerifyContrib ? 'Tap Verify to mint a receipt, Invalid to void.' : 'You can view; contributions.verify is required to act.' })
+        el('small', { class: 'sub', text: canVerifyContrib ? 'Tap Verify to mint a receipt, Invalid to void. Same columns and behaviour as the per-event Manage view.' : 'You can view; contributions.verify is required to act.' })
       ),
       el('table', { class: 'table' },
         el('thead', {}, el('tr', {},
           el('th', { text: 'When' }),
           el('th', { text: 'Contributor / Event' }),
+          el('th', { text: 'Flat' }),
           el('th', { text: 'Method' }),
+          el('th', { text: 'Ref / proof' }),
           el('th', { class: 'num', text: 'Amount' }),
           el('th', { text: 'Status' }),
           el('th', { text: 'Actions' })
         )),
         el('tbody', {}, ...(pendingContribs.length
           ? pendingContribs.map((c) => renderContribRow(c, eventById.get(c.event), user, canVerifyContrib, draw))
-          : [el('tr', {}, el('td', { colspan: 6, style: 'text-align:center;color:var(--muted);padding:16px', text: 'Nothing waiting for approval — nice work.' }))]
+          : [el('tr', {}, el('td', { colspan: 8, style: 'text-align:center;color:var(--muted);padding:16px', text: 'Nothing waiting for approval — nice work.' }))]
         ))
       )
     );
@@ -238,20 +275,21 @@ export async function render(root) {
     const expenseCard = el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' },
       el('div', { style: 'padding:14px 16px' },
         el('h3', { style: 'margin:0', text: '💸 Pending expenses' }),
-        el('small', { class: 'sub', text: canVerifyExpense ? 'Tap Verify to add the amount to the event ledger.' : 'You can view; expenses.verify is required to act.' })
+        el('small', { class: 'sub', text: canVerifyExpense ? 'Tap Verify to add the amount to the event ledger. Same columns and behaviour as the per-event Expenses panel.' : 'You can view; expenses.verify is required to act.' })
       ),
       el('table', { class: 'table' },
         el('thead', {}, el('tr', {},
           el('th', { text: 'When' }),
           el('th', { text: 'Category / Event' }),
-          el('th', { text: 'Kind' }),
+          el('th', { text: 'Description' }),
+          el('th', { text: 'Receipt' }),
           el('th', { class: 'num', text: 'Amount' }),
           el('th', { text: 'Status' }),
           el('th', { text: 'Actions' })
         )),
         el('tbody', {}, ...(pendingExpenses.length
           ? pendingExpenses.map((x) => renderExpenseRow(x, eventById.get(x.event_id), user, canVerifyExpense, draw))
-          : [el('tr', {}, el('td', { colspan: 6, style: 'text-align:center;color:var(--muted);padding:16px', text: 'No expenses awaiting verification.' }))]
+          : [el('tr', {}, el('td', { colspan: 7, style: 'text-align:center;color:var(--muted);padding:16px', text: 'No expenses awaiting verification.' }))]
         ))
       )
     );
