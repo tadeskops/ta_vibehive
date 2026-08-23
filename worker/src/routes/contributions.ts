@@ -121,20 +121,52 @@ export async function verifyContribution(ctx: Ctx, params: Record<string, string
 
 /**
  * GET /contributions?event=<slug>
- * Committee+ sees all contributions for the event. Residents see only
- * their own. Anonymous callers get 401.
+ * Committee+ sees full data for every contribution. Residents see
+ * their OWN records in full and every OTHER record masked so they
+ * can still compute community totals + render a "who contributed"
+ * feed without leaking personally-identifying details.
+ *
+ * Anonymous callers get 401.
  */
+function maskName(name: string): string {
+  const s = String(name || '').trim();
+  if (!s) return '';
+  return s
+    .split(/\s+/)
+    .map((w) => (w.length <= 1 ? w : w[0] + '*'.repeat(Math.max(1, w.length - 1))))
+    .join(' ');
+}
+
+function maskContribution(c: Contribution): Contribution {
+  const out: Contribution = {
+    id: c.id,
+    event: c.event,
+    amount: c.amount,
+    status: c.status,
+    created_at: c.created_at,
+    verified_at: c.verified_at,
+  };
+  // Field names below live on the wider record shape but aren't in
+  // the narrow Contribution interface — copy through explicitly.
+  const src = c as Record<string, unknown>;
+  if (typeof src['flat'] === 'string') out['flat'] = src['flat'];
+  if (typeof src['contributor_name'] === 'string') out['contributor_name'] = maskName(src['contributor_name'] as string);
+  if (typeof src['anonymous'] === 'boolean') out['anonymous'] = src['anonymous'];
+  if (typeof src['method'] === 'string') out['method'] = src['method'];
+  return out;
+}
+
 export async function listContributions(ctx: Ctx): Promise<Response> {
   if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
   const eventFilter = ctx.url.searchParams.get('event') || '';
-  /* Walk contributions/{year}/{month}/*.json — bounded to a rolling
-   * 12-month window for cost control. Newer months first. */
   const now = new Date();
   const months: Array<{ y: number; m: string }> = [];
   for (let i = 0; i < 12; i++) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     months.push({ y: d.getUTCFullYear(), m: String(d.getUTCMonth() + 1).padStart(2, '0') });
   }
+  const callerEmail = String(ctx.identity?.email || '').toLowerCase();
+  const canSeeAll = atLeast(ctx.role, 'committee');
   const out: Contribution[] = [];
   for (const { y, m } of months) {
     const entries = await listDir(ctx.env, `contributions/${y}/${m}`);
@@ -144,11 +176,12 @@ export async function listContributions(ctx: Ctx): Promise<Response> {
       if (!doc || !doc.data) continue;
       const c = doc.data;
       if (eventFilter && c.event !== eventFilter) continue;
-      if (!atLeast(ctx.role, 'committee')) {
-        const mine = String(c.contributor_email || c.created_by || '').toLowerCase() === (ctx.identity?.email || '');
-        if (!mine) continue;
+      if (canSeeAll) {
+        out.push(c);
+        continue;
       }
-      out.push(c);
+      const mine = String(c.contributor_email || c.created_by || '').toLowerCase() === callerEmail;
+      out.push(mine ? c : maskContribution(c));
     }
   }
   return ok(ctx.env, ctx.req, { contributions: out });
