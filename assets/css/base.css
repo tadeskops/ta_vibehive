@@ -1120,3 +1120,15 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 .tvh-ops-timeline-body{min-width:0;display:flex;flex-direction:column;gap:4px}
 .tvh-ops-vol-chip{font-size:11px;color:var(--muted);background:#f6f2e8;padding:2px 6px;border-radius:6px}
 @media (max-width:520px){.tvh-ops-timeline-card{grid-template-columns:52px 1fr;grid-template-rows:auto auto}.tvh-ops-timeline-card>.pill{grid-column:2;justify-self:start}}
+
+/* ---------- Event Operations Workspace — Slice 3: Matrix filters ---------- */
+.tvh-ops-filter-bar{display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:#fbf8f2;border:1px solid var(--line);border-radius:10px;margin:0 0 12px}
+.tvh-ops-filter-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.tvh-ops-filter-label{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;min-width:70px}
+.tvh-ops-filter-chip{display:inline-block;padding:3px 10px;border-radius:999px;background:#fff;border:1px solid var(--line);color:inherit;text-decoration:none;font-size:12px;line-height:1.6;transition:background .1s ease,border-color .1s ease}
+.tvh-ops-filter-chip:hover{background:var(--terra-soft);border-color:var(--terra-soft)}
+.tvh-ops-filter-chip.active{background:var(--terra);color:#fff;border-color:var(--terra)}
+.tvh-ops-matrix-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tvh-ops-matrix-scroll table{min-width:640px}
+.tvh-ops-gap{color:#c94a2a;font-size:12px;font-weight:600}
+@media (max-width:520px){.tvh-ops-filter-label{min-width:auto;width:100%}}

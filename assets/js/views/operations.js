@@ -116,7 +116,7 @@ export async function render(root, ctx = {}) {
   } else if (sub === 'plan') {
     shell.append(renderPlanPanel(evt, doc, user, caps, params));
   } else if (sub === 'matrix') {
-    shell.append(renderMatrixPanel(evt, doc, user, caps));
+    shell.append(renderMatrixPanel(evt, doc, user, caps, params));
   } else if (sub === 'activities') {
     shell.append(renderActivitiesPanel(evt, doc, user, caps));
   } else {
@@ -885,39 +885,142 @@ function renderTimelineActivity(evt, doc, a) {
   );
 }
 
-/* ---------- Matrix (Phase 4 scaffold) ---------- */
+/* ---------- Matrix (Slice 3, Phase 4) ---------- */
 
-function renderMatrixPanel(evt, doc, user, caps) {
-  const rows = doc.activities.map(a => ({
+function renderMatrixPanel(evt, doc, user, caps, params) {
+  if (!caps.opsMatrixOn) {
+    return el('section', { class: 'card card-pad' },
+      el('h3', { style: 'margin:0 0 4px', text: '🗂 Responsibility matrix' }),
+      el('small', { class: 'sub', text: 'Matrix is disabled for this event (operations.matrix is off). Enable it in the event feature toggles.' })
+    );
+  }
+  const daysTotal = countDays(evt);
+  const fDay      = String(params.get('day') || '');       // '' | '1'..'N'
+  const fCat      = String(params.get('cat') || '');       // '' | category id
+  const fStatus   = String(params.get('status') || '');    // '' | ready | in_progress | attention | planned | confirmed
+  const fGap      = String(params.get('gap') || '');       // '' | lead | volunteers
+  const fOwner    = String(params.get('owner') || '');     // '' | ownership id
+
+  const allRows = doc.activities.map(a => ({
     a,
     owner: doc.ownership.find(o => o.id === a.owner_id),
     primary: findPerson(doc, a.primary_lead_id),
     co: findPerson(doc, a.co_lead_id),
     vols: (a.volunteer_ids || []).length,
   }));
+
+  const rows = allRows.filter(r => {
+    if (fDay && !(r.a.days || []).includes(Number(fDay))) return false;
+    if (fCat && r.a.category !== fCat) return false;
+    if (fStatus && r.a.status !== fStatus) return false;
+    if (fGap === 'lead' && r.a.primary_lead_id && r.a.co_lead_id) return false;
+    if (fGap === 'volunteers' && r.vols > 0) return false;
+    if (fOwner && r.a.owner_id !== fOwner) return false;
+    return true;
+  });
+
+  const cats  = (doc.categories && doc.categories.length ? doc.categories : []);
+  const owners = doc.ownership || [];
+
+  const filterUrl = (patch) => {
+    const p = new URLSearchParams();
+    const merged = { day: fDay, cat: fCat, status: fStatus, gap: fGap, owner: fOwner, ...patch };
+    for (const [k, v] of Object.entries(merged)) if (v) p.set(k, v);
+    const qs = p.toString();
+    return `#/e/${evt.id}/operations/matrix${qs ? '?' + qs : ''}`;
+  };
+
+  const chip = (label, active, url) =>
+    el('a', { class: 'tvh-ops-filter-chip' + (active ? ' active' : ''), href: url }, label);
+
+  const dayFilter = el('div', { class: 'tvh-ops-filter-row' },
+    el('span', { class: 'tvh-ops-filter-label', text: 'Day' }),
+    chip('All', !fDay, filterUrl({ day: '' })),
+    ...Array.from({ length: daysTotal }, (_, i) => {
+      const d = String(i + 1);
+      return chip('D' + d, fDay === d, filterUrl({ day: d }));
+    })
+  );
+
+  const catFilter = cats.length ? el('div', { class: 'tvh-ops-filter-row' },
+    el('span', { class: 'tvh-ops-filter-label', text: 'Category' }),
+    chip('All', !fCat, filterUrl({ cat: '' })),
+    ...cats.map(c => chip((c.icon ? c.icon + ' ' : '') + (c.label || c.id), fCat === c.id, filterUrl({ cat: c.id })))
+  ) : null;
+
+  const statusOpts = [
+    { id: 'planned',     label: 'Planned' },
+    { id: 'confirmed',   label: 'Confirmed' },
+    { id: 'ready',       label: 'Ready' },
+    { id: 'in_progress', label: 'In progress' },
+    { id: 'attention',   label: 'Attention' },
+  ];
+  const statusFilter = el('div', { class: 'tvh-ops-filter-row' },
+    el('span', { class: 'tvh-ops-filter-label', text: 'Status' }),
+    chip('All', !fStatus, filterUrl({ status: '' })),
+    ...statusOpts.map(s => chip(s.label, fStatus === s.id, filterUrl({ status: s.id })))
+  );
+
+  const gapFilter = el('div', { class: 'tvh-ops-filter-row' },
+    el('span', { class: 'tvh-ops-filter-label', text: 'Gaps' }),
+    chip('All', !fGap, filterUrl({ gap: '' })),
+    chip('⚠ Missing lead', fGap === 'lead', filterUrl({ gap: 'lead' })),
+    chip('👥 No volunteers', fGap === 'volunteers', filterUrl({ gap: 'volunteers' }))
+  );
+
+  const ownerFilter = owners.length ? el('div', { class: 'tvh-ops-filter-row' },
+    el('span', { class: 'tvh-ops-filter-label', text: 'Owner' }),
+    chip('All', !fOwner, filterUrl({ owner: '' })),
+    ...owners.map(o => chip(o.area || o.name || '(unnamed)', fOwner === o.id, filterUrl({ owner: o.id })))
+  ) : null;
+
+  const anyFilter = fDay || fCat || fStatus || fGap || fOwner;
+
   return el('section', { class: 'card card-pad' },
-    el('h3', { style: 'margin:0 0 4px', text: '🗂 Responsibility matrix' }),
-    el('small', { class: 'sub', style: 'display:block;margin-bottom:12px', text: 'Who owns what, at a glance. Filters land in Phase 4.' }),
+    el('div', { class: 'row row-between', style: 'align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:6px' },
+      el('div', {},
+        el('h3', { style: 'margin:0', text: '🗂 Responsibility matrix' }),
+        el('small', { class: 'sub', text: `Showing ${rows.length} of ${allRows.length} activities` })
+      ),
+      anyFilter ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/e/${evt.id}/operations/matrix`, text: '✕ Clear filters' }) : null
+    ),
+    el('div', { class: 'tvh-ops-filter-bar' },
+      dayFilter,
+      catFilter,
+      statusFilter,
+      gapFilter,
+      ownerFilter
+    ),
     rows.length
-      ? el('table', { class: 'table' },
-          el('thead', {}, el('tr', {},
-            el('th', { text: 'Activity' }),
-            el('th', { text: 'Owner area' }),
-            el('th', { text: 'Primary lead' }),
-            el('th', { text: 'Co-lead' }),
-            el('th', { class: 'num', text: 'Volunteers' }),
-            el('th', { text: 'Status' })
-          )),
-          el('tbody', {}, ...rows.map(r => el('tr', {},
-            el('td', {}, el('a', { href: `#/e/${evt.id}/operations/activity/${r.a.id}`, text: (r.a.icon || '') + ' ' + r.a.title })),
-            el('td', { text: r.owner ? r.owner.area : '—' }),
-            el('td', { text: r.primary ? r.primary.name : '—' }),
-            el('td', { text: r.co ? r.co.name : '—' }),
-            el('td', { class: 'num', text: String(r.vols) }),
-            el('td', {}, el('span', { class: 'pill ' + statusPillClass(r.a.status), text: OPS_STATUS_LABEL[r.a.status] || r.a.status }))
-          )))
+      ? el('div', { class: 'tvh-ops-matrix-scroll' },
+          el('table', { class: 'table' },
+            el('thead', {}, el('tr', {},
+              el('th', { text: 'Activity' }),
+              el('th', { text: 'Day' }),
+              el('th', { text: 'Owner area' }),
+              el('th', { text: 'Primary lead' }),
+              el('th', { text: 'Co-lead' }),
+              el('th', { class: 'num', text: 'Volunteers' }),
+              el('th', { text: 'Status' })
+            )),
+            el('tbody', {}, ...rows.map(r => el('tr', {},
+              el('td', {}, el('a', { href: `#/e/${evt.id}/operations/activity/${r.a.id}`, text: (r.a.icon || '') + ' ' + r.a.title })),
+              el('td', { text: (r.a.days || []).map(d => 'D' + d).join(', ') || '—' }),
+              el('td', { text: r.owner ? (r.owner.area || r.owner.name || '—') : '—' }),
+              el('td', {}, r.primary
+                ? el('span', { text: r.primary.name })
+                : el('span', { class: 'tvh-ops-gap', text: '⚠ Not assigned' })),
+              el('td', {}, r.co
+                ? el('span', { text: r.co.name })
+                : el('span', { class: 'tvh-ops-gap', text: '⚠ Not assigned' })),
+              el('td', { class: 'num' }, r.vols === 0
+                ? el('span', { class: 'tvh-ops-gap', text: '0' })
+                : el('span', { text: String(r.vols) })),
+              el('td', {}, el('span', { class: 'pill ' + statusPillClass(r.a.status), text: OPS_STATUS_LABEL[r.a.status] || r.a.status }))
+            )))
+          )
         )
-      : el('p', { class: 'sub', text: 'Add activities to populate the matrix.' })
+      : el('p', { class: 'sub', style: 'margin-top:8px', text: anyFilter ? 'No activities match the selected filters.' : 'Add activities to populate the matrix.' })
   );
 }
 
