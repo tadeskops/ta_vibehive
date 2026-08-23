@@ -172,7 +172,7 @@ export async function incrementVisitCount(ctx: Ctx): Promise<Response> {
     await loadDoc(ctx.env);
     resetTodaySetIfStale(today);
 
-    const identity = ctx.identity?.email || ctx.identity?.id || '';
+    const identity = ctx.identity?.email || ctx.identity?.sub || '';
     if (!identity) {
       // Anonymous POST — do not count. Return current live figures.
       const { data } = await loadDoc(ctx.env);
