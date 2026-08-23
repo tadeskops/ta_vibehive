@@ -430,17 +430,25 @@ function renderEventSpotlight(user, events) {
 
   const wrap = el('section', { class: 'card card-pad tvh-widget tvh-spotlight', style: 'margin-top:16px' });
   const select = el('select', { class: 'tvh-spotlight-select', 'aria-label': 'Pick an event to inspect' },
-    ...spotlightable.map((e, i) => el('option', { value: e.id, selected: i === 0, text: (e.status === STATUS.CLOSED ? 'Closed · ' : '') + (e.title || e.id) }))
+    ...spotlightable.map((e, i) => el('option', { value: e.id, selected: i === 0, text: (e.title || e.id) }))
   );
-  const bodyWrap = el('div', {});
+  const statusPill = el('span', { class: 'tvh-spotlight-pill' });
+  const openLink = el('a', { class: 'btn btn-ghost btn-sm tvh-spotlight-open', href: '#' }, 'Open →');
+  const bodyWrap = el('div', { class: 'tvh-spotlight-body' });
 
   function drawFor(eventId) {
     bodyWrap.replaceChildren();
     const evt = spotlightable.find(e => e.id === eventId) || spotlightable[0];
     if (!evt) return;
+    openLink.setAttribute('href', `#/e/${evt.id}`);
+    statusPill.replaceChildren();
+    statusPill.className = 'tvh-spotlight-pill ' + (evt.status === STATUS.CLOSED ? 'is-closed' : 'is-live');
+    statusPill.textContent = evt.status === STATUS.CLOSED ? 'Closed' : 'Live';
+
     const contribs = state.contribs().filter(c => c && c.event === evt.id);
     const verifiedTotal = contribs.filter(c => c.status === 'verified').reduce((s, c) => s + Number(c.amount || 0), 0);
     const pendingTotal = contribs.filter(c => c.status === 'pending').reduce((s, c) => s + Number(c.amount || 0), 0);
+    const pendingRows = contribs.filter(c => c.status === 'pending').length;
     const uniqueFlats = new Set(contribs.filter(c => c.status !== 'void' && c.flat).map(c => String(c.flat).trim().toLowerCase())).size;
     const expenses = state.expenses().filter(x => x && x.event_id === evt.id && x.status === 'verified');
     const expenseTotal = expenses.reduce((s, x) => s + Number(x.amount || 0), 0);
@@ -448,53 +456,76 @@ function renderEventSpotlight(user, events) {
     const goal = Number(evt.goal || 0);
     const pctGoal = goal ? Math.min(100, Math.round((verifiedTotal / goal) * 100)) : 0;
 
-    const stats = el('div', { class: 'grid grid-4' },
-      stat('Raised', fmtINR(verifiedTotal), goal ? `${pctGoal}% of ${fmtINR(goal)}` : 'no goal set'),
-      stat('Pending', fmtINR(pendingTotal), `${contribs.filter(c => c.status === 'pending').length} rows`),
-      stat('Contributors', String(uniqueFlats), 'unique flats'),
-      stat('Net', fmtINR(net), `${fmtINR(expenseTotal)} spent`)
+    const kpi = (label, value, sub, tone) => el('div', { class: 'tvh-kpi' + (tone ? ' is-' + tone : '') },
+      el('div', { class: 'tvh-kpi-k', text: label }),
+      el('div', { class: 'tvh-kpi-v', text: value }),
+      el('div', { class: 'tvh-kpi-d', text: sub || '' })
     );
 
-    // Progress bar (raised vs goal) + a compact split bar showing income
-    // vs expenses so users see the money flow at a glance.
-    const progress = goal ? el('div', { class: 'tvh-spotlight-progress' },
-      el('div', { class: 'tvh-spotlight-progress-track' },
-        el('div', { class: 'tvh-spotlight-progress-bar', style: 'width:' + pctGoal + '%' })
-      ),
-      el('div', { class: 'row row-between', style: 'font-size:11px;color:var(--muted);margin-top:4px' },
-        el('span', { text: fmtINR(verifiedTotal) + ' raised' }),
-        el('span', { text: fmtINR(goal) + ' goal' })
-      )
-    ) : null;
-
-    const totalFlow = Math.max(1, verifiedTotal + expenseTotal);
-    const incomePct = Math.round((verifiedTotal / totalFlow) * 100);
-    const expensePct = 100 - incomePct;
-    const flowBar = el('div', { class: 'tvh-spotlight-flow', style: 'margin-top:14px' },
-      el('div', { class: 'tvh-spotlight-flow-track' },
-        el('div', { class: 'tvh-spotlight-flow-income', style: 'width:' + incomePct + '%', title: 'Income · ' + fmtINR(verifiedTotal) }),
-        el('div', { class: 'tvh-spotlight-flow-expense', style: 'width:' + expensePct + '%', title: 'Expenses · ' + fmtINR(expenseTotal) })
-      ),
-      el('div', { class: 'row', style: 'gap:12px;font-size:11px;color:var(--muted);margin-top:6px;flex-wrap:wrap' },
-        el('span', {}, el('span', { class: 'tvh-spotlight-swatch is-income' }), ' Income ' + fmtINR(verifiedTotal)),
-        el('span', {}, el('span', { class: 'tvh-spotlight-swatch is-expense' }), ' Expenses ' + fmtINR(expenseTotal)),
-        el('a', { class: 'sub', style: 'margin-left:auto', href: `#/e/${evt.id}` }, 'Open event →')
-      )
+    const kpis = el('div', { class: 'tvh-kpi-grid' },
+      kpi('Raised', fmtINR(verifiedTotal), goal ? `${pctGoal}% of ${fmtINR(goal)} goal` : 'no goal set', 'income'),
+      kpi('Pending', fmtINR(pendingTotal), `${pendingRows} awaiting verify`, 'pending'),
+      kpi('Contributors', String(uniqueFlats), 'unique flats'),
+      kpi('Net', fmtINR(net), `${fmtINR(expenseTotal)} spent`, net >= 0 ? 'income' : 'expense')
     );
 
-    bodyWrap.append(stats, progress || el('div'), flowBar);
+    const flowChart = el('div', { class: 'tvh-flow' });
+    if (goal) {
+      flowChart.append(
+        el('div', { class: 'tvh-flow-row' },
+          el('span', { class: 'tvh-flow-label', text: 'Goal progress' }),
+          el('span', { class: 'tvh-flow-val', text: `${pctGoal}%` })
+        ),
+        el('div', { class: 'tvh-spotlight-progress-track' },
+          el('div', { class: 'tvh-spotlight-progress-bar', style: 'width:' + pctGoal + '%' })
+        ),
+        el('div', { class: 'tvh-flow-scale' },
+          el('span', { text: fmtINR(verifiedTotal) + ' raised' }),
+          el('span', { text: fmtINR(goal) + ' goal' })
+        )
+      );
+    }
+
+    if (verifiedTotal || expenseTotal) {
+      const totalFlow = Math.max(1, verifiedTotal + expenseTotal);
+      const incomePct = Math.round((verifiedTotal / totalFlow) * 100);
+      const expensePct = 100 - incomePct;
+      flowChart.append(
+        el('div', { class: 'tvh-flow-row', style: goal ? 'margin-top:14px' : '' },
+          el('span', { class: 'tvh-flow-label', text: 'Income vs expenses' }),
+          el('span', { class: 'tvh-flow-val', text: `${incomePct}% · ${expensePct}%` })
+        ),
+        el('div', { class: 'tvh-spotlight-flow-track' },
+          el('div', { class: 'tvh-spotlight-flow-income', style: 'width:' + incomePct + '%', title: 'Income · ' + fmtINR(verifiedTotal) }),
+          el('div', { class: 'tvh-spotlight-flow-expense', style: 'width:' + expensePct + '%', title: 'Expenses · ' + fmtINR(expenseTotal) })
+        ),
+        el('div', { class: 'tvh-flow-legend' },
+          el('span', {}, el('span', { class: 'tvh-spotlight-swatch is-income' }), ' Income ', el('b', { text: fmtINR(verifiedTotal) })),
+          el('span', {}, el('span', { class: 'tvh-spotlight-swatch is-expense' }), ' Expenses ', el('b', { text: fmtINR(expenseTotal) }))
+        )
+      );
+    }
+
+    bodyWrap.append(kpis);
+    if (flowChart.childElementCount) bodyWrap.append(flowChart);
   }
 
   select.addEventListener('change', () => drawFor(select.value));
+
   wrap.append(
-    el('div', { class: 'row row-between', style: 'align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px' },
-      el('div', {},
+    el('div', { class: 'tvh-spotlight-head' },
+      el('div', { class: 'tvh-spotlight-title' },
         el('h3', { style: 'margin:0', text: 'Event spotlight' }),
-        el('small', { class: 'sub', text: 'Pick an event to see the money flow and progress at a glance.' })
+        el('small', { class: 'sub', text: 'Live money flow for the event you pick.' })
       ),
-      select
+      el('label', { class: 'tvh-spotlight-picker' },
+        el('span', { class: 'tvh-spotlight-picker-label', text: 'Showing' }),
+        select,
+        statusPill
+      )
     ),
-    bodyWrap
+    bodyWrap,
+    el('div', { class: 'tvh-spotlight-foot' }, openLink)
   );
   drawFor(select.value);
   return wrap;

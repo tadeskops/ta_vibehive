@@ -335,11 +335,41 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .tvh-widget h3{margin:0 0 2px}
 
 /* Home event spotlight — dropdown + KPI grid + income/expense flow bar. */
-.tvh-spotlight-select{max-width:260px}
+.tvh-spotlight{padding:20px 22px}
+.tvh-spotlight-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.tvh-spotlight-title h3{font-size:16px;letter-spacing:-.01em}
+.tvh-spotlight-title .sub{display:block;margin-top:2px;font-size:12px}
+.tvh-spotlight-picker{display:inline-flex;align-items:center;gap:8px;background:#faf3ea;border:1px solid var(--line);border-radius:12px;padding:6px 8px 6px 12px}
+.tvh-spotlight-picker-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.tvh-spotlight-select{max-width:240px;border:none;background:transparent;font-weight:700;color:var(--ink);font-size:14px;padding:4px 22px 4px 4px;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%236b5a45' d='M0 0l5 6 5-6z'/></svg>");background-repeat:no-repeat;background-position:right 4px center}
+.tvh-spotlight-select:focus{outline:2px solid var(--terra);outline-offset:2px;border-radius:6px}
+.tvh-spotlight-pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:999px;line-height:1.4}
+.tvh-spotlight-pill.is-live{background:#e9f4dd;color:#2f6b1c}
+.tvh-spotlight-pill.is-live::before{content:"";width:6px;height:6px;border-radius:999px;background:#4a8f2c;box-shadow:0 0 0 2px #d7ecc0}
+.tvh-spotlight-pill.is-closed{background:#f0e6d8;color:#7a5a3a}
+.tvh-spotlight-body{display:flex;flex-direction:column;gap:18px}
+.tvh-kpi-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.tvh-kpi{padding:14px 14px 12px;border-radius:12px;background:#fbf6ee;border:1px solid transparent;transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease}
+.tvh-kpi:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(42,26,16,.06);border-color:var(--line)}
+.tvh-kpi-k{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.tvh-kpi-v{font-size:22px;font-weight:800;letter-spacing:-.02em;color:var(--ink);margin-top:4px;line-height:1.15}
+.tvh-kpi-d{font-size:11px;color:var(--muted);margin-top:4px;font-weight:600}
+.tvh-kpi.is-income{background:linear-gradient(180deg,#eef8e3,#fbf6ee 70%)}
+.tvh-kpi.is-pending{background:linear-gradient(180deg,#fff3d6,#fbf6ee 70%)}
+.tvh-kpi.is-expense{background:linear-gradient(180deg,#fbe4dc,#fbf6ee 70%)}
+.tvh-flow{display:flex;flex-direction:column;gap:6px}
+.tvh-flow-row{display:flex;justify-content:space-between;align-items:baseline;font-size:11px}
+.tvh-flow-label{font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tvh-flow-val{font-weight:700;color:var(--ink)}
+.tvh-flow-scale{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px}
+.tvh-flow-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:4px}
+.tvh-flow-legend b{color:var(--ink);font-weight:800;margin-left:2px}
+.tvh-spotlight-foot{display:flex;justify-content:flex-end;margin-top:12px}
+.tvh-spotlight-open{font-weight:700}
 .tvh-spotlight-progress{margin-top:14px}
-.tvh-spotlight-progress-track{height:10px;border-radius:999px;background:#efe4d0;overflow:hidden}
+.tvh-spotlight-progress-track{height:8px;border-radius:999px;background:#efe4d0;overflow:hidden}
 .tvh-spotlight-progress-bar{height:100%;background:linear-gradient(90deg,var(--terra),var(--gold));border-radius:999px;transition:width .35s ease}
-.tvh-spotlight-flow-track{display:flex;height:12px;border-radius:999px;overflow:hidden;background:#efe4d0}
+.tvh-spotlight-flow-track{display:flex;height:10px;border-radius:999px;overflow:hidden;background:#efe4d0}
 .tvh-spotlight-flow-income{background:linear-gradient(90deg,#a3d977,#6b8f5a);transition:width .35s ease}
 .tvh-spotlight-flow-expense{background:linear-gradient(90deg,#e8a48b,#a34328);transition:width .35s ease}
 .tvh-spotlight-swatch{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:middle;margin-right:4px}
