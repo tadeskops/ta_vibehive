@@ -87,89 +87,183 @@ async function buildReceiptPdfDefault(r, rec, evt, soc, opts) {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN');
+  const INK = [15, 23, 42];
+  const MUTED = [100, 116, 139];
+  const BLUE = [62, 90, 158];
+  const TERRA = [163, 67, 40];
+  const LINE = [226, 232, 240];
+  const CREAM = [250, 243, 234];
 
-  /* Header band */
-  doc.setFillColor(62, 90, 158); /* Deep Blue */
-  doc.rect(0, 0, pageW, 22, 'F');
-  doc.setTextColor(252, 211, 77); /* Warm Gold */
+  const [logoData, stampData, watermarkData] = await Promise.all([
+    loadImageAsDataUrl('assets/images/TaLogo.png').catch(() => null),
+    loadImageAsDataUrl('assets/images/TaStampBlue.png').catch(() => null),
+    loadImageAsDataUrl('assets/images/TaStampBlueOverlay.png').catch(() => null),
+  ]);
+
+  const MARGIN = 12;
+  const contentW = pageW - MARGIN * 2;
+
+  // Diagonal watermark — repeating VERIFIED · <SHORT_NAME> text so a scan
+  // shows the pattern shifted across the page (like the on-screen preview).
+  if (watermarkData) {
+    try {
+      doc.addImage(watermarkData, 'PNG', -20, 8, pageW + 40, pageH - 16, undefined, 'FAST');
+    } catch (_e) { /* image add failure — skip watermark */ }
+  }
+
+  // Header row: logo left, society block right.
+  let y = MARGIN + 4;
+  if (logoData) {
+    try { doc.addImage(logoData, 'PNG', MARGIN, y, 20, 20, undefined, 'FAST'); }
+    catch (_e) { /* skip */ }
+  }
+  doc.setTextColor(...BLUE);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text(String(soc.short_name || 'VibeHive').toUpperCase(), 10, 8);
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(15);
-  doc.text('Contribution Receipt', 10, 15);
+  doc.setFontSize(14);
+  doc.text(String(soc.english_name || soc.short_name || 'The Address Co-operative Housing Society Ltd.'), MARGIN + 24, y + 6);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(226, 232, 240);
-  doc.text(`${soc.legal_name || ''} · Reg ${soc.reg_no || ''}`, 10, 20);
+  doc.setFontSize(9);
+  doc.setTextColor(...MUTED);
+  const legalLine1 = `${soc.legal_name || ''} · Reg`;
+  doc.text(legalLine1, MARGIN + 24, y + 12);
+  const legalLine2 = `${soc.reg_no || ''} · ${soc.location || ''}`.replace(/^ · | · $/g, '');
+  const wrappedLegal = doc.splitTextToSize(legalLine2, contentW - 26);
+  doc.text(wrappedLegal, MARGIN + 24, y + 17);
+  y = Math.max(y + 24, y + 15 + wrappedLegal.length * 4);
 
-  /* Meta block */
-  doc.setTextColor(15, 23, 42);
+  // Divider under header.
+  doc.setDrawColor(...LINE);
+  doc.setLineWidth(0.3);
+  doc.line(MARGIN, y, pageW - MARGIN, y);
+  y += 8;
+
+  // Centered receipt title.
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  let y = 32;
-  const line = (k, v) => {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text(String(k).toUpperCase(), 10, y);
+  doc.setFontSize(16);
+  doc.setTextColor(...INK);
+  doc.text('Contribution Receipt', pageW / 2, y, { align: 'center' });
+  y += 8;
+
+  // Two-column meta grid — mirrors the on-screen `.receipt-meta`.
+  const colGap = 8;
+  const colW = (contentW - colGap) / 2;
+  const leftX = MARGIN;
+  const rightX = MARGIN + colW + colGap;
+  const rowH = 12;
+  const cell = (x, yTop, label, value, valueFont = 'bold') => {
     doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text(String(label).toUpperCase(), x, yTop);
+    doc.setFont('helvetica', valueFont);
     doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42);
-    const lines = doc.splitTextToSize(String(v || '—'), pageW - 30);
-    doc.text(lines, 70, y);
-    y += Math.max(7, lines.length * 5.5);
+    doc.setTextColor(...INK);
+    const lines = doc.splitTextToSize(String(value || '—'), colW - 2);
+    doc.text(lines, x, yTop + 5);
+    return yTop + Math.max(rowH, 5 + lines.length * 4.5);
   };
-  line('Receipt no.', r.id);
-  line('Issued on', fmtDate(r.issued_at));
-  line('Event', evt ? evt.title : '—');
-  line('Purpose', evt ? (evt.purpose || evt.template) : '—');
-  line('Contributor', rec.anonymous ? 'Anonymous (record maintained)' : (rec.contributor_name || '—'));
-  const flatY = y;
-  line('Flat / Unit', rec.anonymous ? '—' : (rec.flat || '—'));
-  line('Payment method', rec.method || '—');
-  line('Payment reference', rec.ref || '—');
-  drawFlatStamp(doc, 70, flatY - 4);
+  const pairs = [
+    ['Receipt no.',       r.id],
+    ['Issued on',         fmtDate(r.issued_at)],
+    ['Event',             evt ? evt.title : '—'],
+    ['Purpose',           evt ? (evt.purpose || evt.template) : '—'],
+    ['Contributor',       rec.anonymous ? 'Anonymous (record maintained)' : (rec.contributor_name || '—')],
+    ['Flat / Unit',       rec.anonymous ? '—' : (rec.flat || '—')],
+    ['Payment method',    rec.method || '—'],
+    ['Payment reference', rec.ref || '—'],
+  ];
+  let yLeft = y;
+  let yRight = y;
+  for (let i = 0; i < pairs.length; i += 2) {
+    yLeft  = cell(leftX,  yLeft,  pairs[i][0],  pairs[i][1]);
+    if (i + 1 < pairs.length) {
+      yRight = cell(rightX, yRight, pairs[i + 1][0], pairs[i + 1][1]);
+    }
+  }
+  y = Math.max(yLeft, yRight) + 4;
 
-  /* Amount block */
-  y += 4;
-  doc.setFillColor(250, 243, 234);
-  doc.roundedRect(10, y, pageW - 20, 20, 3, 3, 'F');
+  // Cream amount panel — the terra "Amount received · ₹X,XXX" line.
+  doc.setFillColor(...CREAM);
+  doc.roundedRect(MARGIN, y, contentW, 18, 3, 3, 'F');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.setTextColor(163, 67, 40);
-  doc.text('Amount received: ' + rs(r.amount), pageW / 2, y + 13, { align: 'center' });
-  y += 26;
+  doc.setFontSize(16);
+  doc.setTextColor(...TERRA);
+  doc.text('Amount received  ·  ' + rs(r.amount), pageW / 2, y + 12, { align: 'center' });
+  y += 24;
 
+  // Thank-you line in italic muted.
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(9);
-  doc.setTextColor(71, 85, 105);
+  doc.setTextColor(...MUTED);
   const thankYou = tpl && tpl.thank_you_line
     ? String(tpl.thank_you_line)
     : 'Received with thanks. This receipt is issued for records only. No goods or services have been supplied in exchange.';
-  doc.text(doc.splitTextToSize(thankYou, pageW - 20), 10, y);
-  y += 12;
+  const thankyouLines = doc.splitTextToSize(thankYou, contentW);
+  doc.text(thankyouLines, MARGIN, y);
+  y += thankyouLines.length * 4 + 6;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(30, 41, 59);
-  doc.text('Verification', 10, y);
-  y += 5;
+  // Signatory + stamp row.
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.setTextColor(71, 85, 105);
-  doc.text('Verify hash: ' + (r.verify_hash || ''), 10, y);
-  y += 5;
-  doc.text('Verify online: ' + verifyUrl(r.id), 10, y);
-  y += 5;
-  doc.text('Signatory: ' + (rec.verified_by || 'Authorised signatory'), 10, y);
+  doc.setTextColor(...MUTED);
+  doc.text('For ' + (soc.short_name || 'The Address'), MARGIN, y);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(...INK);
+  doc.text(rec.verified_by || 'Authorised signatory', MARGIN, y + 10);
+  if (stampData) {
+    try {
+      doc.addImage(stampData, 'PNG', pageW - MARGIN - 30, y - 6, 30, 30, undefined, 'FAST');
+    } catch (_e) { /* skip */ }
+  }
+  y += 22;
 
+  // Verification block.
+  doc.setDrawColor(...LINE);
+  doc.line(MARGIN, y, pageW - MARGIN, y);
+  y += 5;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...INK);
+  doc.text('Verify hash:', MARGIN, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...MUTED);
+  doc.text(String(r.verify_hash || ''), MARGIN + 22, y);
+  y += 5;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...INK);
+  doc.text('Verify online:', MARGIN, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...MUTED);
+  doc.text(verifyUrl(r.id), MARGIN + 25, y);
+
+  // Microtext along the bottom edge (anti-copy).
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(4);
+  doc.setTextColor(180, 180, 180);
+  const micro = microtextLine(r.id, r.verify_hash || '');
+  doc.text(micro, MARGIN, pageH - 10, { maxWidth: contentW });
+
+  // Page footer.
   doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text('VibeHive · The Address', 10, pageH - 8);
-  doc.text('Page 1/1', pageW - 10, pageH - 8, { align: 'right' });
+  doc.setTextColor(...MUTED);
+  doc.text('VibeHive · ' + (soc.short_name || 'The Address'), MARGIN, pageH - 5);
+  doc.text('Page 1/1', pageW - MARGIN, pageH - 5, { align: 'right' });
 
   return doc;
+}
+
+// Fetch a local image and convert to a data URL for jsPDF's addImage.
+async function loadImageAsDataUrl(url) {
+  const res = await fetch(url, { credentials: 'omit', cache: 'force-cache' });
+  if (!res.ok) return null;
+  const blob = await res.blob();
+  return await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => reject(new Error('image read failed'));
+    fr.readAsDataURL(blob);
+  });
 }
 
 /* --- Theme: Cheque Classic ---------------------------------------
