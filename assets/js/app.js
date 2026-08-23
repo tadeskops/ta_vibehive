@@ -1,5 +1,38 @@
 /* SPA bootstrap — wire chrome, register routes, dispatch. */
 'use strict';
+
+/* ---------- Deploy version gate (runs BEFORE any imports execute) ----------
+ * pages.yml stamps every deploy into <meta name="tvh-build">. If the value on
+ * disk in this tab differs from what we saw last visit, the browser is
+ * running a stale bundle — purge any Cache Storage entries + reload once so
+ * users never see pre-deploy code after a ship. Silent on first visit or
+ * when the meta is absent (dev / local file:// serving). */
+(function versionGate() {
+  try {
+    const KEY = 'tvh:v1:_build';
+    const RELOAD_GUARD = 'tvh:v1:_build_reloaded';
+    const meta = typeof document !== 'undefined' && document.querySelector('meta[name="tvh-build"]');
+    const deployed = meta ? String(meta.getAttribute('content') || '').trim() : '';
+    if (!deployed) return;
+    const last = localStorage.getItem(KEY) || '';
+    if (!last) { localStorage.setItem(KEY, deployed); return; }
+    if (last === deployed) { sessionStorage.removeItem(RELOAD_GUARD); return; }
+    // Guard against reload loops if the browser insists on serving stale HTML.
+    if (sessionStorage.getItem(RELOAD_GUARD)) return;
+    sessionStorage.setItem(RELOAD_GUARD, '1');
+    localStorage.setItem(KEY, deployed);
+    (async () => {
+      try {
+        if (window.caches) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        }
+      } catch (_e) { /* ignore */ }
+      location.reload();
+    })();
+  } catch (_e) { /* never block boot on version-gate errors */ }
+})();
+
 import { $, el, clear, modal, toast } from './dom.js';
 import * as router from './router.js';
 import { session, bindGis, logout } from './auth.js';
