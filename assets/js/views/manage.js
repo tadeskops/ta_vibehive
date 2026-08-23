@@ -10,6 +10,7 @@ import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { state } from '../store.js';
 import { promptVerifyComment } from '../verify-prompt.js';
+import { syncFromWorker, lastSyncAt } from '../sync.js';
 
 function fmtDateTime(iso) {
   if (!iso) return '';
@@ -230,6 +231,28 @@ export async function render(root) {
   const events = state.events();
   const eventById = new Map(events.map((e) => [e.id, e]));
 
+  // Force a fresh sync when the Approvals inbox opens so a resident's
+  // submission that beat the 60 s auto-refresh window still shows up
+  // immediately. Silent on failure — the render below falls back to
+  // whatever the local cache already has.
+  let _syncing = false;
+  async function refreshFromWorker() {
+    if (_syncing) return;
+    _syncing = true;
+    try { await syncFromWorker(); }
+    catch (_e) { /* silent — cache render is the fallback */ }
+    finally { _syncing = false; draw(); }
+  }
+  refreshFromWorker();
+
+  function fmtSince(ts) {
+    if (!ts) return 'never';
+    const secs = Math.floor((Date.now() - ts) / 1000);
+    if (secs < 60) return secs + 's ago';
+    if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+    return Math.floor(secs / 3600) + 'h ago';
+  }
+
   function draw() {
     root.textContent = '';
     const pendingContribs = state.contribs()
@@ -243,12 +266,25 @@ export async function render(root) {
     const expenseTotal = pendingExpenses.reduce((s, x) => s + Number(x.amount || 0), 0);
 
     const hero = el('section', { class: 'hero', style: 'padding:20px 24px' },
-      el('h1', { style: 'margin:0 0 4px', text: 'Approvals' }),
-      el('p', { class: 'sub', style: 'margin:0', text:
-        `${pendingContribs.length} pending contribution${pendingContribs.length === 1 ? '' : 's'} (${fmtINR(contribTotal)}) · ` +
-        `${pendingExpenses.length} pending expense${pendingExpenses.length === 1 ? '' : 's'} (${fmtINR(expenseTotal)})` }),
-      el('p', { class: 'sub', style: 'margin:6px 0 0;font-size:11px', text:
-        'Cross-event inbox. To add / edit an expense, edit a contribution, or view event history use the Event admin view on each event (the “Open” button on any row jumps there).' })
+      el('div', { class: 'row row-between', style: 'flex-wrap:wrap;gap:8px;align-items:flex-start' },
+        el('div', { style: 'min-width:0' },
+          el('h1', { style: 'margin:0 0 4px', text: 'Approvals' }),
+          el('p', { class: 'sub', style: 'margin:0', text:
+            `${pendingContribs.length} pending contribution${pendingContribs.length === 1 ? '' : 's'} (${fmtINR(contribTotal)}) · ` +
+            `${pendingExpenses.length} pending expense${pendingExpenses.length === 1 ? '' : 's'} (${fmtINR(expenseTotal)})` }),
+          el('p', { class: 'sub', style: 'margin:6px 0 0;font-size:11px', text:
+            'Cross-event inbox. To add / edit an expense, edit a contribution, or view event history use the Event admin view on each event (the “Open” button on any row jumps there).' })
+        ),
+        // Refresh chip — last-sync indicator + on-demand pull for
+        // committee members who cannot wait for the 60 s auto tick.
+        el('button', {
+          class: 'btn btn-sm btn-ghost',
+          type: 'button',
+          disabled: _syncing ? '' : null,
+          title: 'Fetch latest contributions + expenses from the archive.',
+          on: { click: refreshFromWorker },
+        }, _syncing ? '⻳ Refreshing…' : `⟳ Refresh · ${fmtSince(lastSyncAt())}`)
+      )
     );
 
     const contribCard = el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' },

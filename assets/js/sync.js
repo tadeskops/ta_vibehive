@@ -136,7 +136,10 @@ export async function syncFromWorker() {
         const byId = new Map();
         for (const r of remote) if (r && r.id) byId.set(r.id, { ...r });
         for (const l of local) if (l && l.id) {
-          const merged = { ...(byId.get(l.id) || {}), ...pickLocalOnly(l) };
+          // Fall back to the full local record when the server response
+          // does not include this id in the current window — the old
+          // `|| {}` reduced the record to just proof fields.
+          const merged = { ...(byId.get(l.id) || l), ...pickLocalOnly(l) };
           byId.set(l.id, merged);
         }
         state.saveContribs(Array.from(byId.values()));
@@ -189,8 +192,12 @@ export async function syncFromWorker() {
   } finally {
     _running = false;
     _lastRunAt = Date.now();
+    _lastSuccessAt = Date.now();
   }
 }
+
+// Exposed for UI freshness indicators (see manage.js Refresh chip).
+export function lastSyncAt() { return _lastSuccessAt; }
 
 /* --- Auto-refresh choreography ---------------------------------
  *
@@ -211,6 +218,7 @@ export async function syncFromWorker() {
 const AUTO_REFRESH_MS = 60_000;
 const MIN_GAP_MS      = 20_000;
 let   _lastRunAt      = 0;
+let   _lastSuccessAt  = 0;
 function _throttledSync(reason) {
   if (typeof document === 'undefined') return;
   if (document.hidden) return;                     /* skip while tab in background */
