@@ -10,6 +10,7 @@ import { can } from '../rbac.js';
 import { renderVisitCard } from '../visit-counter.js';
 import { promptVerifyComment } from '../verify-prompt.js';
 import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
+import { runDailyReportsBackfill } from '../daily-reports.js';
 import { openExpenseDialog } from './event.js';
 
 /* Community Warmth · v0.1 -- privacy.public_mask
@@ -169,6 +170,16 @@ export async function render(root) {
   renderVisitCard(visitCardWrap).catch(() => { /* silent */ });
 
   mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, spotlight, submitExpense, latest, pendingExpenses, visitCardWrap);
+
+  // Fire-and-forget: once per session, generate a per-event JSON
+  // snapshot for the private archive when >20 h have passed or the
+  // content hash has changed. Silent — dashboard never blocks.
+  if (user) {
+    try {
+      const canReports = await can(user, 'reports.export');
+      if (canReports) runDailyReportsBackfill().catch(() => { /* silent */ });
+    } catch (_e) { /* silent */ }
+  }
 }
 
 /* Latest contributions widget. Shows the top-N most recent
