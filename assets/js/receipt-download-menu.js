@@ -113,7 +113,7 @@ export function receiptWhatsAppIconBtn(contribId, opts) {
     ev.stopPropagation();
     if (btn.disabled) return;
     btn.disabled = true;
-    const wasHtml = btn.innerHTML;
+    const prevChildren = Array.from(btn.childNodes);
     btn.textContent = '…';
     try {
       await shareReceiptDirect(contribId);
@@ -121,7 +121,7 @@ export function receiptWhatsAppIconBtn(contribId, opts) {
       toast((err && err.message) || 'Could not share the receipt.', 'err');
     } finally {
       btn.disabled = false;
-      btn.innerHTML = wasHtml;
+      btn.replaceChildren(...prevChildren);
     }
   });
   return btn;
@@ -216,7 +216,7 @@ export function expenseWhatsAppIconBtn(expenseId, opts) {
     ev.stopPropagation();
     if (btn.disabled) return;
     btn.disabled = true;
-    const wasHtml = btn.innerHTML;
+    const prevChildren = Array.from(btn.childNodes);
     btn.textContent = '…';
     try {
       await shareExpenseDirect(expenseId);
@@ -224,7 +224,7 @@ export function expenseWhatsAppIconBtn(expenseId, opts) {
       toast((err && err.message) || 'Could not share the voucher.', 'err');
     } finally {
       btn.disabled = false;
-      btn.innerHTML = wasHtml;
+      btn.replaceChildren(...prevChildren);
     }
   });
   return btn;
