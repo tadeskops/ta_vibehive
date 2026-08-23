@@ -248,13 +248,15 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 @keyframes tvh-visits-pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
 @media (prefers-reduced-motion:reduce){.tvh-visits-pulse{animation:none}}
 /* Home visit card — split into today + all-time mini-stats. */
-.tvh-visit-card{padding:12px 16px;display:inline-grid;grid-template-columns:auto auto;column-gap:22px;row-gap:0;border-radius:14px;background:linear-gradient(135deg,#fbf6ee,#f7ede0);border:1px solid var(--line);box-shadow:0 2px 6px rgba(42,26,16,.04)}
+.tvh-visit-card{padding:12px 16px 12px;display:inline-grid;grid-template-columns:auto auto;column-gap:22px;row-gap:6px;border-radius:14px;background:linear-gradient(135deg,#fbf6ee,#f7ede0);border:1px solid var(--line);box-shadow:0 2px 6px rgba(42,26,16,.04)}
 .tvh-visit-card-wrap{display:flex;justify-content:flex-start}
+.tvh-visit-head{grid-column:1 / -1;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--terra);border-bottom:1px dashed rgba(163,67,40,.18);padding-bottom:4px;margin-bottom:2px}
+.tvh-visit-head-label{color:var(--terra)}
 .tvh-visit-stat{display:flex;flex-direction:column;gap:0}
 .tvh-visit-stat .k{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:6px;line-height:1.6}
 .tvh-visit-stat .v{font-size:26px;font-weight:800;letter-spacing:-.02em;color:var(--ink);line-height:1.05;margin-top:2px}
 @media(max-width:640px){
-  .tvh-visit-card{padding:10px 14px;column-gap:18px;border-radius:12px}
+  .tvh-visit-card{padding:10px 14px 10px;column-gap:18px;border-radius:12px}
   .tvh-visit-stat .v{font-size:22px}
   .tvh-visit-card-wrap{justify-content:center}
 }
@@ -481,6 +483,23 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .card-hero .card-hero-visual{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;display:block}
 .card-hero .glyph{position:absolute;bottom:6px;right:12px;font-size:36px;opacity:.75;z-index:1}
 .card-hero .badge{position:absolute;top:8px;left:10px;background:rgba(255,255,255,.92);color:var(--ink);font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;z-index:1}
+/* When the event card carries a festival visual, treat the visual as
+ * the card's own background and float the meta/actions as a frosted
+ * content panel over it. Falls back to the original stacked layout
+ * for cards without an image. */
+.card.has-visual{position:relative;overflow:hidden;min-height:220px;isolation:isolate}
+.card.has-visual .card-hero{height:100%;position:absolute;inset:0;z-index:0}
+.card.has-visual .card-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,15,10,0) 0%,rgba(20,15,10,0) 45%,rgba(20,15,10,.55) 100%);z-index:1;pointer-events:none}
+.card.has-visual .card-hero .glyph{opacity:.55}
+.card.has-visual .card-content{position:relative;z-index:2;margin-top:auto;background:rgba(250,243,234,.94);backdrop-filter:blur(4px);border-radius:14px;padding:12px 14px;box-shadow:0 8px 22px rgba(42,26,16,.18);color:var(--ink)}
+.card.has-visual{display:flex;flex-direction:column;padding:12px}
+.card.has-visual .card-hero{border-radius:12px}
+@media(prefers-reduced-transparency:reduce){
+  .card.has-visual .card-content{background:#faf3ea;backdrop-filter:none}
+}
+.card-content-inner{padding:12px}
+.card-title{font-size:16px;margin-bottom:2px;font-weight:800}
+.card-sub{color:var(--muted);font-size:12px;margin:0 0 8px}
 .hero-visual{margin-top:14px;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 4px 16px rgba(163,67,40,.12)}
 .hero-visual img{display:block;width:100%;height:auto;max-height:280px;object-fit:cover;object-position:center}
 .card-title{font-size:16px;margin-bottom:2px;font-weight:800}

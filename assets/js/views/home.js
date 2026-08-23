@@ -588,13 +588,14 @@ export function eventCard(evt, opts) {
   const dl = daysLeft(evt.end_at);
   const heroCls = 'card-hero ' + (evt.hero_class || '');
   const visual = festivalVisualForSync(evt);
+  const cardCls = 'card' + (visual && visual.image ? ' has-visual' : '');
   const canContribute = evt.status === STATUS.PUBLISHED && !masked;
   /* Anonymous / masked view: keep the tile lightweight — only the
    * template glyph, event title, and a single "sign in to see
    * schedule + finances" gate. No rupee figures, no contributor
    * count, no dates. Signed-in users get the full progress card. */
   if (masked) {
-    return el('article', { class: 'card' },
+    return el('article', { class: cardCls },
       el('div', { class: heroCls.trim() },
         visual && visual.image ? el('img', { class: 'card-hero-visual', src: visual.image, alt: '', loading: 'lazy' }) : null,
         el('span', { class: 'badge', text: evt.glyph + ' ' + (evt.template || 'event') }),
@@ -610,7 +611,7 @@ export function eventCard(evt, opts) {
       )
     );
   }
-  return el('article', { class: 'card' },
+  return el('article', { class: cardCls },
     el('div', { class: heroCls.trim() },
       visual && visual.image ? el('img', { class: 'card-hero-visual', src: visual.image, alt: '', loading: 'lazy' }) : null,
       el('span', { class: 'badge', text: evt.glyph + ' ' + (evt.template || 'event') }),

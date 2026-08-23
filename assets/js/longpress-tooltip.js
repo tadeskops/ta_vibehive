@@ -5,9 +5,11 @@
  */
 'use strict';
 
-const LONG_PRESS_MS = 450;
+const LONG_PRESS_MS = 140;
+const TIP_AUTOHIDE_MS = 1600;
 let _tipEl = null;
 let _timer = null;
+let _autoHide = null;
 
 function ensureTipEl() {
   if (_tipEl) return _tipEl;
@@ -85,7 +87,11 @@ function onTouchMove(ev) {
 function onTouchEnd() {
   clearTimeout(_timer);
   _timer = null;
-  setTimeout(() => { hideTip(_pressTarget); _pressTarget = null; }, 900);
+  // Auto-dismiss the pill shortly after the finger lifts so the app
+  // never traps a stale tooltip on screen; the underlying tap still
+  // fires its native click.
+  clearTimeout(_autoHide);
+  _autoHide = setTimeout(() => { hideTip(_pressTarget); _pressTarget = null; }, TIP_AUTOHIDE_MS);
 }
 
 /* Alt-key tooltip broadcast — press & hold Alt to reveal every

@@ -19,9 +19,16 @@
 'use strict';
 import { isSystemOn } from './features.js';
 import { readVisitCount, bumpVisitCount } from './api.js';
+import { session } from './auth.js';
 
 const TODAY = new Date().toISOString().slice(0, 10);
-const TODAY_KEY  = 'tvh:v1:visit_bumped_' + TODAY;
+/** Per-signed-in-user daily bump key. Anonymous browsers never bump
+ *  the counter — this enforces "unique signed-in visitors only" while
+ *  still letting anyone read the aggregate figure. */
+function todayKeyFor(user) {
+  const who = (user && (user.email || user.id)) || 'anon';
+  return 'tvh:v1:visit_bumped_' + TODAY + ':' + String(who).toLowerCase();
+}
 const CACHE_KEY  = 'tvh:v1:visits_cache';
 
 function fmtN(n) {
@@ -29,11 +36,11 @@ function fmtN(n) {
   return v.toLocaleString('en-IN');
 }
 
-function alreadyBumpedToday() {
-  try { return !!localStorage.getItem(TODAY_KEY); } catch (_e) { return false; }
+function alreadyBumpedToday(user) {
+  try { return !!localStorage.getItem(todayKeyFor(user)); } catch (_e) { return false; }
 }
-function markBumpedToday() {
-  try { localStorage.setItem(TODAY_KEY, '1'); } catch (_e) { /* private mode */ }
+function markBumpedToday(user) {
+  try { localStorage.setItem(todayKeyFor(user), '1'); } catch (_e) { /* private mode */ }
 }
 
 let _memCache = null;
@@ -69,16 +76,20 @@ export async function getVisitCounts() {
   if (_inflight) return _inflight;
   _inflight = (async () => {
     let data = null;
+    const user = session();
     try {
-      if (alreadyBumpedToday()) {
-        data = await readVisitCount();
-      } else {
+      // Only signed-in users bump the counter → the aggregate reflects
+      // unique signed-in visitors per UTC day per browser. Anonymous
+      // browsers can still read the figure.
+      if (user && !alreadyBumpedToday(user)) {
         try {
           data = await bumpVisitCount();
-          markBumpedToday();
+          markBumpedToday(user);
         } catch (_e) {
           try { data = await readVisitCount(); } catch (_e2) { data = null; }
         }
+      } else {
+        data = await readVisitCount();
       }
     } catch (_e) { data = null; }
     if (data) writeMemCache({ at: Date.now(), data });
@@ -128,25 +139,26 @@ export async function renderVisitCard(el, styles) {
   el.textContent = '';
   const card = document.createElement('div');
   card.className = 'card tvh-visit-card';
-  card.setAttribute('title', `${todayStr} unique visitors today · ${totalStr} all-time · updates live`);
+  card.setAttribute('title', `${todayStr} unique signed-in visitors today · ${totalStr} all-time · updates live`);
   card.style.cssText = styles || 'margin-top:12px';
-  // Split into two mini-stats side-by-side so both today + all-time
-  // are legible at a glance on phones.
-  const mkStat = (label, val, withPulse) => {
+  // Header row spans both columns and carries the "Visitors" keyword
+  // so the tile is instantly recognisable on mobile.
+  const head = document.createElement('div');
+  head.className = 'tvh-visit-head';
+  const pulse = document.createElement('span'); pulse.className = 'tvh-visits-pulse'; pulse.setAttribute('aria-hidden', 'true');
+  const headLabel = document.createElement('span'); headLabel.className = 'tvh-visit-head-label'; headLabel.textContent = 'Visitors';
+  head.appendChild(pulse); head.appendChild(headLabel);
+  card.appendChild(head);
+  const mkStat = (label, val) => {
     const wrap = document.createElement('div');
     wrap.className = 'tvh-visit-stat';
-    const k = document.createElement('div'); k.className = 'k';
-    if (withPulse) {
-      const p = document.createElement('span'); p.className = 'tvh-visits-pulse'; p.setAttribute('aria-hidden', 'true');
-      k.appendChild(p); k.appendChild(document.createTextNode(' '));
-    }
-    k.appendChild(document.createTextNode(label));
+    const k = document.createElement('div'); k.className = 'k'; k.textContent = label;
     const v = document.createElement('div'); v.className = 'v'; v.textContent = val;
     wrap.appendChild(k); wrap.appendChild(v);
     return wrap;
   };
-  card.appendChild(mkStat('Today', todayStr, true));
-  card.appendChild(mkStat('All-time', totalStr, false));
+  card.appendChild(mkStat('Today', todayStr));
+  card.appendChild(mkStat('All-time', totalStr));
   el.appendChild(card);
   return card;
 }
