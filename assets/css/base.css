@@ -352,10 +352,17 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 /* Grid */
 .grid{display:grid;gap:14px;align-items:stretch}
 .grid > *{min-width:0}
-.grid-3{grid-template-columns:repeat(auto-fit,minmax(clamp(220px,26vw,300px),1fr))}
+.grid-3{grid-template-columns:repeat(auto-fill,minmax(clamp(240px,26vw,320px),1fr));justify-content:start}
 .grid-4{grid-template-columns:repeat(auto-fit,minmax(clamp(180px,20vw,240px),1fr))}
 .grid-2{grid-template-columns:repeat(auto-fit,minmax(clamp(260px,42vw,420px),1fr))}
 .grid-1{grid-template-columns:1fr}
+/* Event tiles in .grid-3 — cap at a comfortable poster width so a
+ * single event never spans the full container, and use auto-fill so
+ * empty tracks stay empty instead of forcing surviving cards wider. */
+.grid-3 > .card{max-width:clamp(280px,28vw,360px)}
+@media(max-width:640px){
+  .grid-3 > .card{max-width:none}
+}
 /* Widget-style stat cards keep a consistent height + gentle hover lift. */
 .grid .stat,.grid-4 .stat,.grid-3 .stat,.grid-2 .stat{min-height:96px;display:flex;flex-direction:column;justify-content:center;transition:transform .14s ease,box-shadow .14s ease}
 @media (min-width: 641px){
@@ -371,6 +378,16 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
  * spacing/hover is consistent and no card grows beyond its content. */
 .tvh-widget{border-radius:16px;overflow:visible}
 .tvh-widget h3{margin:0 0 2px}
+/* Latest-contributions grid — two even columns on desktop, single
+ * column on mobile. Each row gets a bottom divider that works in
+ * either layout without awkward first/last edge cases. */
+.tvh-latest-grid{display:grid;gap:0 24px;grid-template-columns:1fr}
+.tvh-latest-row{border-bottom:1px solid var(--line)}
+.tvh-latest-row:last-child{border-bottom:none}
+@media(min-width:900px){
+  .tvh-latest-grid{grid-template-columns:1fr 1fr}
+  .tvh-latest-row:nth-last-child(2):nth-child(odd){border-bottom:none}
+}
 
 /* Home event spotlight — dropdown + KPI grid + income/expense flow bar. */
 .tvh-spotlight{padding:20px 22px}
@@ -492,15 +509,18 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
  * the card's own background and float the meta/actions as a frosted
  * content panel over it. Falls back to the original stacked layout
  * for cards without an image. */
-.card.has-visual{position:relative;overflow:hidden;min-height:240px;isolation:isolate}
+.card.has-visual{position:relative;overflow:hidden;min-height:280px;isolation:isolate}
 .card.has-visual .card-hero{height:100%;position:absolute;inset:0;z-index:0}
-.card.has-visual .card-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,15,10,0) 0%,rgba(20,15,10,.08) 55%,rgba(20,15,10,.42) 100%);z-index:1;pointer-events:none}
+.card.has-visual .card-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,15,10,0) 0%,rgba(20,15,10,.05) 60%,rgba(20,15,10,.32) 100%);z-index:1;pointer-events:none}
 .card.has-visual .card-hero .glyph{opacity:.55}
-/* Frosted content panel — kept semi-transparent so the festival
- * visual reads through. Heavy blur + a slight terracotta tint keeps
- * text readable without hiding the artwork. */
-.card.has-visual .card-content{position:relative;z-index:2;margin-top:auto;background:rgba(250,243,234,.72);backdrop-filter:blur(7px) saturate(1.05);-webkit-backdrop-filter:blur(7px) saturate(1.05);border:1px solid rgba(255,255,255,.5);border-radius:14px;padding:12px 14px;box-shadow:0 10px 28px rgba(42,26,16,.22);color:var(--ink)}
-.card.has-visual .card-content .card-title{text-shadow:0 1px 0 rgba(255,255,255,.4)}
+/* Festival visual should be readable inside its card — position the
+ * subject in the upper half so the frosted panel at the bottom never
+ * hides it entirely. */
+.card.has-visual .card-hero .card-hero-visual{object-position:center 32%}
+/* Frosted content panel — light shade so the festival visual is
+ * clearly visible. Blur keeps text legible without hiding artwork. */
+.card.has-visual .card-content{position:relative;z-index:2;margin-top:auto;background:rgba(250,243,234,.55);backdrop-filter:blur(6px) saturate(1.05);-webkit-backdrop-filter:blur(6px) saturate(1.05);border:1px solid rgba(255,255,255,.55);border-radius:14px;padding:12px 14px;box-shadow:0 10px 26px rgba(42,26,16,.18);color:var(--ink)}
+.card.has-visual .card-content .card-title{text-shadow:0 1px 0 rgba(255,255,255,.55)}
 .card.has-visual{display:flex;flex-direction:column;padding:12px}
 .card.has-visual .card-hero{border-radius:12px}
 @media(prefers-reduced-transparency:reduce){

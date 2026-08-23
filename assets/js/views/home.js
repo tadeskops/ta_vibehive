@@ -247,7 +247,7 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
       const showRoleViewIcon = c.status === 'verified' && canRoleReceiptView;
       const showResidentDownloadIcon = c.status === 'verified' && isResident && canReceiptDownload && ownedByMe(c);
       const showVerifyIcon = canVerifyContrib && c.status === 'pending';
-      return el('div', { class: 'row row-between', style: 'gap:10px;padding:10px 0;border-top:1px solid var(--line)' },
+      return el('div', { class: 'row row-between tvh-latest-row', style: 'gap:10px;padding:10px 0' },
         el('div', { style: 'min-width:0;flex:1' },
           el('div', { style: 'font-weight:700', text: `${nm}${c.flat ? ' · Flat ' + c.flat : ''}` }),
           el('small', { class: 'sub', style: 'display:block', text: `${(evt && evt.title) || 'Event'} · ${fmtDate(dateShort) || dateShort}` })
@@ -296,7 +296,7 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
       chipCluster
     ),
     rows.length
-      ? el('div', {}, ...rows)
+      ? el('div', { class: 'tvh-latest-grid' }, ...rows)
       : el('p', { class: 'sub', style: 'margin:8px 0 0', text: 'No contributions yet — be the first to help.' })
   );
 }
