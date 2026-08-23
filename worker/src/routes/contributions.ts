@@ -122,22 +122,17 @@ export async function verifyContribution(ctx: Ctx, params: Record<string, string
 /**
  * GET /contributions?event=<slug>
  * Committee+ sees full data for every contribution. Residents see
- * their OWN records in full and every OTHER record masked so they
- * can still compute community totals + render a "who contributed"
- * feed without leaking personally-identifying details.
+ * their OWN records in full and every OTHER record with sensitive
+ * fields (email, ref, remarks, receipt id) stripped so a resident
+ * cannot fingerprint or replay another resident's payment.
+ *
+ * Names, flats and amounts stay on the wire so the frontend can render
+ * a community feed and compute totals; hiding a specific field from
+ * the visual list is a UI concern handled per-view in home.js.
  *
  * Anonymous callers get 401.
  */
-function maskName(name: string): string {
-  const s = String(name || '').trim();
-  if (!s) return '';
-  return s
-    .split(/\s+/)
-    .map((w) => (w.length <= 1 ? w : w[0] + '*'.repeat(Math.max(1, w.length - 1))))
-    .join(' ');
-}
-
-function maskContribution(c: Contribution): Contribution {
+function stripPrivateFields(c: Contribution): Contribution {
   const out: Contribution = {
     id: c.id,
     event: c.event,
@@ -146,13 +141,11 @@ function maskContribution(c: Contribution): Contribution {
     created_at: c.created_at,
     verified_at: c.verified_at,
   };
-  // Field names below live on the wider record shape but aren't in
-  // the narrow Contribution interface — copy through explicitly.
   const src = c as Record<string, unknown>;
+  if (typeof src['contributor_name'] === 'string') out['contributor_name'] = src['contributor_name'];
   if (typeof src['flat'] === 'string') out['flat'] = src['flat'];
-  if (typeof src['contributor_name'] === 'string') out['contributor_name'] = maskName(src['contributor_name'] as string);
-  if (typeof src['anonymous'] === 'boolean') out['anonymous'] = src['anonymous'];
   if (typeof src['method'] === 'string') out['method'] = src['method'];
+  if (typeof src['anonymous'] === 'boolean') out['anonymous'] = src['anonymous'];
   return out;
 }
 
@@ -181,7 +174,7 @@ export async function listContributions(ctx: Ctx): Promise<Response> {
         continue;
       }
       const mine = String(c.contributor_email || c.created_by || '').toLowerCase() === callerEmail;
-      out.push(mine ? c : maskContribution(c));
+      out.push(mine ? c : stripPrivateFields(c));
     }
   }
   return ok(ctx.env, ctx.req, { contributions: out });
