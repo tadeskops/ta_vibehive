@@ -79,6 +79,7 @@ const views = {
   verify:     () => import('./views/verify.js'),
   login:      () => import('./views/login.js'),
   me:         () => import('./views/me.js'),
+  manage:     () => import('./views/manage.js'),
 };
 
 async function mountView(loader, ctx) {
@@ -118,6 +119,7 @@ router.register('/verify',                    (ctx) => mountView(views.verify, c
 router.register('/verify/:id',                (ctx) => mountView(views.verify, ctx));
 router.register('/login',                     (ctx) => mountView(views.login, ctx));
 router.register('/me',                        (ctx) => mountView(views.me, ctx));
+router.register('/manage',                    (ctx) => mountView(views.manage, ctx));
 router.fallback(                              (ctx) => mountView(views.home, ctx));
 
 /* Auth icons intentionally mirror TSH semantics:
@@ -264,7 +266,7 @@ async function renderChrome() {
    * We tag the invocation with a version and clear+repopulate only if
    * we're still the latest caller when can() resolves. */
   const version = (renderChrome.__v = (renderChrome.__v || 0) + 1);
-  const [showAdmin, showSettings, showReports, canExport, canPublish, canVerify, canCreate] = user
+  const [showAdmin, showSettings, showReports, canExport, canPublish, canVerify, canCreate, canVerifyExpense] = user
     ? await Promise.all([
       can(user, 'features.registry.edit'),
       can(user, 'settings.view'),
@@ -273,9 +275,11 @@ async function renderChrome() {
       can(user, 'events.publish'),
       can(user, 'contributions.verify'),
       can(user, 'events.create'),
+      can(user, 'expenses.verify'),
     ])
-    : [false, false, false, false, false, false, false];
+    : [false, false, false, false, false, false, false, false];
   if (version !== renderChrome.__v) return;
+  if (canVerify || canVerifyExpense) links.push({ href: '#/manage', text: 'Manage' });
   if (showReports)  links.push({ href: '#/reports', text: 'Reports' });
   if (showSettings) links.push({ href: '#/settings', text: 'Settings' });
   if (showAdmin)    links.push({ href: '#/admin', text: 'Admin' });
@@ -341,7 +345,7 @@ async function renderChrome() {
   }
 
   /* Mobile tab-bar: highlight the active tab + adjust the "Me" link. */
-  syncMobileTabbar(user, showVerify);
+  syncMobileTabbar(user, showVerify, canVerify || canVerifyExpense);
   await applyFooterDesktopVisibility();
 }
 
@@ -398,12 +402,17 @@ async function applyFooterDesktopVisibility() {
 /* Mark the mobile tab that matches the current hash. Also swaps the
  * "Me" tab between #/login and #/admin depending on role, so admins
  * one-tap into the admin console from the tab-bar. */
-function syncMobileTabbar(user, showVerify) {
+function syncMobileTabbar(user, showVerify, showManage) {
   const hash = location.hash || '#/';
   const tabbar = document.getElementById('tvhTabbar');
   if (!tabbar) return;
   const verify = tabbar.querySelector('a[data-tab="verify"]');
   if (verify) verify.hidden = !showVerify;
+  const manage = document.getElementById('tvhTabManage');
+  if (manage) {
+    if (showManage) { manage.hidden = false; manage.style.display = ''; }
+    else            { manage.hidden = true;  manage.style.display = 'none'; }
+  }
   const me = document.getElementById('tvhTabMe');
   if (me) {
     if (user && (user.role === 'admin' || user.role === 'mgmt')) me.href = '#/admin';

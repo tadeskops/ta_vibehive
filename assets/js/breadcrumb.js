@@ -9,6 +9,7 @@ import { state, getSociety } from './store.js';
 const SEGMENT_LABELS = {
   '/':           'Home',
   '/events':     'Events',
+  '/manage':     'Approvals',
   '/reports':    'Reports',
   '/admin':      'Admin',
   '/settings':   'Settings',
