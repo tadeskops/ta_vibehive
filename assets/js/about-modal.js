@@ -8,13 +8,13 @@ import { modal, el } from './dom.js';
 const ABOUT_COPY = {
   brand: 'Samana Sippa Labs',
   tagline: 'Small, warm software for communities.',
-  intro: 'VibeHive is built by Samana Sippa Labs — a two-person studio focused on quiet, dependable tools that let neighbours celebrate together and keep books clean without spreadsheets.',
+  intro: 'VibeHive is built by Samana Sippa Labs — a home grown studio focused on quiet, dependable tools that let neighbours celebrate together and keep books clean without spreadsheets.',
   values: [
     'Every rupee is receipted with a tamper-evident hash.',
     'Zero third-party trackers. Your data lives in your own private repo.',
     'Everything is configuration — nothing hard-coded for one society.',
   ],
-  contact: 'hello@samanasippa.example',
+  contact: 'samanasippa@gmail.com',
 };
 
 export function openAboutModal() {
