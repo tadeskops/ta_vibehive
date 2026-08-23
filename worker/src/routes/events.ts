@@ -44,14 +44,52 @@ function pathFor(slug: string): string {
  * Returns every event as an array. Filtered by role:
  *   - anonymous / resident: only `published` and `closed`
  *   - committee+: all statuses
+ *
+ * Robustness (2026-08-24):
+ *   - Isolate-local cache with a short TTL keeps the endpoint under
+ *     the free-plan subrequest / CPU limits when the archive grows to
+ *     dozens of events. A cold isolate still pays the full fan-out
+ *     cost once, but every subsequent request in that isolate for
+ *     TTL_MS returns instantly.
+ *   - Any GitHub / network failure is caught and swallowed: we degrade
+ *     to whatever we already have cached (possibly empty). Anonymous
+ *     visitors never see a Cloudflare 1102 / 5xx here — a bad
+ *     retrieval is indistinguishable from "no events yet" from the
+ *     frontend's perspective, which is the correct fallback for a
+ *     public read.
  */
-export async function listEvents(ctx: Ctx): Promise<Response> {
-  const entries = await listDir(ctx.env, 'events');
-  const dirs = entries.filter((e) => e.type === 'dir');
+const LIST_CACHE_TTL_MS = 30_000;
+let _listCache: { at: number; events: EventDoc[] } | null = null;
+
+async function loadAllEvents(env: Ctx['env']): Promise<EventDoc[]> {
+  const now = Date.now();
+  if (_listCache && now - _listCache.at < LIST_CACHE_TTL_MS) {
+    return _listCache.events;
+  }
   const events: EventDoc[] = [];
-  for (const dir of dirs) {
-    const doc = await readJson<EventDoc>(ctx.env, `${dir.path}/event.json`).catch(() => null);
-    if (doc && doc.data) events.push(doc.data);
+  try {
+    const entries = await listDir(env, 'events');
+    const dirs = entries.filter((e) => e.type === 'dir');
+    const settled = await Promise.allSettled(
+      dirs.map((dir) => readJson<EventDoc>(env, `${dir.path}/event.json`)),
+    );
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value && r.value.data) events.push(r.value.data);
+    }
+    _listCache = { at: now, events };
+  } catch (_e) {
+    if (_listCache) return _listCache.events;
+    return [];
+  }
+  return events;
+}
+
+export async function listEvents(ctx: Ctx): Promise<Response> {
+  let events: EventDoc[] = [];
+  try {
+    events = await loadAllEvents(ctx.env);
+  } catch (_e) {
+    events = [];
   }
   const canSeeAll = atLeast(ctx.role, 'committee');
   const visible = canSeeAll
@@ -108,6 +146,7 @@ export async function putEvent(ctx: Ctx, params: Record<string, string>): Promis
   const message = `event: ${stamped.slug} ${stamped.status || 'draft'} by ${ctx.identity?.email ?? 'unknown'}`;
   try {
     const result = await writeJson(ctx.env, path, stamped, message, body.expectedSha);
+    _listCache = null;
     return ok(ctx.env, ctx.req, { event: stamped, sha: result.sha, commitSha: result.commitSha });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
