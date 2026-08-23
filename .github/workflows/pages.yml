@@ -41,6 +41,28 @@ jobs:
           echo "Deployed at $(date -u +%FT%TZ)" > _site/BUILD.txt
           ls -la _site
 
+      - name: Cache-bust entry assets with commit SHA
+        # Appends ?v=<short-sha> to the entry <script> and stylesheet
+        # <link> tags in index.html so every deploy forces every browser
+        # to refetch the shipped JS + CSS. Also injects a <meta
+        # name="tvh-build"> that the runtime version-gate in app.js
+        # reads to detect drift and self-heal offline / PWA caches.
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA:0:8}"
+          echo "cache-busting with SHA=$SHA"
+          # Append version query to assets referenced from index.html.
+          sed -i "s|src=\"assets/js/app.js\"|src=\"assets/js/app.js?v=$SHA\"|g"       _site/index.html
+          sed -i "s|href=\"assets/css/base.css\"|href=\"assets/css/base.css?v=$SHA\"|g" _site/index.html
+          sed -i "s|href=\"assets/css/mobile.css\"|href=\"assets/css/mobile.css?v=$SHA\"|g" _site/index.html
+          # Inject build-tag meta once, right after <head>.
+          sed -i "0,/<head>/s|<head>|<head>\n<meta name=\"tvh-build\" content=\"$SHA\">|" _site/index.html
+          # Sanity print
+          grep -E 'tvh-build|app.js\?v=|base.css\?v=|mobile.css\?v=' _site/index.html || {
+            echo '::error::cache-bust sed did not apply — index.html unchanged'
+            exit 1
+          }
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
