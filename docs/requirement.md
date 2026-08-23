@@ -1,6 +1,6 @@
 # VibeHive Implemented Requirements (Current State)
 
-Date: 2026-08-22
+Date: 2026-08-23
 Scope: This document reflects what is implemented in the current ta_vibehive codebase, not planned roadmap items.
 
 ## 1) Access and Roles
@@ -313,3 +313,289 @@ Core implementation:
   `downloadReceiptDirect` both prefer the event-level theme.
 - `config/roles.json` — `receipts.theme.override` remains
   `[admin, secretary, mgmt]`.
+
+## 16) Admin Purge for Closed / Archived Events
+
+Implemented (2026-08-23):
+
+**Danger-zone card on the Event admin view** — admins (and only
+admins) see a red `⚠ Danger zone` card at the bottom of
+`#/e/:id/manage` **but only when the event's status is `closed` or
+`archived`**. The card states the exact record counts that will be
+deleted (contributions, expenses, history entries, matching audit
+rows) and requires the admin to type the event title verbatim
+before the `Purge event & all records` button unlocks.
+
+**What Purge removes** (all local, atomic per call):
+- The event from `state.events()`.
+- Every `state.contribs()` row whose `event === id`.
+- Every `state.expenses()` row whose `event_id === id`.
+- Every `state.eventHistory()` row whose `event === id`.
+- Every `state.auditLog()` entry that references the event id, or
+  the id of any contribution / expense just removed.
+
+**What Purge writes**:
+- A single `event.purge` audit entry with `actor`, `event`,
+  `event_title`, and the counts of removed rows, so after-the-fact
+  who-did-what visibility is preserved.
+- The event id lands in `state.purgedEvents()` at
+  `tvh:v1:purgedEvents`. The sync loop in `assets/js/sync.js`
+  filters `listEvents()` output through that blocklist so a stale
+  archive-repo copy cannot zombie-resurrect a purged event on the
+  next hydrate.
+
+**Guardrails**:
+- Non-admin actors are rejected client-side (`actor.role === 'admin'`
+  precondition throws a friendly error before any writes).
+- Events with any status other than `closed` or `archived` are
+  rejected — an active event cannot be purged by mistake.
+- The type-the-title confirmation input makes single-click accidents
+  impossible.
+- On success the app navigates to `#/events` and toasts the counts.
+
+Core implementation:
+- `assets/js/events.js` — `purgeEvent(eventId, actor)`
+- `assets/js/store.js` — `purgedEvents`, `isEventPurged`,
+  `markEventPurged`
+- `assets/js/sync.js` — blocklist filter in the event-hydrate step
+- `assets/js/views/event.js` — `renderDangerZone(evt, user)` and
+  the admin+closed/archived gate in `renderManage`
+- `assets/css/base.css` — `.tvh-danger-zone` + disabled state for
+  `.btn-emerg`
+
+## 17) Home Dashboard — Mobile Grid & Committee Tile Removal
+
+Implemented (2026-08-23):
+
+**Committee tile removed** — the `Committee · Cultural · Sports ·
+Volunteers` KPI card in the signed-in dashboard grid and the
+matching hero chip strip (`.tvh-hero-chips`) were both dropped from
+`home.js`. The signed-in KPI grid now runs three tiles: `Live
+events`, `Contributors`, `Collected`.
+
+**KPI grids pack 2-per-row on 390 px** — the mobile breakpoint in
+`base.css` was tightened so tiles adapt to their content instead of
+stacking one-per-row:
+- `.grid-4` mobile: `minmax(130px, 1fr)` (was 150 → 1 col on 315 px
+  parent; now 2 cols).
+- `.tvh-kpi-grid` mobile: `minmax(110px, 1fr)` with slightly
+  smaller padding and `.tvh-kpi-v` font size.
+
+Result: the event-spotlight KPI grid (`Raised / Pending /
+Contributors / Net`) renders as a 2×2 dashboard on mobile instead
+of a 4-tall stack.
+
+Core implementation:
+- `assets/js/views/home.js`
+- `assets/css/base.css`
+
+## 18) Visitor Counter — Server-Side Per-Day Uniqueness
+
+Implemented (2026-08-23):
+
+**Semantics** (visible in the footer chip and the mobile home card):
+- `today` = **unique signed-in visitors for the current UTC day**.
+  Same person on two devices counts once.
+- `total` = accumulated sum of daily uniques. Someone who visits on
+  three different days contributes 3 to the total — by design,
+  `total` is NOT a distinct-humans-ever figure.
+
+**Server-side dedup** — `worker/src/routes/metrics.ts` now persists:
+- `today_date: "YYYY-MM-DD"` — the UTC day the identity set covers.
+- `today_visitors: string[]` — lower-cased caller identities seen
+  today, capped at `MAX_TODAY_VISITORS = 5000` per day.
+
+`POST /metrics/visit`:
+- Anonymous callers (no `ctx.identity`) → returns current counts,
+  **does NOT bump**.
+- Signed-in caller already in the day's identity set → returns
+  current counts, does NOT bump.
+- New signed-in caller → adds identity to the set, increments
+  `by_day[today]` and `total`.
+
+On cold start the in-memory set hydrates from `today_visitors` if
+the persisted `today_date` matches today; otherwise it's cleared.
+
+**Client** (`assets/js/visit-counter.js`) keeps its per-user-per-day
+LocalStorage bump-marker as an optimisation to avoid needless POSTs;
+the server is the source of truth for uniqueness. Card labels are
+`Unique today` / `Total so far`; tooltip explains the semantics.
+
+Core implementation:
+- `worker/src/routes/metrics.ts`
+- `assets/js/visit-counter.js`
+
+## 19) Approvals & Event admin — Responsive Card Reflow
+
+Implemented (2026-08-23):
+
+**Two-tab navigation clarity**:
+- `#/manage` — cross-event **Approvals inbox** (renders as
+  `Approvals`).
+- `#/e/:id/manage` — per-event **Event admin** (renders as
+  `Event admin · <title>`, with an `→ All approvals` link back to
+  the cross-event inbox).
+Both surfaces share the same verify / void pipelines.
+
+**Mobile-safe table reflow** — the 7- and 8-column pending
+contribution / pending expense tables previously squeezed each
+column to ~40 px on a 390 px viewport and forced text to wrap one
+character per line. Fix in two pieces (no per-view code changes):
+
+- `assets/js/dom.js` — `mount()` now runs
+  `applyResponsiveTableLabels(root)` after appending children. It
+  walks every `table.table` in the mounted subtree and stamps each
+  `<td>` with a `data-label` attribute derived from the
+  corresponding `<th>`. Views that call `mount()` (`event.js`, most
+  views) get it for free. `manage.js` bypasses `mount()` inside its
+  `draw()` loop and calls the helper explicitly.
+- `assets/css/base.css` — `@media (max-width: 640px)` reflow:
+  `.table` becomes `display: block`, `thead` hides, each `<tr>`
+  becomes a 2-column CSS grid with the stamped `data-label` as an
+  uppercase caption above each value. Compound cells (`Contributor
+  / Event`, `Category / Event`, `Description`, `Ref / proof`,
+  `Actions`, `Note / detail`, `Subject`, `Note`) span the full row.
+  Buttons in the `Actions` cell wrap with `gap: 6px` rather than
+  shrinking. Empty-state placeholder rows span the whole card and
+  centre their text.
+
+**Access gates unchanged**:
+- Residents visiting `#/manage` get a `Not authorised` card
+  (`contributions.verify` or `expenses.verify` required).
+- Non-admin roles never see the danger-zone card on
+  `#/e/:id/manage` regardless of viewport (see §16).
+
+Core implementation:
+- `assets/js/dom.js` — `applyResponsiveTableLabels`
+- `assets/js/views/manage.js` — cross-event Approvals inbox
+- `assets/js/views/event.js` — per-event Event admin `renderManage`
+- `assets/css/base.css`
+
+## 20) Reports — Include-Expenses Toggle & Expense-Status Filter
+
+Implemented (2026-08-23):
+
+Reports previously had two hardcoded assumptions the treasurer
+could not override:
+1. Expenses were always mixed into the summary + PDF header.
+2. Only verified expenses were ever counted.
+
+Both are now user-adjustable and persist under the reports filter
+LocalStorage key (`tvh:v1:reports:filters`), so the same choices
+propagate to the on-screen preview, the downloaded PDF, and the
+archive snapshot (via the shared `scopedExpensesFor()` helper).
+
+**New Expenses filter section** on `#/reports`:
+- `Include expenses against these events (recommended)` checkbox,
+  default **ON**. Turning it OFF cleanly removes the Expenses
+  summary block and the PDF's second header line.
+- `Expense status` set (`pending` + `verified`) appears when
+  include is ON. Default = **verified only**. A safeguard forces
+  `verified` back on if the user unticks both, so "Include with no
+  filter" cannot accidentally hide all expenses.
+- The contribution status section was renamed from `Status` to
+  `Contribution status` so the two filter blocks are unambiguous.
+
+**Summary label** now reads `Expenses in scope (N rows · <filter> ·
+Rs.X verified spent · Rs.Y net)` with an inline note when pending
+rows are included but not yet counted in Net. The category
+breakdown table gains a `Verified ₹` column so verified vs total
+per category is visible at a glance.
+
+**PDF header** second line mirrors the same shape — `Expenses N
+(<filter>) · Spent Rs.X verified · Net Rs.Y` — so PDF and screen
+always show matching numbers.
+
+**Empty-scope fallback**: `No expenses match the current scope +
+status filters.` replaces the previous silent dead-space when
+include is on but the filter matches nothing.
+
+**Automation gap (open item)**: the 3×/day scheduled cron at
+`.github/workflows/reports-cron.yml → scripts/generate-reports.mjs`
+still reads only receipt archive entries (verified contributions);
+extending it to walk the `expenses/` archive path alongside
+`receipts/` is a follow-up task.
+
+Core implementation:
+- `assets/js/views/reports.js` — new state fields
+  `includeExpenses`, `expenseStatuses`; `scopedExpensesFor()`
+  helper used by the summary and the PDF builder.
+
+## 21) Contributor Board — Resident Amount Mask (Configurable)
+
+Implemented (2026-08-23):
+
+**New event-scope feature flag**: `privacy.mask_amounts_resident`
+(default OFF, opt-in per event via the event editor's feature
+toggles). When ON, the Contributor board renders a subtle
+`•••` chip in place of the amount for signed-in residents who are
+looking at other people's contributions.
+
+**Behaviour matrix**:
+- **Resident viewing their own row** → real amount (identified by
+  `ownsRow(r)`: contributor email, id, `created_by`, `filled_by_email`,
+  or lower-cased name match).
+- **Resident viewing others' rows** → `•••` chip with
+  `title="Amount hidden"`; the underlying DOM does not carry the
+  numeric value.
+- **Committee / manager / mgmt / admin** → all amounts visible;
+  the flag has no effect on non-resident roles.
+- Dashboard tally stats (`Goal`, `Raised`, `Contributors`,
+  `Time left`) are **not** affected — only per-row amounts are
+  redacted, so aggregate transparency is preserved.
+
+**Relationship to existing privacy flags**:
+- `privacy.public_board` (event) — turns the board on/off entirely.
+- `privacy.amount_hidden` (event) — hides amounts for **everyone**
+  on the board (existing behaviour, unchanged).
+- `privacy.mask_amounts_resident` (event, new) — resident-only
+  redaction that keeps committee visibility.
+- Per-row `c.hide_amount` (contributor's own opt-out) — still
+  overrides the amount to em-dash regardless of role.
+
+The board header adds a one-line explainer to residents when the
+flag is on, so the mask is clearly labelled rather than mistaken
+for missing data.
+
+Core implementation:
+- `config/features.json` — flag registration + human label.
+- `assets/js/views/event.js` — `renderPublicBoard()` gains a
+  `maskAmountsForResidents` opt; `amountCell(r)` picks between the
+  em-dash / mask chip / plain value; `shouldMaskAmount(r)` reuses
+  the existing `ownsRow(r)` helper.
+- `assets/css/base.css` — `.tvh-amount-masked` chip.
+
+## 22) Session-Level Mobile Hardening (Rolling)
+
+Implemented (2026-08-23):
+
+Small mobile polish shipped alongside larger features:
+
+- **Long path / URL wrapping** — `.field code`, `.panel code`,
+  `code.sub`, `pre.sub` and text inputs on the Settings / Reports /
+  Receipt views now `word-break: break-all; overflow-wrap:
+  anywhere; max-width: 100%` so paths like
+  `reports/festival/TA_FESTIVAL_.../…report.json` never blow the
+  viewport past 390 px.
+- **Contribute view defensive tiers** — `assets/js/views/contribute.js`
+  guards `evt.tiers` with `Array.isArray(evt.tiers) ? evt.tiers : []`
+  so events created / migrated / hand-edited without a `tiers`
+  field no longer crash the form with `TypeError: Cannot read
+  properties of undefined (reading '0')`.
+- **Floating progress ring** — top-right rotating ring surfaces a
+  human-readable label whenever `busy.on()` fires so users know a
+  network / archive operation is in flight.
+- **About modal expansion** — the About Samana Sippa Labs modal
+  documents the six core pillars, the guiding principle, and how
+  VibeHive lives them.
+- **`_dev/` gitignore** — the local dev sign-in harness lives at
+  `ta_vibehive/_dev/signin.html` and is ignored from git; it lets
+  contributors exercise resident / committee / admin flows without
+  the real Google OAuth loop, but is never deployed.
+
+Core implementation:
+- `assets/css/base.css` — long-path wrapping rule
+- `assets/js/views/contribute.js` — `Array.isArray` guard
+- `assets/js/about-modal.js`, `assets/js/app.js`, `index.html` —
+  progress ring + About modal
+- `.gitignore` — `_dev/` entry
