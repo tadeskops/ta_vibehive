@@ -1,7 +1,7 @@
 /* Event detail view — public read-only + admin edit tabs. */
 'use strict';
 import { el, mount, fmtDate, fmtINR, daysLeft, toast, modal } from '../dom.js';
-import { findEvent, totalFor, verifiedCount, publicBoardFor, saveEvent, STATUS, contribsFor, canViewEventDetailedReport, nextStatusesFor, isTransitionAllowed } from '../events.js';
+import { findEvent, totalFor, verifiedCount, publicBoardFor, saveEvent, STATUS, contribsFor, canViewEventDetailedReport, nextStatusesFor, isTransitionAllowed, purgeEvent } from '../events.js';
 import { catalog, isEventOn, validateEventFeatures } from '../features.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
@@ -790,7 +790,59 @@ async function renderManage(root, evt, user, caps) {
   if (canViewExpense) sections.push(await renderExpensesPanel(evt, user, { canRecord: canRecordExpense, caps }));
   if (caps && caps.canHistoryView) sections.push(renderHistoryPanel(evt));
   else sections.push(renderVerifyHistoryPanel(evt));
+  // Danger zone: admins may purge a closed/archived event and every
+  // record hanging off it. Never shown for active campaigns.
+  if (user && user.role === 'admin' && (evt.status === STATUS.CLOSED || evt.status === STATUS.ARCHIVED)) {
+    sections.push(renderDangerZone(evt, user));
+  }
   mount(root, ...sections);
+}
+
+function renderDangerZone(evt, user) {
+  const contribCount = state.contribs().filter(c => c && c.event === evt.id).length;
+  const expenseCount = state.expenses().filter(x => x && x.event_id === evt.id).length;
+  const historyCount = state.eventHistory().filter(h => h && h.event === evt.id).length;
+  const wrap = el('section', { class: 'card card-pad tvh-danger-zone', style: 'margin-top:16px' });
+  const title = el('h3', { style: 'margin:0;color:var(--emerg)' }, '⚠ Danger zone');
+  const sub = el('p', { class: 'sub', style: 'margin:4px 0 12px' },
+    `Permanently delete this ${evt.status} event and every record attached to it: `,
+    el('strong', { text: `${contribCount} contribution${contribCount === 1 ? '' : 's'}, ${expenseCount} expense${expenseCount === 1 ? '' : 's'}, ${historyCount} history entr${historyCount === 1 ? 'y' : 'ies'}` }),
+    ' plus matching audit rows. This cannot be undone.'
+  );
+  const confirmInp = el('input', {
+    type: 'text',
+    placeholder: `Type "${evt.title || evt.id}" to confirm`,
+    autocomplete: 'off',
+    style: 'width:100%;max-width:360px',
+  });
+  const purgeBtn = el('button', { type: 'button', class: 'btn btn-emerg', disabled: '' }, 'Purge event & all records');
+  confirmInp.addEventListener('input', () => {
+    const match = confirmInp.value.trim() === (evt.title || evt.id);
+    if (match) purgeBtn.removeAttribute('disabled');
+    else purgeBtn.setAttribute('disabled', '');
+  });
+  purgeBtn.addEventListener('click', async () => {
+    purgeBtn.disabled = true;
+    try {
+      const res = purgeEvent(evt.id, user);
+      toast(`Purged "${res.eventTitle}" · ${res.contribs} contrib · ${res.expenses} expense · ${res.history + res.audits} log rows`, 'ok');
+      navigate('/events');
+    } catch (e) {
+      purgeBtn.disabled = false;
+      toast((e && e.message) || 'Purge failed', 'err');
+    }
+  });
+  wrap.append(
+    title,
+    sub,
+    el('div', { class: 'field' },
+      el('label', { text: 'Confirmation' }),
+      confirmInp,
+      el('small', { class: 'sub', style: 'display:block;margin-top:4px', text: 'The event id is also added to a local blocklist so the next background sync will not resurrect it from the archive repo.' })
+    ),
+    el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, purgeBtn)
+  );
+  return wrap;
 }
 
 /* ---------- expenses (per-event outflows) ----------

@@ -256,6 +256,70 @@ export function findEvent(id) {
   return state.events().find(e => e.id === id || e.slug === id);
 }
 
+/**
+ * Admin-only: permanently drop an event and every record hanging off
+ * it (contributions, expenses, per-event history, matching audit
+ * entries). The event must already be CLOSED or ARCHIVED so an active
+ * campaign can't be wiped by mistake. The id is added to the local
+ * purged-events blocklist so the sync loop won't re-hydrate a stale
+ * copy from the archive repo.
+ *
+ * Throws with a friendly message when preconditions aren't met.
+ * Returns `{ eventTitle, contribs, expenses, history, audits }` so the
+ * caller can toast the counts.
+ */
+export function purgeEvent(eventId, actor) {
+  if (!actor || actor.role !== 'admin') {
+    throw new Error('Only admins can purge an event.');
+  }
+  const evt = findEvent(eventId);
+  if (!evt) throw new Error('Event not found.');
+  const s = normalizeStatus(evt.status);
+  if (s !== STATUS.CLOSED && s !== STATUS.ARCHIVED) {
+    throw new Error('Only closed or archived events can be purged. Close the event first.');
+  }
+
+  const contribs = state.contribs().filter(c => c && c.event === eventId);
+  const expenses = state.expenses().filter(x => x && x.event_id === eventId);
+  const history  = state.eventHistory().filter(h => h && h.event === eventId);
+  const contribIds = new Set(contribs.map(c => c.id));
+  const expenseIds = new Set(expenses.map(x => x.id));
+
+  const counts = {
+    contribs: contribs.length,
+    expenses: expenses.length,
+    history:  history.length,
+    audits: 0,
+  };
+
+  state.saveEvents(state.events().filter(e => e && e.id !== eventId));
+  state.saveContribs(state.contribs().filter(c => c && c.event !== eventId));
+  state.saveExpenses(state.expenses().filter(x => x && x.event_id !== eventId));
+  state.saveEventHistory(state.eventHistory().filter(h => h && h.event !== eventId));
+
+  const auditsBefore = state.auditLog();
+  const auditsAfter = auditsBefore.filter(a => !(a && (
+    a.event === eventId ||
+    (a.contrib && contribIds.has(a.contrib)) ||
+    (a.expense && expenseIds.has(a.expense))
+  )));
+  counts.audits = auditsBefore.length - auditsAfter.length;
+  // saveAuditLog isn't exposed; write directly via the same key store.js uses.
+  try { localStorage.setItem('tvh:v1:audit', JSON.stringify(auditsAfter)); }
+  catch (_e) { /* private-mode: audit stays; not a blocker */ }
+
+  state.markEventPurged(eventId);
+  state.audit({
+    actor: (actor && (actor.email || actor.id)) || null,
+    action: 'event.purge',
+    event: eventId,
+    event_title: evt.title || null,
+    ...counts,
+  });
+
+  return { eventTitle: evt.title || eventId, ...counts };
+}
+
 export function publicEvents() {
   /* Dedupe by (slug || title-lowercase) and keep the most-recently
    * updated instance. This prevents an admin who re-created an event

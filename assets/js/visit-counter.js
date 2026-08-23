@@ -3,13 +3,24 @@
  * Ported from the ta-society-helpdesk pattern. The Worker persists
  * counts in `data/visitors.json` (see worker/src/routes/metrics.ts).
  *
+ * Semantics:
+ *   - `today` = unique signed-in visitors for the current UTC day.
+ *     Uniqueness is enforced BOTH client-side (localStorage key
+ *     scoped by user + date) and server-side (per-day identity set
+ *     stored in `visitors.json`). Same person on two devices counts
+ *     once.
+ *   - `total` = accumulated sum of daily uniques. Someone who visits
+ *     on N different days contributes N to the total — by design
+ *     `total` is NOT a distinct-humans-ever figure.
+ *
  * Flow:
  *   - System flag `metrics.visitor_counter` gates every surface. When
  *     OFF neither the footer chip nor the mobile card shows and no
  *     network call fires.
- *   - Once per browser per UTC day we POST /metrics/visit; on other
- *     loads we GET the current total. localStorage keeps the "already
- *     posted today" bit so a refresh doesn't inflate the counter.
+ *   - Once per browser per UTC day (for a given signed-in user) we
+ *     POST /metrics/visit; on other loads we GET the current total.
+ *     The Worker rejects duplicate bumps by identity even if this
+ *     localStorage optimisation is bypassed.
  *   - We cache the last fetched figures in memory + sessionStorage so
  *     hydrating both the footer chip and the mobile card triggers at
  *     most one network round trip per page load.
@@ -139,7 +150,7 @@ export async function renderVisitCard(el, styles) {
   el.textContent = '';
   const card = document.createElement('div');
   card.className = 'card tvh-visit-card';
-  card.setAttribute('title', `${todayStr} unique signed-in visitors today · ${totalStr} all-time · updates live`);
+  card.setAttribute('title', `${todayStr} unique visitors today · ${totalStr} total visits since launch · updates live`);
   card.style.cssText = styles || 'margin-top:12px';
   // Header row spans both columns and carries the "Visitors" keyword
   // so the tile is instantly recognisable on mobile.
@@ -157,8 +168,8 @@ export async function renderVisitCard(el, styles) {
     wrap.appendChild(k); wrap.appendChild(v);
     return wrap;
   };
-  card.appendChild(mkStat('Today', todayStr));
-  card.appendChild(mkStat('All-time', totalStr));
+  card.appendChild(mkStat('Unique today', todayStr));
+  card.appendChild(mkStat('Total so far', totalStr));
   el.appendChild(card);
   return card;
 }

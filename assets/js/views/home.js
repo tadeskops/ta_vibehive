@@ -70,14 +70,6 @@ export async function render(root) {
    * both the emergency callout and the grid. */
   const rest  = events.filter(e => e !== emerg && !(emerg && e.id === emerg.id));
 
-  // Committee chips — merged into the hero so signed-out visitors see
-  // the community label without a duplicate KPI card underneath.
-  const committeeChips = el('div', { class: 'tvh-hero-chips' },
-    el('span', { class: 'tvh-hero-chip', text: '🎭 Cultural' }),
-    el('span', { class: 'tvh-hero-chip', text: '🏸 Sports' }),
-    el('span', { class: 'tvh-hero-chip', text: '🤝 Volunteers' })
-  );
-
   // "Live" == published only. Closed events stay visible below but
   // never count toward the community KPIs so a stale sample event
   // doesn't skew the hero line or the raised-total figure.
@@ -89,8 +81,7 @@ export async function render(root) {
         el('h1', { text: user ? `Namaste, ${user.name.split(' ')[0]} 🙏` : 'Welcome to VibeHive' }),
         el('p', { class: 'sub', text: masked
           ? `${liveEvents.length} live event${liveEvents.length === 1 ? '' : 's'} · ${MASK_LABEL} for community totals.`
-          : `${liveEvents.length} live event${liveEvents.length === 1 ? '' : 's'} · ${totalPublicSum(liveEvents)} raised across the community.` }),
-        committeeChips
+          : `${liveEvents.length} live event${liveEvents.length === 1 ? '' : 's'} · ${totalPublicSum(liveEvents)} raised across the community.` })
       ),
       user ? el('a', { class: 'btn btn-ghost', href: '#/events' }, '＋ Browse events') : null
     )
@@ -150,7 +141,6 @@ export async function render(root) {
       stat('Collected',
         masked ? MASK_LABEL : fmtINR(liveEvents.reduce((s, e) => s + totalFor(e.id), 0)),
         masked ? 'members only' : 'across live events'),
-      stat('Committee', 'Cultural · Sports · Volunteers', null)
     )
     /* Signed-out visitors already see the community label as chips
      * inside the hero; the standalone Committee card was redundant so

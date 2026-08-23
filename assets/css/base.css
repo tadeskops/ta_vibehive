@@ -393,7 +393,7 @@ body.is-locked .stage::after{content:"";position:fixed;inset:0;z-index:9400;back
   .grid .stat:hover,.grid-4 .stat:hover,.grid-3 .stat:hover,.grid-2 .stat:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(42,26,16,.06)}
 }
 @media (max-width: 480px){
-  .grid-4{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .grid-4{grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
   .grid-3{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
   .grid-2{grid-template-columns:1fr;gap:10px}
 }
@@ -428,6 +428,11 @@ body.is-locked .stage::after{content:"";position:fixed;inset:0;z-index:9400;back
 .tvh-spotlight-pill.is-closed{background:#f0e6d8;color:#7a5a3a}
 .tvh-spotlight-body{display:flex;flex-direction:column;gap:18px}
 .tvh-kpi-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+@media (max-width: 480px){
+  .tvh-kpi-grid{grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+  .tvh-kpi{padding:12px 12px 10px}
+  .tvh-kpi-v{font-size:18px}
+}
 .tvh-kpi{padding:14px 14px 12px;border-radius:12px;background:#fbf6ee;border:1px solid transparent;transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease}
 .tvh-kpi:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(42,26,16,.06);border-color:var(--line)}
 .tvh-kpi-k{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
@@ -578,6 +583,9 @@ body.is-locked .stage::after{content:"";position:fixed;inset:0;z-index:9400;back
 .btn-ghost{background:transparent;color:var(--terra);border:1.5px solid var(--terra)}
 .btn-sage{background:var(--sage);color:#fff}
 .btn-emerg{background:var(--emerg);color:#fff}
+.btn-emerg[disabled],.btn-emerg:disabled{opacity:.5;cursor:not-allowed}
+/* Danger-zone card wraps the admin-only purge form on Event admin. */
+.tvh-danger-zone{border:1px solid rgba(143,35,24,.35);background:#fbe9e5}
 .btn-sm{padding:6px 10px;font-size:12px;min-height:32px}
 .btn-block{width:100%;justify-content:center;padding:14px}
 .btn-auth{border-radius:999px;min-height:32px;padding:6px 10px;gap:6px}

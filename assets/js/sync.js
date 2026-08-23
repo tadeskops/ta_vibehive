@@ -90,13 +90,17 @@ export async function syncFromWorker() {
     /* Hydrate events cache. */
     const events = await listEvents();
     if (Array.isArray(events)) {
+      // Skip events an admin has permanently purged locally so a stale
+      // archive copy can't zombie-back into the UI.
+      const purged = new Set(state.purgedEvents());
+      const withoutPurged = events.filter(e => !(e && purged.has(e.id)));
       // Preserve events flagged _recovery_pending (writeEvent push failed) so
       // background sync doesn't overwrite the local status change.
       const localPending = new Map();
       for (const e of state.events() || []) {
         if (e && e._recovery_pending) localPending.set(e.id, e);
       }
-      const merged = events.map(e => {
+      const merged = withoutPurged.map(e => {
         const local = e && localPending.get(e.id);
         if (!local) return e;
         localPending.delete(e.id);

@@ -204,6 +204,23 @@ export const state = {
     local.set('audit', log.slice(-500));
   },
   auditLog() { return local.get('audit', []); },
+  /* Purged-event blocklist. Once an admin permanently removes an
+   * event (see events.js#purgeEvent) its id lands here so the sync
+   * loop skips it if the archive repo still carries a stale copy,
+   * preventing zombie resurrection. */
+  purgedEvents() { return local.get('purgedEvents', []); },
+  isEventPurged(id) {
+    if (!id) return false;
+    const list = local.get('purgedEvents', []);
+    return Array.isArray(list) && list.includes(id);
+  },
+  markEventPurged(id) {
+    if (!id) return;
+    const list = local.get('purgedEvents', []);
+    const arr = Array.isArray(list) ? list : [];
+    if (!arr.includes(id)) arr.push(id);
+    local.set('purgedEvents', arr.slice(-500));
+  },
   /* Site-bug reports captured by `assets/js/footer.js` on every Send
    * — persisted locally so admins can review + export them even when
    * the reporter closed the GitHub tab without submitting. Screenshot
