@@ -209,6 +209,75 @@ export function removeActivity(eventId, activityId, actor) {
   return saveDoc(eventId, doc, actor);
 }
 
+/* ---------- Tasks (per-activity checklist) ---------- */
+
+// Normalises legacy string entries (["do X", "do Y"]) into the object
+// shape so the UI can render them uniformly.
+export function normaliseTask(t) {
+  if (t && typeof t === 'object') {
+    return {
+      id:          t.id || nextId('t'),
+      text:        String(t.text || '').trim(),
+      done:        !!t.done,
+      assigned_to: t.assigned_to || '',
+      due_day:     Number.isFinite(Number(t.due_day)) ? Number(t.due_day) : null,
+      notes:       String(t.notes || '').trim(),
+      created_at:  t.created_at || null,
+      updated_at:  t.updated_at || null,
+    };
+  }
+  return {
+    id: nextId('t'),
+    text: String(t || '').trim(),
+    done: false,
+    assigned_to: '',
+    due_day: null,
+    notes: '',
+    created_at: null,
+    updated_at: null,
+  };
+}
+
+export function upsertTask(eventId, activityId, task, actor) {
+  if (!task || !String(task.text || '').trim()) throw new Error('Task text is required.');
+  const doc = loadOps(eventId);
+  const a = doc.activities.find(x => x.id === activityId);
+  if (!a) throw new Error('Activity not found.');
+  a.tasks = (a.tasks || []).map(normaliseTask);
+  const nowIso = new Date().toISOString();
+  const clean = { ...normaliseTask(task), updated_at: nowIso };
+  const idx = a.tasks.findIndex(t => t.id === clean.id);
+  if (idx >= 0) a.tasks[idx] = { ...a.tasks[idx], ...clean };
+  else { clean.created_at = nowIso; a.tasks.push(clean); }
+  return { doc: saveDoc(eventId, doc, actor), task: clean };
+}
+
+export function toggleTaskDone(eventId, activityId, taskId, actor) {
+  const doc = loadOps(eventId);
+  const a = doc.activities.find(x => x.id === activityId);
+  if (!a) return doc;
+  a.tasks = (a.tasks || []).map(normaliseTask);
+  const t = a.tasks.find(x => x.id === taskId);
+  if (!t) return doc;
+  t.done = !t.done;
+  t.updated_at = new Date().toISOString();
+  return saveDoc(eventId, doc, actor);
+}
+
+export function removeTask(eventId, activityId, taskId, actor) {
+  const doc = loadOps(eventId);
+  const a = doc.activities.find(x => x.id === activityId);
+  if (!a) return doc;
+  a.tasks = (a.tasks || []).map(normaliseTask).filter(t => t.id !== taskId);
+  return saveDoc(eventId, doc, actor);
+}
+
+export function taskStats(activity) {
+  const tasks = (activity && activity.tasks || []).map(normaliseTask);
+  const done = tasks.filter(t => t.done).length;
+  return { total: tasks.length, done, pending: tasks.length - done };
+}
+
 export function findActivity(doc, activityId) {
   if (!doc || !activityId) return null;
   return (doc.activities || []).find(a => a.id === activityId) || null;

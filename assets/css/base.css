@@ -1082,3 +1082,16 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
   .tvh-ops-owner-grid,.tvh-ops-activity-grid,.tvh-ops-people-grid{grid-template-columns:1fr}
   .tvh-ops-lead-grid{grid-template-columns:1fr}
 }
+
+/* ---------- Event Operations Workspace â€” Slice 1: Tasks ---------- */
+.tvh-ops-task-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.tvh-ops-task{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:#fff;border:1px solid var(--line);border-radius:10px;position:relative}
+.tvh-ops-task.is-done{background:#f6f2e8;opacity:.75}
+.tvh-ops-task.is-done .tvh-ops-task-text{text-decoration:line-through;color:var(--muted)}
+.tvh-ops-task-check{width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:16px;line-height:1;flex-shrink:0;color:var(--terra)}
+.tvh-ops-task-check:hover{background:var(--terra-soft)}
+.tvh-ops-task-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.tvh-ops-task-text{font-weight:600;overflow-wrap:anywhere}
+.tvh-ops-task-edit{position:relative;top:auto;right:auto}
+</content>
+</invoke>

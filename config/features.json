@@ -63,6 +63,9 @@
     { "id": "operations.people",          "cluster": "operations", "label": "Ops: People Directory",                "scope": "event", "default": true,  "depends_on": ["operations.workspace"] },
     { "id": "operations.tasks",           "cluster": "operations", "label": "Ops: Task checklists per activity",    "scope": "event", "default": true,  "depends_on": ["operations.workspace"] },
     { "id": "operations.matrix",          "cluster": "operations", "label": "Ops: Responsibility Matrix",            "scope": "event", "default": true,  "depends_on": ["operations.workspace"] },
-    { "id": "operations.contact_directory","cluster": "operations","label": "Ops: Show contact numbers in directory","scope": "event", "default": true,  "depends_on": ["operations.workspace"] }
+    { "id": "operations.contact_directory","cluster": "operations","label": "Ops: Show contact numbers in directory","scope": "event", "default": true,  "depends_on": ["operations.workspace"] },
+    { "id": "operations.timeline",        "cluster": "operations", "label": "Ops: 7-day visual timeline",            "scope": "event", "default": true,  "depends_on": ["operations.workspace"] },
+    { "id": "operations.wizard",          "cluster": "operations", "label": "Ops: Guided setup wizard on empty state","scope": "event", "default": true,  "depends_on": ["operations.workspace"] },
+    { "id": "operations.archive",         "cluster": "operations", "label": "Ops: Push workspace data to archive repo","scope": "event", "default": false, "depends_on": ["operations.workspace"] }
   ]
 }

@@ -31,6 +31,7 @@ import {
   upsertPerson, upsertOwnership, upsertActivity,
   removeActivity, removeOwnership, removePerson,
   findPerson, findActivity, selfPersonId,
+  normaliseTask, upsertTask, toggleTaskDone, removeTask, taskStats,
   OPS_STATUS, OPS_STATUS_LABEL,
   DEFAULT_CATEGORIES,
 } from '../operations.js';
@@ -73,7 +74,28 @@ export async function render(root, ctx = {}) {
       el('p', { class: 'sub', text: 'You need operations.view to see this workspace. Ask an admin.' })
     ));
   }
-  const caps = { opsManage: canManage, opsOwnership: canOwnership, opsPeople: canManagePeople };
+  // Sub-feature flags pre-resolved so every render helper can stay
+  // synchronous. Each flag defaults to true if the master workspace
+  // flag is on but the sub-feature toggle is missing.
+  const [peopleOn, tasksOn, matrixOn, contactOn, timelineOn, wizardOn] = await Promise.all([
+    isEventOn('operations.people', evt),
+    isEventOn('operations.tasks', evt),
+    isEventOn('operations.matrix', evt),
+    isEventOn('operations.contact_directory', evt),
+    isEventOn('operations.timeline', evt),
+    isEventOn('operations.wizard', evt),
+  ]);
+  const caps = {
+    opsManage: canManage,
+    opsOwnership: canOwnership,
+    opsPeople: canManagePeople,
+    opsPeopleOn: peopleOn,
+    opsTasksOn: tasksOn,
+    opsMatrixOn: matrixOn,
+    opsContactOn: contactOn,
+    opsTimelineOn: timelineOn,
+    opsWizardOn: wizardOn,
+  };
 
   const sub  = (ctx && ctx.match && ctx.match.sub) || 'overview';
   const activityId = ctx && ctx.match && ctx.match.activityId || '';
@@ -484,15 +506,115 @@ function renderActivityDetail(evt, doc, activityId, user, caps) {
       : el('small', { class: 'sub', text: 'No responsibilities noted yet. Add them from the activity edit modal.' })
   ));
 
-  // Tasks placeholder (Phase 3)
-  wrap.append(el('section', { class: 'card card-pad', style: 'margin-top:16px' },
-    el('h3', { style: 'margin:0 0 8px', text: '✅ Tasks' }),
-    (a.tasks || []).length
-      ? el('ul', {}, ...(a.tasks || []).map(t => el('li', { text: (t.done ? '☑ ' : '☐ ') + (t.text || String(t)) })))
-      : el('small', { class: 'sub', text: 'Task tracking lands in Phase 3. For now, keep tasks in your favourite checklist and mark this activity Ready when everything is set.' })
-  ));
+  // Tasks — real checklist gated by operations.tasks flag.
+  wrap.append(renderTasksPanel(evt, doc, a, user, caps));
 
   return wrap;
+}
+
+function renderTasksPanel(evt, doc, activity, user, caps) {
+  const tasksOn = caps.opsTasksOn;
+  const wrap = el('section', { class: 'card card-pad', style: 'margin-top:16px' });
+  if (!tasksOn) {
+    wrap.append(
+      el('h3', { style: 'margin:0 0 8px', text: '✅ Tasks' }),
+      el('small', { class: 'sub', text: 'Task tracking is disabled for this event. Turn on operations.tasks in the event feature toggles.' })
+    );
+    return wrap;
+  }
+  const stats = taskStats(activity);
+  wrap.append(el('div', { class: 'row row-between', style: 'align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px' },
+    el('div', {},
+      el('h3', { style: 'margin:0', text: '✅ Tasks' }),
+      el('small', { class: 'sub', text: stats.total ? `${stats.done} / ${stats.total} done` : 'No tasks yet.' })
+    ),
+    caps.opsManage ? el('button', { class: 'btn btn-sm', on: { click: () => openTaskModal(evt, doc, activity, null, user) } }, '＋ Task') : null
+  ));
+  const tasks = (activity.tasks || []).map(normaliseTask);
+  if (tasks.length) {
+    wrap.append(el('ul', { class: 'tvh-ops-task-list' },
+      ...tasks.map(t => renderTaskRow(evt, doc, activity, t, user, caps))
+    ));
+  }
+  return wrap;
+}
+
+function renderTaskRow(evt, doc, activity, t, user, caps) {
+  const assignee = t.assigned_to ? findPerson(doc, t.assigned_to) : null;
+  const li = el('li', { class: 'tvh-ops-task' + (t.done ? ' is-done' : '') },
+    el('button', { class: 'tvh-ops-task-check', type: 'button', 'aria-label': t.done ? 'Mark not done' : 'Mark done', on: { click: () => {
+      if (!caps.opsManage) return;
+      toggleTaskDone(evt.id, activity.id, t.id, user);
+      navigate('/e/' + evt.id + '/operations/activity/' + activity.id);
+    } } }, t.done ? '☑' : '☐'),
+    el('div', { class: 'tvh-ops-task-body' },
+      el('div', { class: 'tvh-ops-task-text', text: t.text || '(no text)' }),
+      el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:2px' },
+        assignee ? el('span', { class: 'tvh-ops-lead-chip' },
+          el('span', { class: 'tvh-ops-avatar tvh-ops-avatar-sm', text: initialsOf(assignee.name) }),
+          el('span', { text: assignee.name })
+        ) : null,
+        Number.isFinite(t.due_day) ? el('span', { class: 'pill pill-muted', text: 'Day ' + t.due_day }) : null,
+        t.notes ? el('small', { class: 'sub', style: 'flex-basis:100%;margin-top:2px', text: t.notes }) : null,
+      )
+    ),
+    caps.opsManage ? el('button', { class: 'tvh-ops-icon-btn tvh-ops-task-edit', title: 'Edit', on: { click: () => openTaskModal(evt, doc, activity, t, user) } }, '✎') : null
+  );
+  return li;
+}
+
+function openTaskModal(evt, doc, activity, existing, user) {
+  const entry = existing ? normaliseTask(existing) : {
+    id: '', text: '', done: false, assigned_to: '', due_day: null, notes: '',
+  };
+  const textInp = el('input', { type: 'text', value: entry.text, required: '', placeholder: 'e.g. Confirm sound vendor by Day 2' });
+  const doneChk = el('input', { type: 'checkbox', checked: !!entry.done });
+  const assigneeSel = renderPersonPicker(doc, entry.assigned_to, { placeholder: '— unassigned —' });
+  const dueSel = el('select', {},
+    el('option', { value: '', text: '— no due day —' }),
+    ...Array.from({ length: countDays(evt) }, (_, i) => {
+      const day = i + 1;
+      return el('option', { value: String(day), selected: entry.due_day === day, text: 'Day ' + day });
+    })
+  );
+  const notesInp = el('textarea', { rows: 2, placeholder: 'Optional notes.' }, entry.notes || '');
+  modal({
+    title: existing ? 'Edit task' : 'New task',
+    body: el('div', { class: 'tvh-ops-form' },
+      field('Task', textInp),
+      el('label', { class: 'check-row' }, doneChk, el('span', { text: 'Mark as done' })),
+      el('div', { class: 'row', style: 'gap:8px' },
+        field('Assigned to', assigneeSel, { grow: 1 }),
+        field('Due day', dueSel, { grow: 1 })
+      ),
+      field('Notes', notesInp)
+    ),
+    actions: [
+      { label: 'Cancel', close: true },
+      existing ? { label: 'Delete', kind: 'btn-emerg', onClick: (close) => {
+        if (!confirm('Delete this task?')) return;
+        removeTask(evt.id, activity.id, existing.id, user);
+        close();
+        toast('Task deleted.', 'ok');
+        navigate('/e/' + evt.id + '/operations/activity/' + activity.id);
+      } } : null,
+      { label: existing ? 'Save' : 'Add task', onClick: (close) => {
+        try {
+          upsertTask(evt.id, activity.id, {
+            id: entry.id || undefined,
+            text: textInp.value.trim(),
+            done: doneChk.checked,
+            assigned_to: assigneeSel.value,
+            due_day: dueSel.value ? Number(dueSel.value) : null,
+            notes: notesInp.value.trim(),
+          }, user);
+        } catch (err) { toast(err.message || 'Save failed', 'err'); return; }
+        close();
+        toast(existing ? 'Task updated.' : 'Task added.', 'ok');
+        navigate('/e/' + evt.id + '/operations/activity/' + activity.id);
+      } }
+    ].filter(Boolean),
+  });
 }
 
 function renderLeadCard(label, person, caps) {
