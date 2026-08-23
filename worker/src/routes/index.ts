@@ -3,6 +3,7 @@ import { whoami } from './whoami.ts';
 import { getSettings, putSettings } from './settings.ts';
 import { listEvents, getEvent, putEvent } from './events.ts';
 import { createContribution, verifyContribution, listContributions } from './contributions.ts';
+import { createExpense, verifyExpense, listExpenses } from './expenses.ts';
 import { getVisitCount, incrementVisitCount } from './metrics.ts';
 
 export function buildRouter(): Router {
@@ -24,6 +25,12 @@ export function buildRouter(): Router {
   r.get('/contributions', listContributions);
   r.post('/contributions', createContribution);
   r.post('/contributions/:year/:month/:id/verify', verifyContribution);
+
+  // Expenses — same shape as contributions so committee members on
+  // any device see rows a resident submitted from theirs.
+  r.get('/expenses', listExpenses);
+  r.post('/expenses', createExpense);
+  r.post('/expenses/:year/:month/:id/verify', verifyExpense);
 
   // Metrics — anonymous visit counter (feature-flag gated on the client)
   r.get('/metrics/visit', getVisitCount);

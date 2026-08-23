@@ -403,6 +403,17 @@ function verifyExpenseIconBtn(x, user, evt) {
     rec.updated_at = nowIso;
     state.saveExpenses(list);
     state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: rec.id, event: rec.event_id, amount: rec.amount, comment: comment || undefined });
+    // Mirror the flip to the server so other moderator devices pick
+    // it up on their next sync tick. `_path` is set by the API layer
+    // when the row was originally created (or hydrated from remote).
+    if (rec._path) {
+      try {
+        const { verifyExpenseRemote } = await import('../api.js');
+        verifyExpenseRemote(rec._path, comment).catch((e) => {
+          console.warn('[expense] server verify failed; local flip stands until next sync', e);
+        });
+      } catch (_e) { /* silent */ }
+    }
     // Record in event-history so admins see who verified what and why.
     try {
       const eventsMod = await import('../events.js');

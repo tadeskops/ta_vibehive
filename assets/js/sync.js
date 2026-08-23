@@ -17,7 +17,7 @@
  * viewing work.
  */
 'use strict';
-import { listEvents, listContributions, whoami, readSettings } from './api.js';
+import { listEvents, listContributions, listExpenses, whoami, readSettings } from './api.js';
 import { state } from './store.js';
 import { applyRecoveryOverridesToState } from './events.js';
 
@@ -136,6 +136,35 @@ export async function syncFromWorker() {
           byId.set(l.id, merged);
         }
         state.saveContribs(Array.from(byId.values()));
+      }
+    } catch (_e) { /* auth / network — fall back to local cache */ }
+
+    /* Hydrate expenses cache — mirror of the contributions merge so
+     * a committee member on device B sees pending expenses that
+     * resident A submitted on device A. Locally-cached proofs
+     * (data URLs) are preserved because the server never sees them. */
+    try {
+      const remote = await listExpenses();
+      if (Array.isArray(remote)) {
+        const local = state.expenses() || [];
+        const byId = new Map();
+        for (const r of remote) if (r && r.id) byId.set(r.id, { ...r });
+        for (const l of local) if (l && l.id) {
+          const prior = byId.get(l.id) || {};
+          // Preserve locally-attached blobs + optimistic-only rows.
+          const preserved = {
+            proof_data_url: l.proof_data_url,
+            proof_name: l.proof_name,
+            proof_size: l.proof_size,
+          };
+          if (!byId.has(l.id) && !l._path) {
+            // Optimistic local-only row; POST may still be in-flight.
+            byId.set(l.id, l);
+          } else {
+            byId.set(l.id, { ...prior, ...preserved });
+          }
+        }
+        state.saveExpenses(Array.from(byId.values()));
       }
     } catch (_e) { /* auth / network — fall back to local cache */ }
 

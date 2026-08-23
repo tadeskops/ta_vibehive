@@ -8,6 +8,7 @@ import { can } from '../rbac.js';
 import { navigate } from '../router.js';
 import { cfg, getSociety, state } from '../store.js';
 import { promptVerifyComment } from '../verify-prompt.js';
+import { createExpense, verifyExpenseRemote } from '../api.js';
 import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
 import { receiptWhatsAppIconBtn } from '../receipt-download-menu.js';
 import { expenseDownloadIconBtn, expenseWhatsAppIconBtn } from '../receipt-download-menu.js';
@@ -912,6 +913,14 @@ async function verifyExpense(r, evt, user, caps) {
   rec.updated_at = nowIso;
   state.saveExpenses(list);
   state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: rec.id, event: evt.id, amount: rec.amount, comment: comment || undefined });
+  // Server-side verify — needed for other moderators' devices to see
+  // the row flip. Falls back silently if there's no `_path` yet
+  // (row was created before the server sync landed).
+  if (rec._path) {
+    verifyExpenseRemote(rec._path, comment).catch((e) => {
+      console.warn('[expense] server verify failed; local flip stands until next sync', e);
+    });
+  }
   try {
     const mod = await import('../events.js');
     if (mod && typeof mod.recordExpenseVerify === 'function') mod.recordExpenseVerify(rec, user, comment);
@@ -1127,7 +1136,7 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
           }
         } else {
           const initialStatus = willBePending ? 'pending' : 'verified';
-          const rec = {
+          const optimistic = {
             id: 'exp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
             event_id: eventId,
             amount,
@@ -1145,10 +1154,39 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
             verified_at: initialStatus === 'verified' ? nowIso : null,
             verified_by: initialStatus === 'verified' ? (user && (user.email || user.id) || 'unknown') : null,
           };
-          list.push(rec);
+          list.push(optimistic);
           state.saveExpenses(list);
-          state.audit({ actor: user && user.email || null, action: initialStatus === 'verified' ? 'expense.create' : 'expense.submit', expense: rec.id, event: eventId, amount });
+          state.audit({ actor: user && user.email || null, action: initialStatus === 'verified' ? 'expense.create' : 'expense.submit', expense: optimistic.id, event: eventId, amount });
           toast(initialStatus === 'verified' ? 'Expense recorded.' : 'Expense submitted for verification.', 'ok');
+          // Fire-and-forget POST — server-side row is what any other
+          // moderator device will see. Proof blobs stay local because
+          // the server never touches raw attachments.
+          createExpense({
+            event_id: eventId,
+            amount,
+            category,
+            description,
+            receipt_url: receipt_url || '',
+            visible_to_residents: !!cbVisible.checked,
+            status: initialStatus,
+          }).then((res) => {
+            if (!res || !res.expense) return;
+            const list2 = state.expenses();
+            const idx = list2.findIndex((x) => x && x.id === optimistic.id);
+            if (idx < 0) return;
+            list2[idx] = {
+              ...list2[idx],
+              ...res.expense,
+              _path: res.path,
+              // Preserve the local proof blob that never crossed the wire.
+              proof_data_url: optimistic.proof_data_url,
+              proof_name: optimistic.proof_name,
+              proof_size: optimistic.proof_size,
+            };
+            state.saveExpenses(list2);
+          }).catch((e) => {
+            console.warn('[expense] server POST failed; row stays local until next sync', e);
+          });
         }
         close();
         if (typeof onDone === 'function') onDone();

@@ -173,6 +173,35 @@ export async function verifyContribution(contribPath) {
   return request('POST', `/contributions/${year}/${month}/${encodeURIComponent(id)}/verify`);
 }
 
+/* ---------- Expenses ---------- */
+
+/** List expenses visible to the caller. Optionally filter by event id. */
+export async function listExpenses(eventFilter) {
+  const qs = eventFilter ? '?event=' + encodeURIComponent(eventFilter) : '';
+  const data = await request('GET', '/expenses' + qs);
+  return (data && data.expenses) || [];
+}
+
+/** Submit an expense. Server stamps `id`, `created_at`, `created_by`.
+ *  Committee+ may pass `status:'verified'` to record an already-paid
+ *  expense; residents are silently forced to pending. */
+export async function createExpense(expense) {
+  const data = await request('POST', '/expenses', { expense });
+  if (data && data.expense && data.path && !data.expense._path) {
+    data.expense._path = data.path;
+  }
+  return data;
+}
+
+/** Verify a pending expense. Committee+. `expensePath` is the storage
+ *  path returned by `createExpense` (e.g. `expenses/2026/08/exp-xxx.json`). */
+export async function verifyExpenseRemote(expensePath, comment) {
+  const m = String(expensePath || '').match(/expenses\/(\d{4})\/(\d{2})\/([^/]+)\.json$/);
+  if (!m) throw new ApiError(400, 'Invalid expense path');
+  const [, year, month, id] = m;
+  return request('POST', `/expenses/${year}/${month}/${encodeURIComponent(id)}/verify`, comment ? { comment } : {});
+}
+
 /* ---------- Metrics ---------- */
 
 /** Read the site-wide visit counter (`{ total, today }`). Anonymous
