@@ -34,6 +34,7 @@ const LS_KEY = 'tvh:v1:reports:filters';
 const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const AUTOTABLE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
 const STATUSES = ['pending', 'verified', 'void'];
+const EXPENSE_STATUSES = ['pending', 'verified'];
 const DEFAULT_COLS = [
   { id: 'event',       label: 'Event',        default: true },
   { id: 'contributor', label: 'Contributor',  default: true },
@@ -120,6 +121,12 @@ export async function render(root, { match } = {}) {
     to:       saved.to       || '',
     downloadEventId: saved.downloadEventId || '',
     statuses: saved.statuses || ['verified'],
+    // Expenses default to INCLUDED and to verified-only. Both are
+    // saved so the treasurer's last choice persists across reloads.
+    includeExpenses: saved.includeExpenses !== false,
+    expenseStatuses: Array.isArray(saved.expenseStatuses) && saved.expenseStatuses.length
+      ? saved.expenseStatuses.filter(s => EXPENSE_STATUSES.includes(s))
+      : ['verified'],
     groupBy:  saved.groupBy  || 'event',      // 'none' | 'event' | 'month' | 'year' | 'method'
     columns:  saved.columns  || DEFAULT_COLS.filter(c => c.default).map(c => c.id),
     title:    saved.title    || '',
@@ -156,12 +163,35 @@ export async function render(root, { match } = {}) {
           st.scope = v; renderFilters(); refresh();
         })
       ),
-      section('Status',
+      section('Contribution status',
         el('div', { class: 'row tvh-reports-status-wrap', style: 'gap:12px;flex-wrap:wrap' },
           ...STATUSES.map(s => check(s, st.statuses.includes(s), on => {
             st.statuses = on ? [...new Set([...st.statuses, s])] : st.statuses.filter(x => x !== s);
             refresh();
           }))
+        )
+      ),
+      section('Expenses',
+        el('div', { class: 'col', style: 'display:flex;flex-direction:column;gap:8px' },
+          check('Include expenses against these events (recommended)', st.includeExpenses, on => {
+            st.includeExpenses = on;
+            renderFilters();
+            refresh();
+          }),
+          st.includeExpenses ? el('div', { class: 'row', style: 'gap:12px;flex-wrap:wrap' },
+            el('small', { class: 'sub', style: 'flex-basis:100%', text: 'Only verified expenses are counted by default. Tick pending to include unverified ones.' }),
+            ...EXPENSE_STATUSES.map(s => check(s, st.expenseStatuses.includes(s), on => {
+              st.expenseStatuses = on
+                ? [...new Set([...st.expenseStatuses, s])]
+                : st.expenseStatuses.filter(x => x !== s);
+              // Never allow zero-status — fall back to verified so
+              // "Include expenses" with an empty filter still means
+              // something.
+              if (!st.expenseStatuses.length) st.expenseStatuses = ['verified'];
+              renderFilters();
+              refresh();
+            }))
+          ) : null
         )
       ),
     ];
@@ -313,6 +343,18 @@ export async function render(root, { match } = {}) {
     );
   }
 
+  /* Central expense selector honoured by the on-screen summary, the
+   * downloaded PDF, and the archive snapshot so every surface shows
+   * identical numbers for the same filter state. */
+  function scopedExpensesFor(scopedEventIds) {
+    if (!st.includeExpenses) return [];
+    const allowed = new Set(st.expenseStatuses.length ? st.expenseStatuses : ['verified']);
+    return state.expenses().filter(x => x
+      && allowed.has(x.status || 'pending')
+      && (scopedEventIds.size === 0 || scopedEventIds.has(x.event_id))
+    );
+  }
+
   function selectedContribs() {
     let list = [...state.contribs()];
     if (st.scope === 'published') {
@@ -361,11 +403,14 @@ export async function render(root, { match } = {}) {
 
     /* Expense side of the ledger — same event scope as the currently
      * displayed contribution rows so the treasurer sees inflows and
-     * outflows for the exact selection they filtered. */
+     * outflows for the exact selection they filtered. The Include
+     * toggle and per-status filter both live on the UI so this call
+     * respects whatever the user picked. */
     const scopedEventIds = new Set(rows.map(c => c.event));
-    const expenses = state.expenses().filter(x => x && x.status === 'verified' && (scopedEventIds.size === 0 || scopedEventIds.has(x.event_id)));
+    const expenses = scopedExpensesFor(scopedEventIds);
     const expenseTotal = expenses.reduce((s, x) => s + Number(x.amount || 0), 0);
-    const net = verifiedTotal - expenseTotal;
+    const verifiedExpTotal = expenses.filter(x => x.status === 'verified').reduce((s, x) => s + Number(x.amount || 0), 0);
+    const net = verifiedTotal - verifiedExpTotal;
 
     const stats = el('div', { class: 'grid grid-4' },
       stat('Total ₹', fmtINR(total), `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}`),
@@ -408,26 +453,38 @@ export async function render(root, { match } = {}) {
       const expenseGroups = new Map();
       for (const x of expenses) {
         const k = String(x.category || 'uncategorised').toLowerCase();
-        const g = expenseGroups.get(k) || { key: k, label: x.category || 'Uncategorised', count: 0, total: 0 };
+        const g = expenseGroups.get(k) || { key: k, label: x.category || 'Uncategorised', count: 0, verified: 0, total: 0 };
         g.count += 1;
         g.total += Number(x.amount || 0);
+        if (x.status === 'verified') g.verified += Number(x.amount || 0);
         expenseGroups.set(k, g);
       }
       const expBuckets = [...expenseGroups.values()].sort((a, b) => b.total - a.total);
+      const pendingCount = expenses.filter(x => x.status === 'pending').length;
+      const statusFilterLabel = st.expenseStatuses.slice().sort().join(' + ') || 'verified';
       summaryNodes.push(el('div', { class: 'tvh-reports-section' },
-        el('div', { class: 'lbl tvh-reports-section-title', text: `Expenses in scope (${expenses.length} row${expenses.length === 1 ? '' : 's'} · ${fmtINR(expenseTotal)} spent · ${fmtINR(net)} net)` }),
+        el('div', { class: 'lbl tvh-reports-section-title', text:
+          `Expenses in scope (${expenses.length} row${expenses.length === 1 ? '' : 's'} · ${statusFilterLabel} · ${fmtINR(verifiedExpTotal)} verified spent · ${fmtINR(net)} net)` }),
+        pendingCount ? el('small', { class: 'sub', style: 'display:block;margin-bottom:6px', text:
+          `Includes ${pendingCount} pending row${pendingCount === 1 ? '' : 's'} (${fmtINR(expenseTotal - verifiedExpTotal)}) not yet counted in Net.` }) : null,
         el('table', { class: 'table' },
           el('thead', {}, el('tr', {},
             el('th', { text: 'Category' }),
             el('th', { text: 'Entries' }),
+            el('th', { text: 'Verified ₹' }),
             el('th', { text: 'Total ₹' }),
           )),
           el('tbody', {}, ...expBuckets.map(g => el('tr', {},
             el('td', { text: g.label }),
             el('td', { text: String(g.count) }),
+            el('td', { text: fmtINR(g.verified) }),
             el('td', { text: fmtINR(g.total) }),
           )))
         )
+      ));
+    } else if (st.includeExpenses) {
+      summaryNodes.push(el('div', { class: 'tvh-reports-section' },
+        el('small', { class: 'sub', text: 'No expenses match the current scope + status filters.' })
       ));
     }
     summaryCard.append(...summaryNodes);
@@ -578,9 +635,10 @@ export async function render(root, { match } = {}) {
     /* Expense side — mirrors the on-screen summary logic so PDF and
      * screen show identical net-cash figures for the same scope. */
     const scopedEventIds = new Set(rows.map(c => c.event));
-    const scopedExpenses = state.expenses().filter(x => x && x.status === 'verified' && (scopedEventIds.size === 0 || scopedEventIds.has(x.event_id)));
+    const scopedExpenses = scopedExpensesFor(scopedEventIds);
     const expenseRupees = scopedExpenses.reduce((s, x) => s + Number(x.amount || 0), 0);
-    const netRupees = verifiedRupees - expenseRupees;
+    const verifiedExpRupees = scopedExpenses.filter(x => x.status === 'verified').reduce((s, x) => s + Number(x.amount || 0), 0);
+    const netRupees = verifiedRupees - verifiedExpRupees;
     /* Plain-ASCII rupee prefix — jsPDF's default helvetica doesn't ship
      * the ₹ glyph and renders it as a placeholder. Use "Rs." in the PDF
      * body only; the on-screen HTML report keeps the ₹ symbol. */
@@ -606,8 +664,9 @@ export async function render(root, { match } = {}) {
      * recorded outflows for the scope so the header stays compact
      * for contribution-only reports. */
     if (scopedExpenses.length) {
+      const statusFilterLabel = st.expenseStatuses.slice().sort().join('+') || 'verified';
       doc.text(
-        `Expenses ${scopedExpenses.length}  ·  Spent ${rs(expenseRupees)}  ·  Net ${rs(netRupees)}`,
+        `Expenses ${scopedExpenses.length} (${statusFilterLabel})  ·  Spent ${rs(verifiedExpRupees)} verified  ·  Net ${rs(netRupees)}`,
         pageW - 10,
         19,
         { align: 'right' }
