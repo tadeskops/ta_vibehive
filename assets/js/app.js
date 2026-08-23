@@ -250,6 +250,7 @@ async function renderChrome() {
     { href: '#/', text: 'Home' },
     { href: '#/events', text: 'Events' },
   ];
+  if (user) links.push({ href: '#/me', text: 'My Ledger' });
   if (showVerify) links.push({ href: '#/verify', text: 'Verify receipt' });
   /* IMPORTANT: this call is async → concurrent invocations of renderChrome
    * (router.start + DOMContentLoaded + first hashchange) can otherwise
