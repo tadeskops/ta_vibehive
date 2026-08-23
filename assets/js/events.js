@@ -551,17 +551,21 @@ export async function migrateContributions(fromEventId, toEventId, actor) {
   if (!target) throw new Error('Target event not found.');
   const contribs = state.contribs();
   let moved = 0;
+  const relinks = {};
   for (const c of contribs) {
     if (c && c.event === fromEventId) {
       c.event = toEventId;
       c.migrated_from = fromEventId;
       c.migrated_at = new Date().toISOString();
+      if (c.id) relinks[c.id] = toEventId;
       moved += 1;
     }
   }
   if (!moved) return { moved: 0 };
   state.saveContribs(contribs);
   state.audit({ actor: actor ? actor.id : null, action: 'contrib.migrate', from: fromEventId, to: toEventId, count: moved });
+  // Publish the relinks to shared society overrides so every device applies them on sync.
+  await persistRecoveryOverrides({ contribution_relinks: relinks });
   return { moved };
 }
 
@@ -583,7 +587,8 @@ export async function restoreEventToPublished(eventId, actor) {
   evt.updated_at = new Date().toISOString();
   state.saveEvents(events);
   state.audit({ actor: actor ? actor.id : null, action: 'event.restore', event: evt.id, from: before, to: evt.status });
-  // Push to Worker so background sync doesn't revert the status.
+  // Persist decision to shared overrides so every device honours it even if writeEvent races.
+  await persistRecoveryOverrides({ event_status: { [evt.id]: target } });
   try {
     const slug = sanitizeForPath(evt.slug || evt.id || 'event');
     const res = await api.writeEvent(slug, evt);
@@ -594,10 +599,68 @@ export async function restoreEventToPublished(eventId, actor) {
     state.saveEvents(all);
     return saved;
   } catch (err) {
-    // Marker so sync-merge can preserve the local status if the push failed.
     evt._recovery_pending = true;
     state.saveEvents(events);
-    console.warn('[recovery] writeEvent push failed — sync-merge will preserve local status.', err && err.message ? err.message : err);
+    console.warn('[recovery] writeEvent push failed — shared overrides will keep the local status.', err && err.message ? err.message : err);
     return evt;
+  }
+}
+
+async function persistRecoveryOverrides({ contribution_relinks, event_status }) {
+  const over = state.societyOverrides() || {};
+  const recovery = { ...(over.recovery || {}) };
+  if (contribution_relinks && Object.keys(contribution_relinks).length) {
+    recovery.contribution_relinks = { ...(recovery.contribution_relinks || {}), ...contribution_relinks };
+  }
+  if (event_status && Object.keys(event_status).length) {
+    recovery.event_status = { ...(recovery.event_status || {}), ...event_status };
+  }
+  over.recovery = recovery;
+  state.saveSocietyOverrides(over);
+  try {
+    await api.writeSettings(over);
+  } catch (err) {
+    // Local override still wins locally; next successful writeSettings will publish.
+    console.warn('[recovery] writeSettings push failed — recovery is local until next successful settings save.', err && err.message ? err.message : err);
+  }
+}
+
+// Applied by sync after hydration so recovery decisions survive server refresh.
+export function applyRecoveryOverridesToState() {
+  const over = state.societyOverrides() || {};
+  const recovery = over.recovery || {};
+  const relinks = recovery.contribution_relinks || {};
+  const statusMap = recovery.event_status || {};
+
+  const relinkIds = Object.keys(relinks);
+  if (relinkIds.length) {
+    const list = state.contribs();
+    let changed = false;
+    for (const c of list) {
+      if (!c || !c.id) continue;
+      const target = relinks[c.id];
+      if (target && c.event !== target) {
+        c.event = target;
+        c.migrated_at = c.migrated_at || new Date().toISOString();
+        changed = true;
+      }
+    }
+    if (changed) state.saveContribs(list);
+  }
+
+  const statusIds = Object.keys(statusMap);
+  if (statusIds.length) {
+    const list = state.events();
+    let changed = false;
+    for (const e of list) {
+      if (!e || !e.id) continue;
+      const desired = statusMap[e.id];
+      if (desired && e.status !== desired && isTransitionAllowed(e.status, desired)) {
+        e.status = desired;
+        e.updated_at = new Date().toISOString();
+        changed = true;
+      }
+    }
+    if (changed) state.saveEvents(list);
   }
 }

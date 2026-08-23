@@ -19,6 +19,7 @@
 'use strict';
 import { listEvents, listContributions, whoami, readSettings } from './api.js';
 import { state } from './store.js';
+import { applyRecoveryOverridesToState } from './events.js';
 
 let _running = false;
 
@@ -115,6 +116,10 @@ export async function syncFromWorker() {
         state.saveContribs(Array.from(byId.values()));
       }
     } catch (_e) { /* auth / network — fall back to local cache */ }
+
+    // Apply shared recovery overrides (admin-authored) so migrations
+    // and restored statuses survive every server refresh on every device.
+    try { applyRecoveryOverridesToState(); } catch (_e) { /* never block sync */ }
 
     try { window.dispatchEvent(new HashChangeEvent('hashchange')); } catch (_e) { /* older browsers */ }
   } catch (e) {
