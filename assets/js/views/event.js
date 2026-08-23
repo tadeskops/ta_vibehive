@@ -99,7 +99,7 @@ export async function render(root, { match }) {
       ),
       el('div', { class: 'row' },
         canEdit ? el('a', { class: 'btn btn-ghost', href: `#/e/${evt.id}/edit` }, 'Edit') : null,
-        canVerify ? el('a', { class: 'btn btn-ghost', href: `#/e/${evt.id}/manage` }, 'Manage') : null,
+        canVerify ? el('a', { class: 'btn btn-ghost', href: `#/e/${evt.id}/manage`, title: 'Verify contributions/expenses for this event, plus edit + history' }, 'Event admin') : null,
         evt.status === STATUS.PUBLISHED && await isEventOn('contribution.voluntary', evt) ? el('a', { class: 'btn', href: `#/e/${evt.id}/contribute` }, 'Contribute') : null,
         evt.status === STATUS.PUBLISHED && await isEventOn('registration.on', evt) ? el('a', { class: 'btn btn-sage', href: `#/e/${evt.id}/register` }, 'Register') : null
       )
@@ -763,8 +763,13 @@ function field(id, label, input) {
 async function renderManage(root, evt, user, caps) {
   const items = contribsFor(evt.id);
   const head = el('section', { class: 'card card-pad' },
-    el('h2', { text: 'Manage · ' + evt.title }),
-    el('p', { class: 'sub', text: 'Verify or mark invalid. Verified contributions immediately mint a stamped receipt.' })
+    el('div', { class: 'row row-between', style: 'flex-wrap:wrap;gap:8px;align-items:flex-start' },
+      el('div', { style: 'min-width:0' },
+        el('h2', { text: 'Event admin · ' + evt.title }),
+        el('p', { class: 'sub', text: 'Verify or mark invalid, add/edit expenses, review this event\u2019s history. For a cross-event to-do list open the Approvals inbox.' })
+      ),
+      el('a', { class: 'btn btn-ghost btn-sm', href: '#/manage', title: 'Open the cross-event Approvals inbox' }, '→ All approvals')
+    )
   );
   const tbl = el('table', { class: 'table' },
     el('thead', {}, el('tr', {},

@@ -246,7 +246,9 @@ export async function render(root) {
       el('h1', { style: 'margin:0 0 4px', text: 'Approvals' }),
       el('p', { class: 'sub', style: 'margin:0', text:
         `${pendingContribs.length} pending contribution${pendingContribs.length === 1 ? '' : 's'} (${fmtINR(contribTotal)}) · ` +
-        `${pendingExpenses.length} pending expense${pendingExpenses.length === 1 ? '' : 's'} (${fmtINR(expenseTotal)})` })
+        `${pendingExpenses.length} pending expense${pendingExpenses.length === 1 ? '' : 's'} (${fmtINR(expenseTotal)})` }),
+      el('p', { class: 'sub', style: 'margin:6px 0 0;font-size:11px', text:
+        'Cross-event inbox. To add / edit an expense, edit a contribution, or view event history use the Event admin view on each event (the “Open” button on any row jumps there).' })
     );
 
     const contribCard = el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' },
