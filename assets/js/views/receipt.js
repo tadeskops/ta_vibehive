@@ -36,6 +36,7 @@ async function ensureJsPdf() {
   await loadScriptOnce(JSPDF_URL);
   if (!(window.jspdf && window.jspdf.jsPDF)) throw new Error('PDF library did not initialise');
 }
+export { ensureJsPdf };
 
 /* Event-type-aware copy for curated receipt templates.
  * The visual template (cheque-classic / certificate-brand) is fixed
@@ -76,6 +77,7 @@ async function buildReceiptPdf(r, rec, evt, soc, opts) {
   }
   return buildReceiptPdfDefault(r, rec, evt, soc, opts || {});
 }
+export { buildReceiptPdf };
 
 async function buildReceiptPdfDefault(r, rec, evt, soc, opts) {
   const tpl = opts && opts.tpl;

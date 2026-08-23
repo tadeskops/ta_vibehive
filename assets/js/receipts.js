@@ -85,26 +85,57 @@ export async function attachReceipt(contribution) {
   const rec = list.find(c => c.id === contribution.id);
   if (rec) { rec.receipt = receipt; state.saveContribs(list); }
   state.audit({ actor: null, action: 'receipt.mint', receipt: receipt.id });
-  /* Archive write: enqueue first, then attempt immediate push.
-   * If push fails, the entry remains in outbox for manual retry from
-   * Admin → Settings → "Flush archive queue". Wrapped in try so
-   * archiving never blocks receipt issuance. */
+  /* Archive write: enqueue the JSON metadata + a companion PDF so the
+   * society keeps a printable, human-readable receipt alongside the
+   * machine-readable audit record. Wrapped in try so archiving never
+   * blocks receipt issuance. */
   try {
     const archiveCfg = (soc.receipts && soc.receipts.archive) || DEFAULT_ARCHIVE;
     if (archiveCfg.enabled) {
-      const path = archivePathFor(rec || contribution, evt, archiveCfg);
+      const jsonPath = archivePathFor(rec || contribution, evt, archiveCfg);
+      const pdfPath = jsonPath.replace(/\.json$/i, '.pdf');
       const content = JSON.stringify({
         receipt,
         contribution: { id: contribution.id, event: contribution.event, amount: contribution.amount, contributor: contribution.contributor, flat: contribution.flat, verified_at: contribution.verified_at },
         society: { id: soc.id, short_name: soc.short_name },
       }, null, 2);
-      await queueAndMaybePushArchive({ path, content, receiptId: receipt.id, contribId: contribution.id }, {
+      await queueAndMaybePushArchive({ path: jsonPath, content, receiptId: receipt.id, contribId: contribution.id }, {
         actor: contribution.verified_by || contribution.created_by || null,
         message: `receipt: ${receipt.id}`,
       });
+      try {
+        const pdfB64 = await buildReceiptPdfBase64(receipt, rec || contribution, evt, soc);
+        if (pdfB64) {
+          await queueAndMaybePushArchive({
+            path: pdfPath,
+            encoding: 'base64',
+            contentBase64: pdfB64,
+            receiptId: receipt.id,
+            contribId: contribution.id,
+          }, {
+            actor: contribution.verified_by || contribution.created_by || null,
+            message: `receipt-pdf: ${receipt.id}`,
+          });
+        }
+      } catch (_pdfErr) { /* PDF build is best-effort; JSON already archived */ }
     }
   } catch (_e) { /* archive is best-effort */ }
   return receipt;
+}
+
+async function buildReceiptPdfBase64(receipt, contribution, evt, soc) {
+  if (typeof window === 'undefined') return null;
+  try {
+    const mod = await import('./views/receipt.js');
+    if (!mod || typeof mod.buildReceiptPdf !== 'function') return null;
+    const doc = await mod.buildReceiptPdf(receipt, contribution, evt, soc, {});
+    if (!doc) return null;
+    const dataUri = String(doc.output('datauristring') || '');
+    const comma = dataUri.indexOf(',');
+    return comma >= 0 ? dataUri.slice(comma + 1) : '';
+  } catch (_e) {
+    return null;
+  }
 }
 
 /** Verify-hash algorithm — the ONE source of truth. Change ⇒ every past receipt

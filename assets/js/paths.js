@@ -76,7 +76,12 @@ export function archivePathFor(contribution, event, archiveCfg) {
   const tpl = (archiveCfg && archiveCfg.perReceiptPath) || DEFAULT_ARCHIVE.perReceiptPath;
   const vars = archiveVars(contribution, event);
   const out = renderPathTemplate(tpl, vars);
-  return out.replace(/^\/+/, '').replace(/\.\.+/g, '.');
+  return out
+    .replace(/^\/+/, '')
+    .replace(/\.\.+/g, '.')
+    // Drop the "unknown_" prefix when the contribution had no flat so
+    // archive filenames stay clean (unknown_FEST-…json → FEST-…json).
+    .replace(/(^|\/)UNKNOWN_/gi, '$1');
 }
 
 /** Compute the rollup key for a given date + period. */
