@@ -197,3 +197,79 @@ Core implementation:
 - `assets/js/views/admin.js`
 - `assets/js/views/settings.js`
 - `assets/css/base.css`
+
+## 13) Discoverability, Navigation & Download UX
+
+Implemented (2026-08-23):
+
+**Alt-key tooltip broadcast** — holding the `Alt` key pins every visible
+`title` / `aria-label` tooltip in the viewport as a floating pill and
+releases them on `Alt` keyup / window blur. No native OS bubbles, no
+noise; power users see every icon's purpose at once for orderly
+operation. Text-input focus is excluded so form typing is untouched.
+
+**Breadcrumb trail** — a slim breadcrumb above the stage on every page
+except Home, showing `Home › Events › <Event title>` etc. Resolves
+human labels from local state (event titles). Feature-gated by
+`society.ui.breadcrumbs` (default `true`); set to `false` to hide on
+both desktop and mobile.
+
+**Direct receipt download** — the inline `⬇` icon on the Home dashboard
+and Event contributor board no longer routes to the receipt preview.
+It opens a small popover with `PDF (A4)` and `PNG image` options and
+downloads the chosen format directly. This eliminates the double-hop
+(list → preview → auto-download) and lets residents/committees pick
+the lighter PNG when repo-space matters. Preview page also gained the
+format selector and no longer auto-downloads on `?download=1`.
+
+**Visit card on mobile** — daily and all-time unique visitor counts
+are now shown side-by-side on the Home dashboard for phones. The
+footer chip stays as the desktop-only mirror.
+
+Core implementation:
+- `assets/js/longpress-tooltip.js` — Alt-key broadcast
+- `assets/js/breadcrumb.js` + `config/society.json` (`ui.breadcrumbs`)
+- `assets/js/receipt-download-menu.js` — format popover
+- `assets/js/views/receipt.js` — `downloadReceiptImage` + `downloadReceiptDirect` + format selector
+- `assets/js/visit-counter.js` — split today / all-time layout
+- `assets/css/base.css`
+
+## 14) Automated Reports & Receipt Archival
+
+Implemented (2026-08-23):
+
+**Per-event JSON reports (daily, change-driven)** — on Home mount for
+users with `reports.export`, the app walks every published + closed
+event and:
+1. Builds a compact JSON snapshot (event meta + contributions +
+   expenses + verified/pending/net totals + unique-flat count).
+2. Content-hashes the payload with SHA-256.
+3. Skips the write if the hash matches the last archived version OR
+   the last write is younger than 20 h.
+4. Otherwise pushes to the private records repo under
+   `reports/<eventCodeLower>/<societyPrefix>_<eventCode>_<DDMMYYYY>_<HHMMSS>.json`
+   e.g. `reports/fest/TA_FEST_23082026_143502.json`.
+5. Persists the hash + path in `overrides.reports.state[eventId]` so
+   we never double-write.
+
+Naming convention:
+- `<societyPrefix>` — from `society.receipts.prefix`
+  (e.g. `TA`), sanitised to `[A-Z0-9]{1..8}`.
+- `<eventCode>` — first 4 chars of `event.template` upper-cased
+  (`FEST`, `SOC`, `SPRT`, `DON`, `EMER`, `INFR`, …).
+- `<DDMMYYYY>_<HHMMSS>` — local time of generation.
+
+**Auto-archive of receipt PDFs** — every download via `downloadReceiptPdf`
+still calls `archivePdfIfMissing` (idempotent) so freshly minted
+receipts land in `tvh_record` even when a resident downloads them.
+
+Configuration:
+- `society.receipts.archive.enabled` gates all archive writes.
+- `society.receipts.archive.perReceiptPath` template drives the
+  per-receipt PDF path (existing).
+
+Core implementation:
+- `assets/js/daily-reports.js` — `runDailyReportsBackfill`
+- `assets/js/archive-runtime.js` — `queueAndMaybePushArchive`,
+  `archivePdfIfMissing`
+- `assets/js/views/home.js` — mount-time invocation gated by RBAC
