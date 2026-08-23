@@ -9,6 +9,7 @@ import { cfg, getSociety, state } from '../store.js';
 import { can } from '../rbac.js';
 import { renderVisitCard } from '../visit-counter.js';
 import { promptVerifyComment } from '../verify-prompt.js';
+import { openExpenseDialog } from './event.js';
 
 /* Community Warmth · v0.1 -- privacy.public_mask
  *
@@ -151,6 +152,14 @@ export async function render(root) {
   const canVerifyExpense = user ? await can(user, 'expenses.verify') : false;
   const pendingExpenses = user && !masked ? renderPendingExpensesCard(user, visibleEventIds, canVerifyExpense) : null;
 
+  // Event spotlight — pick a live/closed event and get its numbers at a
+  // glance with a small visual breakdown. Signed-in only.
+  const spotlight = user && !masked ? renderEventSpotlight(user, events) : null;
+  // Submit-expense entry — anyone with `expenses.record` can queue an
+  // expense from anywhere (event picker is inside the dialog).
+  const canRecordExpense = user ? await can(user, 'expenses.record') : false;
+  const submitExpense = user && canRecordExpense ? renderSubmitExpenseCard(user) : null;
+
   /* Mobile-first daily visit tile — desktop viewers already see the
    * same figure in the footer chip so we hide this card on wide
    * screens via CSS. Renders asynchronously so the rest of the
@@ -158,7 +167,7 @@ export async function render(root) {
   const visitCardWrap = el('div', { class: 'tvh-visit-card-wrap', style: 'margin-top:12px' });
   renderVisitCard(visitCardWrap).catch(() => { /* silent */ });
 
-  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, latest, pendingExpenses, visitCardWrap);
+  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, spotlight, submitExpense, latest, pendingExpenses, visitCardWrap);
 }
 
 /* Latest contributions widget. Shows the top-N most recent
@@ -398,6 +407,99 @@ function verifyExpenseIconBtn(x, user, evt) {
  * they don't need to open each event's manage view to clear backlog.
  * Empty state (no pending rows) renders nothing so it stays quiet for
  * committees who are up-to-date. */
+function renderSubmitExpenseCard(user) {
+  const btn = el('button', { class: 'btn', type: 'button' }, '＋ Submit expense');
+  btn.addEventListener('click', () => openExpenseDialog(null, user, null, false, 'pending', () => {
+    const root = document.getElementById('main');
+    if (root) render(root); else location.reload();
+  }));
+  return el('section', { class: 'card card-pad tvh-widget', style: 'margin-top:16px' },
+    el('div', { class: 'row row-between', style: 'flex-wrap:wrap;gap:10px;align-items:flex-start' },
+      el('div', { style: 'min-width:0' },
+        el('h3', { style: 'margin:0', text: 'Report an expense you paid' }),
+        el('small', { class: 'sub', text: 'Volunteers can log petty-cash spends. Committee verifies before it counts on the dashboard.' })
+      ),
+      btn
+    )
+  );
+}
+
+function renderEventSpotlight(user, events) {
+  const spotlightable = events.filter(e => e && (e.status === STATUS.PUBLISHED || e.status === STATUS.CLOSED));
+  if (!spotlightable.length) return null;
+
+  const wrap = el('section', { class: 'card card-pad tvh-widget tvh-spotlight', style: 'margin-top:16px' });
+  const select = el('select', { class: 'tvh-spotlight-select', 'aria-label': 'Pick an event to inspect' },
+    ...spotlightable.map((e, i) => el('option', { value: e.id, selected: i === 0, text: (e.status === STATUS.CLOSED ? 'Closed · ' : '') + (e.title || e.id) }))
+  );
+  const bodyWrap = el('div', {});
+
+  function drawFor(eventId) {
+    bodyWrap.replaceChildren();
+    const evt = spotlightable.find(e => e.id === eventId) || spotlightable[0];
+    if (!evt) return;
+    const contribs = state.contribs().filter(c => c && c.event === evt.id);
+    const verifiedTotal = contribs.filter(c => c.status === 'verified').reduce((s, c) => s + Number(c.amount || 0), 0);
+    const pendingTotal = contribs.filter(c => c.status === 'pending').reduce((s, c) => s + Number(c.amount || 0), 0);
+    const uniqueFlats = new Set(contribs.filter(c => c.status !== 'void' && c.flat).map(c => String(c.flat).trim().toLowerCase())).size;
+    const expenses = state.expenses().filter(x => x && x.event_id === evt.id && x.status === 'verified');
+    const expenseTotal = expenses.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const net = verifiedTotal - expenseTotal;
+    const goal = Number(evt.goal || 0);
+    const pctGoal = goal ? Math.min(100, Math.round((verifiedTotal / goal) * 100)) : 0;
+
+    const stats = el('div', { class: 'grid grid-4' },
+      stat('Raised', fmtINR(verifiedTotal), goal ? `${pctGoal}% of ${fmtINR(goal)}` : 'no goal set'),
+      stat('Pending', fmtINR(pendingTotal), `${contribs.filter(c => c.status === 'pending').length} rows`),
+      stat('Contributors', String(uniqueFlats), 'unique flats'),
+      stat('Net', fmtINR(net), `${fmtINR(expenseTotal)} spent`)
+    );
+
+    // Progress bar (raised vs goal) + a compact split bar showing income
+    // vs expenses so users see the money flow at a glance.
+    const progress = goal ? el('div', { class: 'tvh-spotlight-progress' },
+      el('div', { class: 'tvh-spotlight-progress-track' },
+        el('div', { class: 'tvh-spotlight-progress-bar', style: 'width:' + pctGoal + '%' })
+      ),
+      el('div', { class: 'row row-between', style: 'font-size:11px;color:var(--muted);margin-top:4px' },
+        el('span', { text: fmtINR(verifiedTotal) + ' raised' }),
+        el('span', { text: fmtINR(goal) + ' goal' })
+      )
+    ) : null;
+
+    const totalFlow = Math.max(1, verifiedTotal + expenseTotal);
+    const incomePct = Math.round((verifiedTotal / totalFlow) * 100);
+    const expensePct = 100 - incomePct;
+    const flowBar = el('div', { class: 'tvh-spotlight-flow', style: 'margin-top:14px' },
+      el('div', { class: 'tvh-spotlight-flow-track' },
+        el('div', { class: 'tvh-spotlight-flow-income', style: 'width:' + incomePct + '%', title: 'Income · ' + fmtINR(verifiedTotal) }),
+        el('div', { class: 'tvh-spotlight-flow-expense', style: 'width:' + expensePct + '%', title: 'Expenses · ' + fmtINR(expenseTotal) })
+      ),
+      el('div', { class: 'row', style: 'gap:12px;font-size:11px;color:var(--muted);margin-top:6px;flex-wrap:wrap' },
+        el('span', {}, el('span', { class: 'tvh-spotlight-swatch is-income' }), ' Income ' + fmtINR(verifiedTotal)),
+        el('span', {}, el('span', { class: 'tvh-spotlight-swatch is-expense' }), ' Expenses ' + fmtINR(expenseTotal)),
+        el('a', { class: 'sub', style: 'margin-left:auto', href: `#/e/${evt.id}` }, 'Open event →')
+      )
+    );
+
+    bodyWrap.append(stats, progress || el('div'), flowBar);
+  }
+
+  select.addEventListener('change', () => drawFor(select.value));
+  wrap.append(
+    el('div', { class: 'row row-between', style: 'align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px' },
+      el('div', {},
+        el('h3', { style: 'margin:0', text: 'Event spotlight' }),
+        el('small', { class: 'sub', text: 'Pick an event to see the money flow and progress at a glance.' })
+      ),
+      select
+    ),
+    bodyWrap
+  );
+  drawFor(select.value);
+  return wrap;
+}
+
 function renderPendingExpensesCard(user, visibleEventIds, canVerifyExpense) {
   if (!canVerifyExpense) return null;
   const eventById = new Map(state.events().map(e => [e.id, e]));

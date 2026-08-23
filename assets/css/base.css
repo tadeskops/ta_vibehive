@@ -203,6 +203,14 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
  * component classes set display:flex/grid elsewhere. */
 [hidden]{display:none!important}
 .footpad{background:var(--card);border-top:1px solid var(--line);margin-top:auto;padding-bottom:env(safe-area-inset-bottom)}
+
+/* Desktop-only sticky footer — keeps attribution visible without a
+ * long scroll on tall dashboards. Mobile footer is already hidden by
+ * mobile.css, so scope this override to >= 641 px. */
+@media (min-width: 641px){
+  .footpad{position:sticky;bottom:0;z-index:10;box-shadow:0 -2px 6px rgba(42,26,16,.05)}
+  .stage{padding-bottom:80px}
+}
 /* Three-zone footer inspired by ta-society-helpdesk: social pill on the
  * left, primary CTA (verify receipt) centered, legal meta pinned right.
  * space-between + flex-1 center keeps the outer zones anchored even when
@@ -305,10 +313,38 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .hero-actions{margin-top:14px;display:flex;gap:10px;flex-wrap:wrap}
 
 /* Grid */
-.grid{display:grid;gap:12px}
-.grid-3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
-.grid-4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
-.grid-2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.grid{display:grid;gap:14px;align-items:stretch}
+.grid > *{min-width:0}
+.grid-3{grid-template-columns:repeat(auto-fit,minmax(clamp(220px,26vw,300px),1fr))}
+.grid-4{grid-template-columns:repeat(auto-fit,minmax(clamp(180px,20vw,240px),1fr))}
+.grid-2{grid-template-columns:repeat(auto-fit,minmax(clamp(260px,42vw,420px),1fr))}
+/* Widget-style stat cards keep a consistent height + gentle hover lift. */
+.grid .stat,.grid-4 .stat,.grid-3 .stat,.grid-2 .stat{min-height:96px;display:flex;flex-direction:column;justify-content:center;transition:transform .14s ease,box-shadow .14s ease}
+@media (min-width: 641px){
+  .grid .stat:hover,.grid-4 .stat:hover,.grid-3 .stat:hover,.grid-2 .stat:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(42,26,16,.06)}
+}
+@media (max-width: 480px){
+  .grid-4{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+  .grid-2{grid-template-columns:1fr;gap:10px}
+}
+
+/* Widget shells — every dashboard card sits inside a `.tvh-widget` so
+ * spacing/hover is consistent and no card grows beyond its content. */
+.tvh-widget{border-radius:16px;overflow:visible}
+.tvh-widget h3{margin:0 0 2px}
+
+/* Home event spotlight — dropdown + KPI grid + income/expense flow bar. */
+.tvh-spotlight-select{max-width:260px}
+.tvh-spotlight-progress{margin-top:14px}
+.tvh-spotlight-progress-track{height:10px;border-radius:999px;background:#efe4d0;overflow:hidden}
+.tvh-spotlight-progress-bar{height:100%;background:linear-gradient(90deg,var(--terra),var(--gold));border-radius:999px;transition:width .35s ease}
+.tvh-spotlight-flow-track{display:flex;height:12px;border-radius:999px;overflow:hidden;background:#efe4d0}
+.tvh-spotlight-flow-income{background:linear-gradient(90deg,#a3d977,#6b8f5a);transition:width .35s ease}
+.tvh-spotlight-flow-expense{background:linear-gradient(90deg,#e8a48b,#a34328);transition:width .35s ease}
+.tvh-spotlight-swatch{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:middle;margin-right:4px}
+.tvh-spotlight-swatch.is-income{background:#6b8f5a}
+.tvh-spotlight-swatch.is-expense{background:#a34328}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .row-between{justify-content:space-between}
 .row-end{justify-content:flex-end}
