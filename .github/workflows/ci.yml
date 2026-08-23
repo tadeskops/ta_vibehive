@@ -51,3 +51,69 @@ jobs:
         with:
           name: feature-audit
           path: temp/feature-audit.md
+
+  worker-typecheck:
+    # Gate every push and PR on `npx tsc --noEmit` for the worker so a
+    # typechecking regression cannot silently block deploy-worker.yml
+    # (which only runs on push to main touching worker/**).
+    name: Worker typecheck
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install worker deps
+        run: npm install --no-audit --no-fund --loglevel=error
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+  client-parse:
+    # Catches the "silent white-screen from a JS syntax error" class of
+    # bugs: every assets/js/**/*.js file is parse-checked with node
+    # --check as an ES module, and every config/*.json is JSON.parse'd.
+    # Belt-and-braces against the boundary-slice class of edits that
+    # can leave a function header dangling.
+    name: Client JS + JSON parse
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parse-check every assets/js JS file as ESM
+        run: |
+          set -euo pipefail
+          fail=0
+          count=0
+          while IFS= read -r -d '' f; do
+            count=$((count + 1))
+            tmp="$(mktemp --suffix=.mjs)"
+            cp "$f" "$tmp"
+            if ! node --check "$tmp" 2>>/tmp/parse.err; then
+              echo "::error file=$f::syntax error - see log below"
+              fail=1
+            fi
+            rm -f "$tmp"
+          done < <(find assets/js -type f -name '*.js' -print0)
+          echo "Parse-checked $count files"
+          if [ -s /tmp/parse.err ]; then
+            echo '--- parse errors ---'
+            cat /tmp/parse.err
+          fi
+          exit $fail
+      - name: Validate every config/*.json
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in config/*.json; do
+            if ! node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" 2>/tmp/json.err; then
+              echo "::error file=$f::invalid JSON"
+              cat /tmp/json.err
+              fail=1
+            fi
+          done
+          exit $fail
