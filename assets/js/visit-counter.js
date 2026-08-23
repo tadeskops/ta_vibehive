@@ -105,7 +105,10 @@ export async function mountVisitCounter() {
     if (dot) { dot.hidden = true; dot.style.display = 'none'; }
     return;
   }
-  numEl.textContent = fmtN(data.total);
+  const today = Number(data.today || 0);
+  const total = Number(data.total || 0);
+  numEl.textContent = fmtN(today);
+  wrap.setAttribute('title', `${fmtN(today)} visitors today · ${fmtN(total)} all-time · updates live`);
   wrap.hidden = false;
   wrap.style.display = '';
   if (dot) { dot.hidden = false; dot.style.display = ''; }
@@ -125,11 +128,14 @@ export async function renderVisitCard(el, styles) {
   el.textContent = '';
   const card = document.createElement('div');
   card.className = 'card stat tvh-visit-card';
-  card.setAttribute('title', 'Daily visits — updated live');
+  card.setAttribute('title', `${todayStr} visitors today · ${totalStr} all-time · updates live`);
   card.style.cssText = styles || 'margin-top:12px';
-  const k = document.createElement('div'); k.className = 'k'; k.textContent = 'Daily visits';
-  const v = document.createElement('div'); v.className = 'v'; v.textContent = totalStr;
-  const d = document.createElement('div'); d.className = 'd'; d.textContent = `${todayStr} today`;
+  const k = document.createElement('div'); k.className = 'k';
+  const pulse = document.createElement('span'); pulse.className = 'tvh-visits-pulse'; pulse.setAttribute('aria-hidden', 'true');
+  const kLabel = document.createElement('span'); kLabel.textContent = 'Visitors today';
+  k.appendChild(pulse); k.appendChild(document.createTextNode(' ')); k.appendChild(kLabel);
+  const v = document.createElement('div'); v.className = 'v'; v.textContent = todayStr;
+  const d = document.createElement('div'); d.className = 'd'; d.textContent = `${totalStr} all-time`;
   card.appendChild(k); card.appendChild(v); card.appendChild(d);
   el.appendChild(card);
   return card;

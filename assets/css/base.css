@@ -218,6 +218,14 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .footpad-center{flex:1 1 0;display:inline-flex;justify-content:center;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
 .footpad-action{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid transparent;background:transparent;color:var(--muted);font-weight:600;font-size:12px;white-space:nowrap;transition:color .14s ease,background .14s ease,border-color .14s ease}
 .footpad-action:hover,.footpad-action:focus-visible{color:var(--terra);background:var(--terra-soft);border-color:var(--terra-soft);text-decoration:none;outline:none}
+
+/* Live visitor chip — green pulsing dot conveys "activity" without a heavy icon. */
+.tvh-visits-chip{gap:8px}
+.tvh-visits-pulse{position:relative;display:inline-block;width:8px;height:8px;border-radius:999px;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.55);animation:tvh-visits-pulse 1.8s ease-out infinite}
+.tvh-visits-pulse::after{content:"";position:absolute;inset:-2px;border-radius:999px;border:1px solid rgba(34,197,94,.35)}
+@keyframes tvh-visits-pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+@media (prefers-reduced-motion:reduce){.tvh-visits-pulse{animation:none}}
+.tvh-visit-card .k{display:flex;align-items:center;gap:6px}
 /* "Report site bug" — quiet ghost affordance in the footer center.
  * Matches ta-society-helpdesk's tsh-footer-report-btn styling: no border,
  * no fill at rest; on hover the bug icon warms up in brand-terra with a
