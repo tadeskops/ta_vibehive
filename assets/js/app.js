@@ -19,6 +19,13 @@ import { wireAboutTriggers } from './about-modal.js';
  * safe to call once. */
 installFetchWrapper();
 
+/* Progress ring label sync — surfaces the latest busy label into the
+ * fixed floating ring so users see WHY the app is waiting. */
+busy.on((on, count, label) => {
+  const lbl = document.getElementById('tvhProgressRingLabel');
+  if (lbl) lbl.textContent = (on && label) ? label : (on ? 'Working…' : '');
+});
+
 /* Boot-time sync: hydrate the local events cache from the Worker so
  * multi-device viewing works (any user sees the current published
  * event list, not just what their own browser last cached). Fire-and-

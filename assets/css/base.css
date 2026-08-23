@@ -39,6 +39,25 @@ hr{border:none;border-top:1px solid var(--line);margin:20px 0}
  * off-state hides it entirely so the topbar keeps its calm 1px border. */
 .topbar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:3px;background:linear-gradient(90deg,transparent 0%,transparent 20%,rgba(199,143,42,.9) 50%,transparent 80%,transparent 100%);background-size:220% 100%;background-position:200% 0;opacity:0;pointer-events:none;transition:opacity .18s ease,box-shadow .18s ease}
 body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear infinite;box-shadow:0 0 10px rgba(199,143,42,.55),0 0 20px rgba(199,143,42,.25)}
+/* Rotating progress ring — shows the moment any async work begins so
+ * the user knows to wait. `body[data-busy-label]` carries the caller's
+ * label; we show it inside a soft pill next to the spinner. */
+.tvh-progress-ring{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right:14px;z-index:9500;display:none;align-items:center;gap:10px;padding:8px 14px 8px 8px;border-radius:999px;background:rgba(255,255,255,.94);border:1px solid var(--line);box-shadow:0 8px 22px rgba(42,26,16,.15);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);font-size:12px;font-weight:700;color:var(--ink);pointer-events:none}
+body.is-busy .tvh-progress-ring{display:inline-flex;animation:tvh-progress-in .18s ease-out both}
+.tvh-progress-ring::before{content:"";width:22px;height:22px;border-radius:999px;border:2.5px solid var(--terra-soft);border-top-color:var(--terra);animation:tvh-progress-spin .9s linear infinite}
+.tvh-progress-ring-label{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@keyframes tvh-progress-spin{to{transform:rotate(360deg)}}
+@keyframes tvh-progress-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){
+  .tvh-progress-ring::before{animation:none;border-color:var(--terra)}
+  body.is-busy .tvh-progress-ring{animation:none}
+}
+/* When explicitly guarded (e.g. verify / share / archive) the entire
+ * `.stage` area stops taking clicks so a second tap doesn't trigger a
+ * duplicate request or crash a half-rendered dialog. Applied via the
+ * body class `is-locked` in addition to `is-busy`. */
+body.is-locked .stage{pointer-events:none;user-select:none}
+body.is-locked .stage::after{content:"";position:fixed;inset:0;z-index:9400;background:rgba(250,243,234,.35);backdrop-filter:blur(1px);-webkit-backdrop-filter:blur(1px);pointer-events:auto}
 @keyframes tvh-topbar-shine{
   0%{background-position:200% 0}
   100%{background-position:-100% 0}

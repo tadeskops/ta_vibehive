@@ -145,6 +145,10 @@ vite.config.ts.timestamp-*
 # Local scratch / Copilot chat intermediate files - never push
 temp/
 
+# Local dev bypass — fake sign-in + seeded data for manual testing.
+# NEVER push; the app should always require real Google sign-in in prod.
+_dev/
+
 # Editable source files for brand art (not shipped)
 *.drawio
 
