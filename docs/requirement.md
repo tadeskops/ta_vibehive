@@ -107,11 +107,13 @@ Implemented:
 - Event creator can set/edit an optional appreciation note template per event; contribute page renders it dynamically using selected amount placeholder (`{amount}`).
 - Mobile/quick-action `+` is create-only (new event) and is shown only when `events.create` permission is granted via role/configuration.
 - Quick-action stack popup UI is currently disabled (kept in code), and tapping `+` directly routes to event creation flow.
-- Contribution payment UX currently runs in manual UPI mode:
-  - Configured UPI ID is displayed for external app payment.
-  - Society can attach a UPI QR image from Settings (stored inline) in addition to path-based QR fallback.
+- Contribution payment UX currently runs in manual mode with a tabbed Online / Cash flow:
+  - **Payment type** is a two-tab segmented control on the contribute form (Online, Cash). Panels swap in place — one payment type is visible at a time.
+  - **Online tab** — pay via UPI or bank transfer. When both are enabled a sub-radio chip (UPI · Bank transfer) picks the kind; otherwise the enabled kind is auto-selected. The society/event's UPI ID + QR (or bank details) are shown in a pay-guide callout. Residents supply EITHER a **Transaction number** (UPI UTR / NEFT ref) OR upload a **Payment proof** (screenshot / PDF) — at least one is required; both cannot be blank. Stored `method` = `'upi'` or `'bank'`.
+  - **Cash tab** — residents hand cash/cheque to a committee member and record **Paid to (name)** (mandatory), **Paid to (mobile)** (mandatory, 10-digit), and **Paid to (flat)** (optional). Stored `method` = `'other'` with populated `paid_to_name`, `paid_to_mobile`, `paid_to_flat` fields on the contribution record. Online submissions leave those fields empty.
+  - **Comment (optional)** textarea works for both payment types — for anything the committee should know (name spelling, later-update requests, etc.).
   - Residents can view and save the payment QR to phone directly from the contribute flow.
-  - Resident submits UTR/proof for committee verification.
+  - Resident submission stays `pending` until a committee member verifies from Manage / Approvals.
   - Auto-capture from UPI apps and auto-receipt on payment callback is not relied on in current static flow.
 - Resident-facing help note is shown for manager/committee assisted upload/update intent.
 
