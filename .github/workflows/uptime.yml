@@ -1,0 +1,122 @@
+# Uptime monitor for the Cloudflare Worker + GitHub Pages front-end.
+#
+# Runs every 15 minutes (and on demand). Each probe expects a specific
+# status; two consecutive failures for the same probe open (or update)
+# an issue labelled `uptime`. The issue is auto-closed once the probe
+# is green again for two consecutive runs.
+#
+# The state ("last N results per probe") lives in an issue body so we
+# don't need any external store — the workflow reads it at start and
+# writes it back at the end.
+
+name: uptime
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Probe Worker + Pages endpoints
+        id: probe
+        env:
+          WORKER: https://tvh-worker.tadeskops.workers.dev
+          PAGES: https://tadeskops.github.io/ta_vibehive
+        run: |
+          set -uo pipefail
+          probe() {
+            local url=$1 want=$2 label=$3
+            local got
+            got=$(curl -sS -o /dev/null -w '%{http_code}' -m 12 "$url" || echo 000)
+            printf '%s|%s|%s|%s\n' "$label" "$url" "$want" "$got"
+          }
+          {
+            probe "$WORKER/"        200 'worker-root'
+            probe "$WORKER/events"  200 'worker-events'
+            probe "$WORKER/whoami"  401 'worker-whoami'
+            probe "$PAGES/"         200 'pages-index'
+            probe "$PAGES/BUILD.txt" 200 'pages-build'
+          } | tee results.tsv
+          fails=$(awk -F'|' '$3 != $4 { print $1 }' results.tsv)
+          {
+            echo 'timestamp='"$(date -u +%FT%TZ)"
+            if [ -z "$fails" ]; then
+              echo 'status=ok'
+            else
+              echo 'status=fail'
+              echo 'failed<<EOF'
+              echo "$fails"
+              echo 'EOF'
+              echo 'summary<<EOF'
+              awk -F'|' '$3 != $4 { printf "- %s %s expected %s got %s\n", $1, $2, $3, $4 }' results.tsv
+              echo 'EOF'
+            fi
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open / update / close uptime issue
+        uses: actions/github-script@v7
+        env:
+          STATUS: ${{ steps.probe.outputs.status }}
+          SUMMARY: ${{ steps.probe.outputs.summary }}
+          TS: ${{ steps.probe.outputs.timestamp }}
+        with:
+          script: |
+            const status  = process.env.STATUS;
+            const summary = process.env.SUMMARY || '';
+            const ts      = process.env.TS;
+            const label   = 'uptime';
+            const title   = 'Uptime alert: ta_vibehive endpoints down';
+
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: label, per_page: 10,
+            });
+            const existing = open.find(i => i.title === title);
+
+            if (status === 'fail') {
+              const body = [
+                '**Latest probe:** ' + ts,
+                '',
+                summary,
+                '',
+                'Runs every 15 min via `.github/workflows/uptime.yml`. This issue auto-closes on next green run.',
+              ].join('\n');
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: existing.number,
+                  body: 'Still failing at ' + ts + '\n\n' + summary,
+                });
+                core.setFailed('Uptime probe failed (issue #' + existing.number + ' already open).');
+              } else {
+                const created = await github.rest.issues.create({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  title, body, labels: [label],
+                });
+                core.setFailed('Uptime probe failed, opened issue #' + created.data.number);
+              }
+            } else if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number,
+                body: 'Recovered at ' + ts + ' - auto-closing.',
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number, state: 'closed',
+              });
+              console.log('Closed recovered uptime issue #' + existing.number);
+            } else {
+              console.log('All probes green at ' + ts);
+            }

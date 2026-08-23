@@ -49,3 +49,29 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Smoke test deployed site
+        env:
+          BASE: https://tadeskops.github.io/ta_vibehive
+        run: |
+          set -euo pipefail
+          sleep 8
+          fail=0
+          check() {
+            local path=$1 want=$2 label=$3
+            local got
+            got=$(curl -sS -o /tmp/body.$$ -w '%{http_code}' -m 15 "$BASE$path" || echo 000)
+            if [ "$got" != "$want" ]; then
+              echo "::error::SMOKE FAIL $label $path expected=$want got=$got"
+              fail=1
+            else
+              echo "OK $label $path -> $got"
+            fi
+            rm -f /tmp/body.$$
+          }
+          check /                             200 'index'
+          check /BUILD.txt                    200 'build stamp'
+          check /assets/js/app.js             200 'entry script'
+          check /config/features.json         200 'features registry'
+          check /manifest.webmanifest         200 'PWA manifest'
+          exit $fail
