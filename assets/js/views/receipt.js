@@ -580,6 +580,155 @@ export async function shareReceiptDirect(contribId) {
   return shareToWhatsApp(r, rec, evt, soc, tpl, theme);
 }
 
+/* ============================================================
+ * Expense receipts — mirror of the contribution flow with an
+ * expense-flavored article. Same theme choices (default renders as
+ * an on-screen article; PDF/PNG reuse the html2canvas snapshot
+ * pipeline). Text/attributes come from the expense record.
+ * ============================================================ */
+
+function buildExpenseArticle(x, evt, soc) {
+  const receiptNo = expenseReceiptId(x);
+  return el('article', { class: 'receipt' },
+    el('header', { class: 'receipt-head' },
+      el('img', { src: 'assets/images/TaLogo.png', alt: '' }),
+      el('div', {},
+        el('h2', { text: soc.english_name }),
+        el('small', { text: `${soc.legal_name} · Reg ${soc.reg_no} · ${soc.location}` })
+      )
+    ),
+    el('h3', { style: 'text-align:center;margin:0 0 8px', text: 'Expense Voucher' }),
+    el('div', { class: 'receipt-meta' },
+      metaRow('Voucher no.', receiptNo),
+      metaRow('Issued on', fmtDate(x.verified_at || x.updated_at || x.created_at)),
+      metaRow('Event', (evt ? evt.title : '—')),
+      metaRow('Category', x.category || '—'),
+      metaRow('Description', x.description || '—'),
+      metaRow('Logged by', x.created_by || '—'),
+      metaRow('Verified by', x.verified_by || '—'),
+      metaRow('Payment reference', x.txn_ref || x.ref || '—')
+    ),
+    el('div', { class: 'receipt-amount-wrap' },
+      el('div', { class: 'receipt-total', text: 'Amount paid · ' + fmtINR(x.amount) })
+    ),
+    el('p', { style: 'font-size:12px;color:var(--muted)', text:
+      'This voucher acknowledges an expense paid out of society funds. Retain for audit.' }),
+    el('div', { class: 'receipt-stamp' },
+      el('div', {},
+        el('small', { text: 'For ' + soc.short_name }),
+        el('div', { style: 'font-weight:800;margin-top:20px', text: x.verified_by || 'Authorised signatory' })
+      ),
+      el('div', {}),
+      el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
+    ),
+    x.verified_comment ? el('p', { style: 'font-size:11px;color:var(--muted);margin-top:6px', text: 'Verifier note · ' + x.verified_comment }) : null
+  );
+}
+
+function expenseReceiptId(x) {
+  const short = (x.category || 'EXP').replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 4) || 'EXP';
+  const iso = String(x.verified_at || x.created_at || new Date().toISOString());
+  const stamp = iso.slice(0, 10).replace(/-/g, '') + '-' + iso.slice(11, 16).replace(':', '');
+  const tail = String(x.id || '').slice(-6).toUpperCase();
+  return `${short}-${stamp}-${tail || 'XXXXXX'}`;
+}
+
+function expensePdfFileName(x) {
+  return `expense_${expenseReceiptId(x)}.pdf`.replace(/[^A-Za-z0-9._-]+/g, '_');
+}
+
+async function buildExpensePdf(x, evt, soc) {
+  await Promise.all([ensureJsPdf(), ensureHtml2Canvas()]);
+  const article = buildExpenseArticle(x, evt, soc);
+  const stage = document.createElement('div');
+  stage.style.cssText = 'position:fixed;left:-20000px;top:0;z-index:-1;pointer-events:none;background:#faf3ea;padding:24px 20px;width:794px;';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'width:754px;margin:0 auto;';
+  wrap.appendChild(article);
+  stage.appendChild(wrap);
+  document.body.appendChild(stage);
+  try {
+    await new Promise(requestAnimationFrame);
+    await waitForImages(article);
+    const canvas = await window.html2canvas(stage, { backgroundColor: '#faf3ea', scale: 2, useCORS: true, allowTaint: false, logging: false });
+    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+    const doc = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const ratio = canvas.height / canvas.width;
+    let drawW = pageW; let drawH = pageW * ratio;
+    if (drawH > pageH) { drawH = pageH; drawW = pageH / ratio; }
+    const offsetX = (pageW - drawW) / 2;
+    const offsetY = (pageH - drawH) / 2;
+    doc.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH, undefined, 'FAST');
+    return { doc, canvas };
+  } finally {
+    try { stage.remove(); } catch (_e) { /* ignore */ }
+  }
+}
+
+export async function downloadExpenseDirect(expenseId, format /* 'pdf' | 'png' */) {
+  const x = state.expenses().find(e => e && e.id === expenseId);
+  if (!x) throw new Error('Expense not found.');
+  if (x.status !== 'verified') throw new Error('Only verified expenses have a voucher.');
+  const evt = findEvent(x.event_id);
+  const soc = await getSociety();
+  const { doc, canvas } = await buildExpensePdf(x, evt, soc);
+  if (format === 'png' || format === 'image') {
+    const dataUrl = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = expensePdfFileName(x).replace(/\.pdf$/i, '.png');
+    document.body.appendChild(a); a.click(); a.remove();
+    return;
+  }
+  doc.save(expensePdfFileName(x));
+  // Fire-and-forget archive push, similar to receipts. Path template
+  // mirrors receipts naming: <eventCodeLower>/<yyyy-mm>/expense_<id>_receipt.pdf
+  try {
+    const soc2 = soc || (await getSociety());
+    const archCfg = (soc2 && soc2.receipts && soc2.receipts.archive) || null;
+    if (archCfg && archCfg.enabled) {
+      const dataUri = String(doc.output('datauristring') || '');
+      const comma = dataUri.indexOf(',');
+      const pdfB64 = comma >= 0 ? dataUri.slice(comma + 1) : '';
+      if (pdfB64) {
+        const code = ((evt && evt.template) || 'gen').slice(0, 4).toLowerCase();
+        const iso = new Date().toISOString();
+        const ym = iso.slice(0, 7);
+        const path = `${code}/${ym}/expense_${expenseReceiptId(x)}_receipt.pdf`;
+        archivePdfIfMissing(path, pdfB64, { kind: 'expense-pdf', expenseId: x.id }).catch(() => {});
+      }
+    }
+  } catch (_e) { /* best-effort */ }
+}
+
+export async function shareExpenseDirect(expenseId) {
+  const x = state.expenses().find(e => e && e.id === expenseId);
+  if (!x) throw new Error('Expense not found.');
+  if (x.status !== 'verified') throw new Error('Only verified expenses can be shared.');
+  const evt = findEvent(x.event_id);
+  const soc = await getSociety();
+  const { doc } = await buildExpensePdf(x, evt, soc);
+  const short = soc.short_name || 'the society';
+  const body = `Namaste! Expense voucher for ${x.category || 'a society expense'} of ${fmtINR(x.amount)} towards ${evt ? evt.title : 'the event'}.\n\nVoucher no: ${expenseReceiptId(x)}\n\n— ${short}`;
+  try {
+    const blob = doc.output('blob');
+    const file = new File([blob], expensePdfFileName(x), { type: 'application/pdf' });
+    if (typeof navigator !== 'undefined' && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: `Expense voucher ${expenseReceiptId(x)}`, text: body });
+      return;
+    }
+  } catch (e) {
+    if (e && (e.name === 'AbortError' || String(e.message || '').toLowerCase().includes('abort'))) return;
+    console.warn('[receipt] expense share sheet unavailable, falling back to wa.me', e);
+  }
+  const waHref = `https://wa.me/?text=${encodeURIComponent(body)}`;
+  window.open(waHref, '_blank', 'noopener');
+  toast('Open WhatsApp and attach the downloaded voucher.', 'warn');
+  doc.save(expensePdfFileName(x));
+}
+
 async function archiveReceiptPdfIfMissing(doc, r, rec, evt, soc) {
   const archiveCfg = (soc && soc.receipts && soc.receipts.archive) || DEFAULT_ARCHIVE;
   if (!archiveCfg || !archiveCfg.enabled) return;

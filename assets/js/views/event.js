@@ -10,6 +10,7 @@ import { cfg, getSociety, state } from '../store.js';
 import { promptVerifyComment } from '../verify-prompt.js';
 import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
 import { receiptWhatsAppIconBtn } from '../receipt-download-menu.js';
+import { expenseDownloadIconBtn, expenseWhatsAppIconBtn } from '../receipt-download-menu.js';
 
 /* ---------- payment-input validation helpers ----------
  * Both used ONLY inside the event editor (renderEdit). Kept module-
@@ -809,6 +810,11 @@ function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
   const status = r.status || 'pending';
   const canEditThis = canRecord && (canVerify || isOwn);
   const canDeleteThis = canRecord && (canVerify || (isOwn && status !== 'verified'));
+  // Voucher icons appear only for verified expenses. Residents see
+  // them only on their own expense rows; treasurers/admins see them
+  // on any verified expense.
+  const isResidentRole = !!(user && user.role === 'resident');
+  const canSeeVoucher = status === 'verified' && (canVerify || isOwn) && !(isResidentRole && !isOwn);
   const visToggle = el('input', {
     type: 'checkbox',
     checked: !!r.visible_to_residents,
@@ -842,6 +848,8 @@ function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
     el('td', {}, visToggle),
     (canRecord || canVerify) ? el('td', {}, el('div', { class: 'row' },
       (canVerify && status === 'pending') ? el('button', { class: 'btn btn-sm', on: { click: () => verifyExpense(r, evt, user, caps) } }, 'Verify') : null,
+      canSeeVoucher ? expenseWhatsAppIconBtn(r.id) : null,
+      canSeeVoucher ? expenseDownloadIconBtn(r.id, { title: 'Download expense voucher (PDF or PNG)' }) : null,
       canEditThis ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openExpenseDialog(evt, user, r, !!r.visible_to_residents, status, () => renderManage(document.getElementById('main'), evt, user, caps)) } }, 'Edit') : null,
       canDeleteThis ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => confirmDeleteExpense(r, evt, user, caps) } }, 'Delete') : null
     )) : null
