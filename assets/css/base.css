@@ -438,6 +438,20 @@ label{display:block;font-weight:700;font-size:13px;margin-bottom:4px;color:var(-
 .req{color:var(--emerg);margin-left:3px;font-weight:800}
 .field{margin-bottom:14px}
 .field small{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+
+/* Field label helpers — red asterisk for required, muted "optional" chip
+ * for optional fields. The optional chip carries a title so hovering
+ * (desktop) or long-pressing on mobile shows the detail. */
+.field .lbl{display:inline-flex;align-items:center;gap:6px;font-weight:700;color:#2f2217}
+.field .lbl .req-star{color:var(--emerg);font-weight:800;font-size:14px;line-height:1}
+.field .lbl .opt-tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;background:#efe4d0;color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;cursor:help}
+.field .lbl .opt-tag::before{content:"?";display:inline-block;width:12px;height:12px;line-height:12px;text-align:center;border-radius:999px;background:var(--muted);color:#fff;font-size:9px;margin-right:4px}
+
+/* Long-press tooltip surface — a floating pill shown on mobile when the
+ * user long-presses any node with a title/aria-label. Desktop uses the
+ * native OS tooltip. Kept high z-index so modals never occlude it. */
+.tvh-longpress-tip{position:fixed;left:0;top:0;z-index:12000;pointer-events:none;max-width:min(80vw,320px);padding:8px 12px;border-radius:10px;background:rgba(20,15,10,.94);color:#fff;font-size:12px;line-height:1.4;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.35);opacity:0;transform:translateY(4px);transition:opacity .12s ease,transform .12s ease}
+.tvh-longpress-tip.is-open{opacity:1;transform:translateY(0)}
 input[type=text],input[type=email],input[type=number],input[type=date],input[type=datetime-local],input[type=password],input[type=search],input[type=tel],input[type=url],select,textarea{
   width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;font-size:16px;min-height:44px;-webkit-appearance:none;appearance:none;
 }

@@ -837,16 +837,31 @@ function verifyExpense(r, evt, user, caps) {
 export function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDone) {
   const isEdit = !!existing;
   const inpAmount = el('input', { type: 'number', min: '0', step: '1', value: existing ? String(existing.amount || '') : '', placeholder: '2500', required: true });
-  const inpCategory = el('input', { type: 'text', maxlength: '48', value: existing ? (existing.category || '') : '', placeholder: 'mandap · prasad · decor · rent · vendor …' });
+  const inpCategoryOther = el('input', { type: 'text', maxlength: '48', value: '', placeholder: 'Type category (e.g. hall booking)', style: 'margin-top:6px;display:none' });
+  const selCategory = el('select', { required: true, 'aria-label': 'Category' });
   const inpDescription = el('textarea', { rows: 2, maxlength: '240', placeholder: 'What was this spent on?', value: existing ? (existing.description || '') : '' });
   const inpReceiptUrl = el('input', { type: 'url', maxlength: '400', value: existing ? (existing.receipt_url || '') : '', placeholder: 'https:// (optional link to invoice / receipt)' });
-  // Event picker for global submissions (called with evt=null). Restricted to
-  // published events so users can only submit against live drives.
+  // Event picker for global submissions (called with evt=null). Includes
+  // published, closed and archived events so expenses can be filed even
+  // after an event ends (e.g. late reimbursement).
   const canPickEvent = !evt && !isEdit;
-  const liveEvents = canPickEvent ? state.events().filter(e => e && e.status === STATUS.PUBLISHED) : [];
+  const eligibleStatuses = new Set([STATUS.PUBLISHED, STATUS.CLOSED, STATUS.ARCHIVED]);
+  const statusLabel = (s) => s === STATUS.PUBLISHED ? 'live' : (s === STATUS.CLOSED ? 'closed' : (s === STATUS.ARCHIVED ? 'archived' : s));
+  const eligibleEvents = canPickEvent
+    ? state.events()
+        .filter(e => e && eligibleStatuses.has(e.status))
+        .sort((a, b) => {
+          const rank = (s) => s === STATUS.PUBLISHED ? 0 : (s === STATUS.CLOSED ? 1 : 2);
+          const dr = rank(a.status) - rank(b.status);
+          return dr !== 0 ? dr : String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+        })
+    : [];
   const selEvent = canPickEvent ? el('select', { required: true },
-    el('option', { value: '', text: '— choose a live event —', selected: true }),
-    ...liveEvents.map(e => el('option', { value: e.id, text: e.title || e.id }))
+    el('option', { value: '', text: '— choose an event —', selected: true }),
+    ...eligibleEvents.map(e => el('option', {
+      value: e.id,
+      text: `${e.title || e.id} · ${statusLabel(e.status)}`
+    }))
   ) : null;
   const cbVisible = el('input', { type: 'checkbox' });
   cbVisible.checked = existing ? !!existing.visible_to_residents : !!defaultVisible;
@@ -915,11 +930,23 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
   });
   const proofField = el('div', {}, inpProof, proofStatus, proofPreview, proofRemoveBtn);
 
-  const field = (label, help, ctrl) => el('div', { class: 'field', style: 'margin-top:10px' },
-    el('label', { class: 'lbl', text: label }),
-    help ? el('small', { class: 'sub', style: 'display:block;margin-bottom:4px', text: help }) : null,
-    ctrl
-  );
+  // Field builder: shows a red asterisk on required fields; optional
+  // fields carry an "info" affordance whose title reveals detail on
+  // hover (desktop) or long-press (mobile — see ui.js longPressTooltip).
+  const field = (label, help, ctrl, opts) => {
+    const required = !!(opts && opts.required);
+    const info = opts && opts.info;
+    const labelEl = el('label', { class: 'lbl' },
+      el('span', { text: label }),
+      required ? el('span', { class: 'req-star', 'aria-label': 'required', text: '*' }) : null,
+      !required ? el('span', { class: 'opt-tag', title: info || 'Optional', 'aria-label': info || 'Optional', text: 'optional' }) : null
+    );
+    return el('div', { class: 'field', style: 'margin-top:10px' },
+      labelEl,
+      help ? el('small', { class: 'sub', style: 'display:block;margin-bottom:4px', text: help }) : null,
+      ctrl
+    );
+  };
   const willBePending = (statusHint === 'pending');
   const eventCtxLine = evt
     ? el('div', { class: 'row', style: 'gap:6px;align-items:center;margin:0 0 8px;flex-wrap:wrap' },
@@ -927,17 +954,44 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
         el('strong', { text: evt.title || evt.id })
       )
     : null;
+
+  // Load configurable categories from society config (any access role can
+  // edit in Settings → Attributes → Expenses).
+  (async () => {
+    try {
+      const soc = await getSociety().catch(() => null);
+      const raw = (soc && soc.expenses && Array.isArray(soc.expenses.categories)) ? soc.expenses.categories : [];
+      const cats = raw.map(v => String(v || '').trim()).filter(Boolean);
+      const prior = existing && existing.category ? String(existing.category).trim() : '';
+      const hasPrior = prior && cats.some(c => c.toLowerCase() === prior.toLowerCase());
+      selCategory.replaceChildren(
+        el('option', { value: '', text: '— select a category —', selected: !prior }),
+        ...cats.map(c => el('option', { value: c, text: c, selected: hasPrior && prior.toLowerCase() === c.toLowerCase() })),
+        el('option', { value: '__other', text: 'Other (specify)…', selected: !!(prior && !hasPrior) })
+      );
+      if (prior && !hasPrior) {
+        inpCategoryOther.value = prior;
+        inpCategoryOther.style.display = 'block';
+      }
+    } catch (_e) { /* ignore */ }
+  })();
+  selCategory.addEventListener('change', () => {
+    const showOther = selCategory.value === '__other';
+    inpCategoryOther.style.display = showOther ? 'block' : 'none';
+    if (showOther) setTimeout(() => inpCategoryOther.focus(), 30);
+  });
+
   const body = el('div', {},
     eventCtxLine,
     canPickEvent
-      ? field('Event', 'Pick a live event to attach this expense to.', selEvent)
+      ? field('Event', 'Pick a live, closed or archived event to attach this expense to.', selEvent, { required: true })
       : null,
     willBePending ? el('p', { class: 'sub', style: 'margin:0 0 6px', text: '📝 Your submission goes to the committee for verification. Once verified it counts on the event dashboard.' }) : null,
-    field('Amount (₹)', 'Whole rupees. This event will be debited by this amount for treasury reporting.', inpAmount),
-    field('Category', 'Short tag, free text. Used for grouping in reports.', inpCategory),
-    field('Description', 'Optional note the treasurer will see later.', inpDescription),
-    field('Attach proof (image / PDF)', 'Optional. Committee reviews the attachment before verifying.', proofField),
-    field('Receipt / invoice URL', 'Optional link to the vendor invoice or paid receipt.', inpReceiptUrl),
+    field('Amount (₹)', 'Whole rupees. This event will be debited by this amount for treasury reporting.', inpAmount, { required: true }),
+    field('Category', 'Pick a preset or choose Other to type a custom category. Admins can edit the list in Settings.', el('div', {}, selCategory, inpCategoryOther), { required: true }),
+    field('Description', 'A short note the treasurer will see later while auditing.', inpDescription, { info: 'Optional — you can leave this blank; useful for context.' }),
+    field('Attach proof (image / PDF)', 'Committee reviews the attachment before verifying.', proofField, { info: 'Optional — image (PNG/JPEG/WebP/HEIC) or PDF up to ~700 KB.' }),
+    field('Receipt / invoice URL', 'Link to the vendor invoice or paid receipt.', inpReceiptUrl, { info: 'Optional — must start with http(s):// if provided.' }),
     el('label', { class: 'row', style: 'gap:8px;margin-top:12px;cursor:pointer' }, cbVisible,
       el('span', {}, el('div', { class: 'name', text: 'Visible to residents' }),
         el('small', { class: 'sub', text: 'When ON, verified rows appear on the public expense list (subject to the society-level "residents_can_see" setting).' })
@@ -952,8 +1006,12 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
       { label: isEdit ? 'Save' : (willBePending ? 'Submit for verification' : 'Add expense'), kind: '', onClick: (close) => {
         const amount = Number(inpAmount.value);
         if (!(amount > 0)) { toast('Amount must be a positive number.', 'err'); return; }
-        const category = String(inpCategory.value || '').trim();
-        if (!category) { toast('Category is required.', 'err'); return; }
+        const catPick = String(selCategory.value || '').trim();
+        if (!catPick) { toast('Category is required.', 'err'); return; }
+        const category = catPick === '__other'
+          ? String(inpCategoryOther.value || '').trim()
+          : catPick;
+        if (!category) { toast('Type a category name for "Other".', 'err'); return; }
         const description = String(inpDescription.value || '').trim();
         const receipt_url = String(inpReceiptUrl.value || '').trim();
         if (receipt_url && !/^https?:\/\//i.test(receipt_url)) { toast('Receipt URL must start with http(s)://', 'err'); return; }

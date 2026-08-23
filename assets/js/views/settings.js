@@ -1332,18 +1332,27 @@ async function renderExpensePrefs(user, canAttributes) {
   let persisted = {
     residents_can_see: !!(soc.expenses && soc.expenses.residents_can_see),
     default_visible_to_residents: !!(soc.expenses && soc.expenses.default_visible_to_residents),
+    categories: Array.isArray(soc.expenses && soc.expenses.categories) ? soc.expenses.categories.slice() : [],
   };
-  let draft = { ...persisted };
+  let draft = { ...persisted, categories: persisted.categories.slice() };
 
   const wrap = el('div', {});
   const canEdit = canAttributes;
   const cbResidents = el('input', { type: 'checkbox', checked: draft.residents_can_see, ...disabled });
   const cbDefault = el('input', { type: 'checkbox', checked: draft.default_visible_to_residents, ...disabled });
+  const inpCategories = el('textarea', {
+    rows: 4,
+    placeholder: 'One category per line, e.g. Mandap',
+    value: draft.categories.join('\n'),
+    ...disabled,
+  });
+  const catsHelp = el('small', { class: 'sub', style: 'display:block;margin-top:4px', text: 'One category per line. If a submitter picks "Other", they type a custom name — this list is only for the dropdown.' });
   const pill = el('span', { class: 'pill pill-muted', text: 'no unsaved changes' });
 
   const refreshMeta = () => {
     const dirty = draft.residents_can_see !== persisted.residents_can_see
-      || draft.default_visible_to_residents !== persisted.default_visible_to_residents;
+      || draft.default_visible_to_residents !== persisted.default_visible_to_residents
+      || JSON.stringify(draft.categories) !== JSON.stringify(persisted.categories);
     pill.textContent = dirty ? 'unsaved expense preference changes' : 'no unsaved changes';
     pill.className = 'pill ' + (dirty ? 'pill-gold' : 'pill-muted');
     return dirty;
@@ -1354,6 +1363,14 @@ async function renderExpensePrefs(user, canAttributes) {
   });
   cbDefault.addEventListener('change', () => {
     draft.default_visible_to_residents = !!cbDefault.checked;
+    refreshMeta();
+  });
+  inpCategories.addEventListener('input', () => {
+    draft.categories = String(inpCategories.value || '')
+      .split(/\r?\n/)
+      .map(v => v.trim())
+      .filter(Boolean)
+      .slice(0, 40);
     refreshMeta();
   });
 
@@ -1369,6 +1386,7 @@ async function renderExpensePrefs(user, canAttributes) {
       const o = state.societyOverrides() || {};
       setAt(o, 'expenses.residents_can_see', draft.residents_can_see ? true : undefined);
       setAt(o, 'expenses.default_visible_to_residents', draft.default_visible_to_residents ? true : undefined);
+      setAt(o, 'expenses.categories', draft.categories.length ? draft.categories : undefined);
       pruneEmpty(o);
       state.saveSocietyOverrides(o);
       const merged = await mergeOverridesWithWorker(o);
@@ -1386,7 +1404,7 @@ async function renderExpensePrefs(user, canAttributes) {
         throw err;
       }
       state.audit({ actor: user.email, action: 'settings.expense.save_all', detail: JSON.stringify(draft) });
-      persisted = { ...draft };
+      persisted = { ...draft, categories: draft.categories.slice() };
     });
     toast('Expense preferences saved.', 'ok');
     refreshMeta();
@@ -1399,9 +1417,10 @@ async function renderExpensePrefs(user, canAttributes) {
       toast('No expense draft to discard.', 'warn');
       return;
     }
-    draft = { ...persisted };
+    draft = { ...persisted, categories: persisted.categories.slice() };
     cbResidents.checked = draft.residents_can_see;
     cbDefault.checked = draft.default_visible_to_residents;
+    inpCategories.value = draft.categories.join('\n');
     refreshMeta();
     toast('Expense draft discarded.', 'ok');
   });
@@ -1420,6 +1439,13 @@ async function renderExpensePrefs(user, canAttributes) {
       ),
       el('p', { class: 'sub', style: 'margin-top:12px', text: 'Each expense row can still override this per-row on the event detail page.' }),
       el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-top:10px' }, pill, saveBtn, discardBtn),
+    ),
+    el('div', { class: 'panel' },
+      el('h3', { text: 'Expense categories' }),
+      el('p', { class: 'sub', text: 'Categories shown in the Submit-expense dropdown. Any access role with settings edit can update this list. Submitters who need something else can pick "Other" and type a custom name.' }),
+      el('label', { class: 'lbl', style: 'display:block;margin-top:10px', text: 'Category list' }),
+      inpCategories,
+      catsHelp,
     ),
     el('div', { class: 'panel' },
       el('h3', { text: 'How expenses are recorded' }),

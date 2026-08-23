@@ -70,5 +70,19 @@
   },
   "residents": {
     "allowed_gmail": []
+  },
+  "expenses": {
+    "categories": [
+      "Mandap",
+      "Prasad",
+      "Decor",
+      "Rent",
+      "Vendor",
+      "Utilities",
+      "Cleaning",
+      "Sound & light",
+      "Photography",
+      "Transport"
+    ]
   }
 }
