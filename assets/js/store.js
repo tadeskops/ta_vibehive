@@ -113,6 +113,23 @@ export const state = {
    * treasury integration lands. */
   expenses() { return local.get('expenses', []); },
   saveExpenses(list) { local.set('expenses', Array.isArray(list) ? list : []); },
+
+  /* Event Operations Workspace — per-event ops payload holding the
+   * shared people directory, ownership map, and activities. Kept in a
+   * single blob per event so a single archive push replaces the whole
+   * document atomically. */
+  operationsFor(eventId) {
+    if (!eventId) return null;
+    return local.get('operations:' + eventId, null);
+  },
+  saveOperationsFor(eventId, doc) {
+    if (!eventId) return false;
+    return local.set('operations:' + eventId, doc);
+  },
+  clearOperationsFor(eventId) {
+    if (!eventId) return;
+    local.remove('operations:' + eventId);
+  },
   /* Receipt templates — society may keep multiple presets (e.g. one
    * for festival donations, one for maintenance dues) and pick which
    * one is active from settings. Only the active_id (stored in

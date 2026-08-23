@@ -40,6 +40,15 @@
     "residents.directory":       ["admin", "secretary", "mgmt", "committee", "manager"],
     "events.history.view":       ["admin", "secretary", "mgmt"],
     "events.history.configure":  ["admin", "secretary", "mgmt"],
+    "operations.view":           ["admin", "secretary", "mgmt", "committee", "manager"],
+    "operations.manage":         ["admin", "secretary", "mgmt", "committee"],
+    "operations.ownership.manage": ["admin", "secretary", "mgmt"],
+    "operations.activity.create":  ["admin", "secretary", "mgmt", "committee"],
+    "operations.activity.edit":    ["admin", "secretary", "mgmt", "committee"],
+    "operations.people.manage":    ["admin", "secretary", "mgmt", "committee"],
+    "operations.volunteers.assign":["admin", "secretary", "mgmt", "committee"],
+    "operations.tasks.manage":     ["admin", "secretary", "mgmt", "committee"],
+    "operations.contacts.view":    ["admin", "secretary", "mgmt", "committee"],
     "contribute":                ["admin", "mgmt", "committee", "manager", "resident"],
     "events.register":           ["admin", "mgmt", "committee", "manager", "resident"]
   }

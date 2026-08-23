@@ -599,3 +599,152 @@ Core implementation:
 - `assets/js/about-modal.js`, `assets/js/app.js`, `index.html` —
   progress ring + About modal
 - `.gitignore` — `_dev/` entry
+
+
+## 23) Event Operations Workspace (Phase 1)
+
+Implemented (feature branch `feature/eventOperations`, 2026-08-23):
+
+**Objective** — a per-event visual command centre that lets the
+Cultural Committee plan, delegate, monitor, and execute a multi-day
+event (e.g. a 7-day Ganpati festival) without cluttering the
+existing Event / Contribution / Approvals surfaces.
+
+**Route surface**:
+- `#/e/:eventId/operations` — Overview tab (default)
+- `#/e/:eventId/operations/plan` — 7-day plan (Phase 3 scaffold)
+- `#/e/:eventId/operations/activities` — Activities grid
+- `#/e/:eventId/operations/activity/:activityId` — Activity detail
+- `#/e/:eventId/operations/people` — People directory
+- `#/e/:eventId/operations/matrix` — Responsibility matrix
+
+Entry point on the event detail page: `🎯 Operations · Open
+workspace` card, visible when both `operations.workspace` is enabled
+for the event AND the caller has `operations.view`.
+
+**Feature flags** (`config/features.json`, all event-scoped):
+- `operations.workspace` — master toggle, default OFF.
+- `operations.people`, `operations.tasks`, `operations.matrix`,
+  `operations.contact_directory` — sub-features that depend on the
+  master toggle so an admin can trim the workspace to what the event
+  actually needs (a one-day event can hide the matrix; a 7-day
+  festival enables everything).
+
+**RBAC** (`config/roles.json`, new capabilities):
+- `operations.view` — admin, secretary, mgmt, committee, manager.
+- `operations.manage` — admin, secretary, mgmt, committee (delete
+  activities, edit any field).
+- `operations.ownership.manage` — admin, secretary, mgmt (only the
+  top of the hierarchy can reshape ownership areas).
+- `operations.activity.create` / `operations.activity.edit` /
+  `operations.people.manage` / `operations.volunteers.assign` /
+  `operations.tasks.manage` / `operations.contacts.view` —
+  admin, secretary, mgmt, committee.
+
+Assignment-level delegation: if a caller is the linked person for an
+activity's primary or co-lead (matched by lower-cased email), the
+`canManageActivity(activity, user, caps)` helper returns true even
+when they lack `operations.manage`. This is how a committee-appointed
+lead gets edit rights on their own activity without needing broader
+capabilities.
+
+**Data model** (single blob per event, persisted at
+`tvh:v1:operations:<eventId>` via `state.operationsFor` /
+`state.saveOperationsFor`):
+
+```
+{
+  version: 1,
+  updated_at, updated_by,
+  categories: [ { id, label, icon } ],
+  people:     [ { id, name, flat, mobile, email } ],
+  ownership:  [ { id, area, description, person_id, responsibilities } ],
+  activities: [ {
+    id, title, category, icon,
+    days:[Number], start_time, end_time, location,
+    owner_id, status,
+    primary_lead_id, co_lead_id,
+    volunteer_ids:[], responsibilities:[], tasks:[]
+  } ]
+}
+```
+
+IDs are used everywhere so a person's name / flat / mobile changes
+in one place and every activity reflects it. Removing a person from
+the directory automatically detaches them from every ownership and
+activity reference.
+
+**Overview tab — visible components**:
+- Four KPI tiles: `Event Owners` (filled/total), `Activities`,
+  `Volunteers` (unique across activities), `Attention` (count).
+- Operational health bars: Ready / In progress / Attention /
+  Not started with monospace bar fills.
+- **Needs Attention** list with clickable items — owner missing,
+  primary lead missing, co-lead missing, no volunteers on an
+  in-progress activity, or explicit `attention` status. Each link
+  jumps to the activity detail (or ownership for owner-missing).
+- Ownership grid: 4 default areas (Overall Coordination · Cultural
+  Program · Operations & Logistics · Finance & Coordination),
+  seeded on demand. Each card shows avatar + name + flat OR a
+  "Not assigned" pill with an inline Assign owner CTA. Cards show
+  the activities under each area.
+- Empty-state nudge: "🎯 Let's organise this event · Start planning".
+
+**Activities tab**: grid of activity cards, each with icon +
+title + category + status pill + primary/co-lead avatars +
+volunteer count. Missing bits (`⚠ Primary lead · Co-lead ·
+Volunteers missing`) are surfaced inline in red. Add / edit modal
+covers title, icon, category, owner area, location, days-of-event
+picker, start / end time, primary + co-lead pickers (both drawn
+from the People directory), status.
+
+**Activity detail** (`.../activity/:activityId`): Leadership block
+with two lead cards (mobile shown only to `operations.manage`
+holders per §16), volunteer panel with add-from-directory picker,
+responsibilities list, and a tasks placeholder pending Phase 3.
+
+**People tab**: reusable directory. Each card shows avatar + name +
+flat + (mobile if caller has `operations.manage`) + a compact
+`current roles` list computed from ownership + activity assignments
+so nobody has to enter the same information twice.
+
+**7-Day plan tab** (Phase 3 scaffold): renders a day strip
+`Day 1 … Day N` computed from `event.start_at → event.end_at`
+(defaults to 7 when dates are missing), with each day showing the
+activities scheduled that day. Visual timeline UI lands in Phase 3.
+
+**Matrix tab** (Phase 4 scaffold): table with Activity · Owner ·
+Primary · Co-lead · Volunteers · Status columns. Filters land in
+Phase 4.
+
+**Persistence policy alignment**:
+- Ops writes go through `saveOperationsFor(eventId, doc)` which
+  currently persists locally. Archive push wiring lands in Phase 5
+  so `automation-policy.md`'s "Documented local-only exceptions"
+  list will grow once the archive shape is finalised.
+
+**Roadmap slots**:
+- Phase 2 — People directory expansion (avatar upload, bulk import)
+- Phase 3 — Multi-day timeline UI + task management
+- Phase 4 — Matrix filters (Day / Category / Status / Missing lead)
+- Phase 5 — Archive persistence + mobile polish + guided setup
+
+Core implementation:
+- `config/features.json` — 5 new event-scope flags under
+  the `operations` cluster.
+- `config/roles.json` — 8 new operations.* permission keys.
+- `assets/js/store.js` — `operationsFor` / `saveOperationsFor` /
+  `clearOperationsFor` on the state facade.
+- `assets/js/operations.js` — data layer: CRUD for people,
+  ownership, activities, plus `healthSnapshot`,
+  `canManageActivity`, and `selfPersonId` helpers.
+- `assets/js/views/operations.js` — the workspace shell +
+  Overview + Ownership + Activities + Activity detail + People
+  + 7-day scaffold + Matrix scaffold.
+- `assets/js/views/event.js` — `🎯 Operations` entry card on the
+  event detail page.
+- `assets/js/app.js` — six new router registrations under
+  `/e/:id/operations/*`.
+- `assets/css/base.css` — `.tvh-ops-*` styles (tabs, KPIs, health
+  bars, owner grid, activity grid, people grid, lead chip,
+  avatar, day picker, attention list).

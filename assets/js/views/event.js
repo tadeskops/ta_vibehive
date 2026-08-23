@@ -164,6 +164,21 @@ export async function render(root, { match }) {
     )
     : null;
 
+  // Operations Workspace entry point — appears only when the event
+  // has the workspace enabled and the caller can view it. See
+  // docs/requirement.md §23.
+  const opsOn = await isEventOn('operations.workspace', evt);
+  const canOps = opsOn && user ? await can(user, 'operations.view') : false;
+  const opsCard = canOps ? el('section', { class: 'card card-pad tvh-ops-entry', style: 'margin-top:16px' },
+    el('div', { class: 'row row-between', style: 'flex-wrap:wrap;gap:8px;align-items:center' },
+      el('div', {},
+        el('h3', { style: 'margin:0', text: '🎯 Operations' }),
+        el('small', { class: 'sub', text: 'Organise owners, activities, leads, and volunteers for this event.' })
+      ),
+      el('a', { class: 'btn', href: `#/e/${evt.id}/operations` }, 'Open workspace')
+    )
+  ) : null;
+
   /* Public expense ledger — shown when the society-level toggle
    * `expenses.residents_can_see` is ON, and only rows the treasurer
    * both verified AND flagged `visible_to_residents`. Keeps unverified
@@ -187,7 +202,7 @@ export async function render(root, { match }) {
 
   const mountEventView = () => location.reload();
 
-  mount(root, hero, stats, progress, board, publicExpenses, submitExpenseCard, reportCard);
+  mount(root, hero, stats, progress, board, publicExpenses, submitExpenseCard, reportCard, opsCard);
 }
 
 async function renderPublicExpensesCard(evt, user) {

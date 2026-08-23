@@ -58,6 +58,11 @@
     { "id": "notify.receipt_ready",  "cluster": "notification",   "label": "Receipt-ready email",             "scope": "system",    "default": true },
     { "id": "admin.feature_toggle",  "cluster": "administration", "label": "Feature toggle console",          "scope": "system",    "default": true,  "requires_role": "admin" },
     { "id": "admin.template_editor", "cluster": "administration", "label": "Event template editor",           "scope": "system",    "default": true,  "requires_role": "admin" },
-    { "id": "admin.users",           "cluster": "administration", "label": "User & role management",          "scope": "system",    "default": true,  "requires_role": "admin" }
+    { "id": "admin.users",           "cluster": "administration", "label": "User & role management",          "scope": "system",    "default": true,  "requires_role": "admin" },
+    { "id": "operations.workspace",       "cluster": "operations", "label": "Event Operations Workspace",           "scope": "event", "default": false },
+    { "id": "operations.people",          "cluster": "operations", "label": "Ops: People Directory",                "scope": "event", "default": true,  "depends_on": ["operations.workspace"] },
+    { "id": "operations.tasks",           "cluster": "operations", "label": "Ops: Task checklists per activity",    "scope": "event", "default": true,  "depends_on": ["operations.workspace"] },
+    { "id": "operations.matrix",          "cluster": "operations", "label": "Ops: Responsibility Matrix",            "scope": "event", "default": true,  "depends_on": ["operations.workspace"] },
+    { "id": "operations.contact_directory","cluster": "operations","label": "Ops: Show contact numbers in directory","scope": "event", "default": true,  "depends_on": ["operations.workspace"] }
   ]
 }

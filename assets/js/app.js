@@ -87,6 +87,7 @@ const views = {
   login:      () => import('./views/login.js'),
   me:         () => import('./views/me.js'),
   manage:     () => import('./views/manage.js'),
+  operations: () => import('./views/operations.js'),
 };
 
 async function mountView(loader, ctx) {
@@ -127,6 +128,12 @@ router.register('/verify/:id',                (ctx) => mountView(views.verify, c
 router.register('/login',                     (ctx) => mountView(views.login, ctx));
 router.register('/me',                        (ctx) => mountView(views.me, ctx));
 router.register('/manage',                    (ctx) => mountView(views.manage, ctx));
+router.register('/e/:id/operations',                     (ctx) => mountView(views.operations, ctx));
+router.register('/e/:id/operations/activities',          (ctx) => mountView(views.operations, { ...ctx, match: { ...ctx.match, sub: 'activities' } }));
+router.register('/e/:id/operations/activity/:activityId',(ctx) => mountView(views.operations, { ...ctx, match: { ...ctx.match, sub: 'activity' } }));
+router.register('/e/:id/operations/people',              (ctx) => mountView(views.operations, { ...ctx, match: { ...ctx.match, sub: 'people' } }));
+router.register('/e/:id/operations/plan',                (ctx) => mountView(views.operations, { ...ctx, match: { ...ctx.match, sub: 'plan' } }));
+router.register('/e/:id/operations/matrix',              (ctx) => mountView(views.operations, { ...ctx, match: { ...ctx.match, sub: 'matrix' } }));
 // Unknown hash routes get a proper "Not found" panel instead of a
 // silent redirect to Home — makes typos and stale bookmarks visible.
 router.fallback(                              (ctx) => mountView(async () => ({

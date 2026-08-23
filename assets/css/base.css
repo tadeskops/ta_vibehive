@@ -996,3 +996,89 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
   .tvh-backtotop { transition: opacity 100ms ease; transform: none; }
   .tvh-backtotop.is-visible { transform: none; }
 }
+
+
+/* ---------- Event Operations Workspace (Phase 1) ---------- */
+.tvh-ops-shell{display:block}
+.tvh-ops-hero{margin-top:0}
+.tvh-ops-hero h1{font-size:20px;letter-spacing:-.01em}
+.tvh-ops-tabs{display:flex;gap:4px;margin-top:12px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+.tvh-ops-tab{padding:8px 14px;border-radius:12px;border:1px solid var(--line);background:#fff;color:var(--ink);font-weight:700;font-size:13px;text-decoration:none;white-space:nowrap}
+.tvh-ops-tab:hover{border-color:var(--terra);color:var(--terra)}
+.tvh-ops-tab.active{background:var(--terra);color:#fff;border-color:var(--terra)}
+
+.tvh-ops-kpi{padding:14px 16px}
+.tvh-ops-kpi .k{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800}
+.tvh-ops-kpi .v{font-size:22px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+.tvh-ops-kpi .sub{margin-top:2px}
+
+.tvh-ops-health{display:flex;flex-direction:column;gap:6px;font-family:ui-monospace,monospace;font-size:13px}
+.tvh-ops-health-row{display:grid;grid-template-columns:150px 1fr 32px;gap:8px;align-items:baseline}
+.tvh-ops-health-fill{letter-spacing:-.5px;overflow:hidden;white-space:nowrap}
+.tvh-ops-health-fill.is-ready{color:#4a8f2c}
+.tvh-ops-health-fill.is-progress{color:#c78f2a}
+.tvh-ops-health-fill.is-attention{color:var(--emerg)}
+.tvh-ops-health-fill.is-idle{color:var(--muted)}
+.tvh-ops-health-count{text-align:right;font-weight:800}
+
+.tvh-ops-attn{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.tvh-ops-attn-link{display:block;padding:8px 12px;border-radius:10px;background:#fbe9e5;color:var(--emerg);text-decoration:none;font-weight:600}
+.tvh-ops-attn-link:hover{background:#f7d0c7}
+
+.tvh-ops-owner-grid,.tvh-ops-activity-grid,.tvh-ops-people-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));margin-top:8px}
+.tvh-ops-owner-card,.tvh-ops-activity-card,.tvh-ops-person-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;position:relative}
+.tvh-ops-owner-card.is-self{border-color:var(--terra);box-shadow:0 0 0 2px var(--terra-soft)}
+.tvh-ops-owner-head{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tvh-ops-owner-head .lbl{font-size:10px;letter-spacing:.08em;color:var(--muted);font-weight:800}
+.tvh-ops-owner-person{display:flex;gap:10px;align-items:center;margin-top:4px}
+.tvh-ops-owner-empty{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}
+.tvh-ops-owner-name{font-weight:800}
+.tvh-ops-owner-meta{min-width:0}
+.tvh-ops-owner-activities{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:2px;font-size:12px}
+.tvh-ops-owner-activities li a{color:var(--terra);text-decoration:none}
+
+.tvh-ops-activity-card{padding:0}
+.tvh-ops-activity-body{display:block;padding:14px 16px;color:var(--ink);text-decoration:none}
+.tvh-ops-activity-icon{width:38px;height:38px;border-radius:12px;background:var(--terra-soft);display:flex;align-items:center;justify-content:center;font-size:20px}
+.tvh-ops-activity-title{font-weight:800}
+.tvh-ops-activity-leads{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.tvh-ops-lead-chip{display:inline-flex;gap:6px;align-items:center;background:#fbf6ee;border:1px solid var(--line);border-radius:999px;padding:2px 10px 2px 3px;font-size:12px;font-weight:600}
+.tvh-ops-vol-chip{display:inline-flex;gap:4px;align-items:center;background:#eef8e3;border:1px solid #d5ecb8;color:#3f6b1e;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700}
+.tvh-ops-missing{margin-top:8px;padding:6px 10px;border-radius:10px;background:#fbe9e5;color:var(--emerg);font-size:12px;font-weight:700}
+
+.tvh-ops-avatar{width:34px;height:34px;border-radius:50%;background:var(--terra);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0}
+.tvh-ops-avatar-sm{width:22px;height:22px;font-size:11px}
+.tvh-ops-icon-btn{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:8px;border:1px solid transparent;background:transparent;cursor:pointer;color:var(--muted)}
+.tvh-ops-icon-btn:hover{background:var(--terra-soft);color:var(--terra)}
+
+.tvh-ops-lead-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.tvh-ops-lead-card{background:#fbf6ee;border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.tvh-ops-lead-card .lbl{font-size:10px;letter-spacing:.08em;color:var(--muted);font-weight:800}
+
+.tvh-ops-vol-list{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.tvh-ops-vol-item{display:flex;gap:8px;align-items:center;padding:8px 10px;background:#fff;border:1px solid var(--line);border-radius:10px}
+
+.tvh-ops-person-roles{list-style:none;margin:8px 0 0;padding:0;font-size:12px;color:var(--muted)}
+.tvh-ops-person-roles li{padding:2px 0}
+
+.tvh-ops-day-strip{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.tvh-ops-day-card{background:#fbf6ee;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.tvh-ops-day-card .lbl{font-size:10px;letter-spacing:.08em;color:var(--muted);font-weight:800}
+.tvh-ops-day-card ul{list-style:none;margin:8px 0 0;padding:0;font-size:12px;display:flex;flex-direction:column;gap:2px}
+.tvh-ops-day-card ul a{color:var(--terra);text-decoration:none}
+
+.tvh-ops-day-picker{display:flex;flex-wrap:wrap;gap:6px}
+.tvh-ops-day-pill{display:inline-flex;gap:4px;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:12px;cursor:pointer;font-weight:600}
+.tvh-ops-day-pill input{margin:0;transform:none}
+.tvh-ops-day-pill:has(input:checked){background:var(--terra);color:#fff;border-color:var(--terra)}
+
+.tvh-ops-form .field{margin-bottom:10px}
+.tvh-ops-form .field-shrink{flex:0 0 auto}
+
+.tvh-ops-entry{background:linear-gradient(180deg,#fbf6ee 0%,#fff 100%)}
+
+@media(max-width:640px){
+  .tvh-ops-health-row{grid-template-columns:120px 1fr 28px;font-size:12px}
+  .tvh-ops-owner-grid,.tvh-ops-activity-grid,.tvh-ops-people-grid{grid-template-columns:1fr}
+  .tvh-ops-lead-grid{grid-template-columns:1fr}
+}
