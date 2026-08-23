@@ -29,6 +29,7 @@
     { "id": "privacy.anonymous",     "cluster": "privacy",        "label": "Allow anonymous public display",  "scope": "event",     "default": true },
     { "id": "privacy.public_board",  "cluster": "privacy",        "label": "Public contributor board",        "scope": "event",     "default": true },
     { "id": "privacy.amount_hidden", "cluster": "privacy",        "label": "Hide amount on public board",     "scope": "event",     "default": false },
+    { "id": "privacy.mask_amounts_resident", "cluster": "privacy", "label": "Mask contribution amounts from residents (own row still visible)", "scope": "event", "default": false },
     { "id": "privacy.public_mask",   "cluster": "privacy",        "label": "Mask dashboard for anonymous viewers", "scope": "system", "default": false, "requires_role": "admin" },
     { "id": "registration.on",       "cluster": "registration",   "label": "Registration required",           "scope": "event",     "default": false },
     { "id": "registration.family",   "cluster": "registration",   "label": "Family group registration",       "scope": "event",     "default": false, "depends_on": ["registration.on"] },

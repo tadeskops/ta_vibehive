@@ -115,6 +115,7 @@ export async function render(root, { match }) {
   const showProgress = await isEventOn('reporting.progress', evt);
   const showBoard = await isEventOn('privacy.public_board', evt);
   const hideAmount = await isEventOn('privacy.amount_hidden', evt);
+  const maskAmountsForResidents = await isEventOn('privacy.mask_amounts_resident', evt);
   const showSignedInReport = await isEventOn('reporting.event_detail_signedin', evt);
   const canOpenDetailedReport = showSignedInReport && await canViewEventDetailedReport(evt, user, canReportView);
   const goal = evt.goal || 0;
@@ -154,7 +155,7 @@ export async function render(root, { match }) {
     el('div', { class: 'progress-meta' }, el('span', { text: fmtINR(total) + ' raised' }), el('span', { text: pct + '% of goal' }))
   ) : null;
 
-  const board = showBoard ? await renderPublicBoard(evt, hideAmount, user) : null;
+  const board = showBoard ? await renderPublicBoard(evt, hideAmount, user, { maskAmountsForResidents }) : null;
   const reportCard = canOpenDetailedReport
     ? el('section', { class: 'card card-pad', style: 'margin-top:16px' },
       el('h3', { text: 'Contribution report' }),
@@ -250,8 +251,9 @@ function statCard(k, v) {
   );
 }
 
-async function renderPublicBoard(evt, hideAmount, user) {
+async function renderPublicBoard(evt, hideAmount, user, opts = {}) {
   const isResident = !!(user && user.role === 'resident');
+  const maskAmountsForResidents = !!(opts && opts.maskAmountsForResidents);
   const rows = isResident
     ? publicBoardFor(evt.id)
     : contribsFor(evt.id)
@@ -284,6 +286,23 @@ async function renderPublicBoard(evt, hideAmount, user) {
   };
   const canViewReceipt = (r) => !!(user && !isResident && canReceiptDownload && r.contribId && String(r.status || '') === 'verified');
   const canDownloadOwnReceipt = (r) => !!(user && isResident && canReceiptDownload && r.contribId && String(r.status || 'verified') === 'verified' && ownsRow(r));
+  /* Amount masking: residents see their own contribution amount but
+   * other residents' amounts are blurred behind a bullet chip. The
+   * committee / admin surfaces stay unaffected. */
+  const shouldMaskAmount = (r) => isResident && maskAmountsForResidents && !ownsRow(r);
+  const amountCell = (r) => {
+    if (r.amount == null || hideAmount) return el('td', { class: 'num', text: '—' });
+    if (shouldMaskAmount(r)) {
+      return el('td', { class: 'num' },
+        el('span', {
+          class: 'tvh-amount-masked',
+          title: 'Contribution amounts are masked for residents on this event.',
+          'aria-label': 'Amount hidden',
+        }, '•••')
+      );
+    }
+    return el('td', { class: 'num', text: fmtINR(r.amount) });
+  };
   const body = el('table', { class: 'table' },
     el('thead', {}, el('tr', {},
       el('th', { text: 'When' }),
@@ -297,7 +316,7 @@ async function renderPublicBoard(evt, hideAmount, user) {
       el('td', { text: fmtDate(r.when) }),
       el('td', { text: r.name }),
       el('td', { text: r.flat }),
-      el('td', { class: 'num', text: (r.amount == null || hideAmount) ? '—' : fmtINR(r.amount) }),
+      amountCell(r),
       !isResident
         ? el('td', { class: 'num' },
             el('small', { class: 'pill ' + (String(r.status || '') === 'verified' ? 'ok' : 'warn'), text: String(r.status || '').toUpperCase() || 'PENDING' })
@@ -332,6 +351,9 @@ async function renderPublicBoard(evt, hideAmount, user) {
   );
   return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
     el('h3', { text: '🌸 Contributor board' }),
+    isResident && maskAmountsForResidents
+      ? el('p', { class: 'sub', style: 'margin:0 0 8px', text: 'Contribution amounts are masked (•••) so residents cannot see individual amounts. Your own row shows your amount. Tally stats on top remain visible.' })
+      : null,
     canReceiptDownload
       ? el('p', { class: 'sub', style: 'margin:0 0 8px', text: isResident
         ? 'Residents can download (⬇) their own verified receipts only.'
