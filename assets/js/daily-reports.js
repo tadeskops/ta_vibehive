@@ -140,7 +140,7 @@ export async function runDailyReportsBackfill() {
     if (!soc || !soc.receipts || !soc.receipts.archive || !soc.receipts.archive.enabled) return 0;
     const archiveCfg = soc.receipts.archive || {};
     const reportTpl = archiveCfg.perReportPath || DEFAULT_ARCHIVE.perReportPath;
-    const events = state.events().filter((e) => e && (e.status === STATUS.PUBLISHED || e.status === STATUS.CLOSED));
+    const events = state.events().filter((e) => e && (e.status === STATUS.PUBLISHED || e.status === STATUS.CLOSED) && e.records_enabled !== false);
     if (!events.length) return 0;
     const contribs = state.contribs();
     const expenses = state.expenses();

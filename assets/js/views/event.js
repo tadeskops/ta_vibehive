@@ -419,6 +419,29 @@ async function renderEdit(root, evt, user, caps) {
     themeSel,
     el('div', { class: 'row', style: 'gap:8px;align-items:baseline;margin-top:4px' }, themeHint, themePreviewLink)
   );
+  // Society-records toggle. Day-to-day sports fixtures ship OFF so
+  // casual play doesn't inflate the ledger; committee can flip it on
+  // for e.g. an inter-society tournament that needs formal records.
+  const recordsInitial = evt.records_enabled === undefined ? (evt.template !== 'sports') : !!evt.records_enabled;
+  const recordsChk = el('input', { type: 'checkbox', checked: recordsInitial });
+  const recordsIcon = el('span', { class: 'tvh-records-icon', 'aria-hidden': 'true' });
+  const recordsHint = el('small', { class: 'sub', style: 'display:block' });
+  const refreshRecords = () => {
+    const on = !!recordsChk.checked;
+    recordsIcon.textContent = on ? '📒' : '🚫';
+    recordsHint.textContent = on
+      ? 'Receipts and daily reports for this event will be archived to the private society records repo.'
+      : 'This event stays off the ledger — no receipt archive, no auto-generated reports.';
+  };
+  recordsChk.addEventListener('change', refreshRecords);
+  refreshRecords();
+  const recordsI = el('div', { class: 'field' },
+    el('label', { class: 'row', style: 'gap:8px;align-items:center;cursor:pointer' },
+      recordsChk, recordsIcon,
+      el('span', { text: 'Record this event in society ledger' })
+    ),
+    recordsHint
+  );
   const startI = field('start', 'Start date', el('input', { type: 'date', value: evt.start_at || '' }));
   const endI = field('end', 'End / deadline', el('input', { type: 'date', value: evt.end_at || '' }));
   const capI = field('cap', 'Capacity', el('input', { type: 'number', value: String(evt.capacity || 0), min: '0' }));
@@ -653,6 +676,7 @@ async function renderEdit(root, evt, user, caps) {
           status: statusSel.value,
           festival_visual_id: visualSel ? (visualSel.value || '') : (evt.festival_visual_id || ''),
           receipt_theme: (themeSel.value || ''),
+          records_enabled: !!recordsChk.checked,
         };
         const errs = await validateEventFeatures(updated.features);
         if (errs.length) { toast(`Fix dependencies: ${errs[0].id} needs ${errs[0].missing}`, 'err'); return; }
@@ -691,7 +715,7 @@ async function renderEdit(root, evt, user, caps) {
   );
 
   form.append(el('h2', { text: 'Edit event' }),
-    el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI, suggestedI, appreciateI, themeI),
+    el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI, suggestedI, appreciateI, themeI, recordsI),
     visualI ? el('section', { style: 'margin-top:14px' },
       el('h3', { text: 'Event visual' }),
       el('p', { class: 'sub', style: 'margin-bottom:10px', text: 'Cultural / festival events can display a curated illustration on the event grid and hero.' }),

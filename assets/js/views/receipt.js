@@ -686,6 +686,10 @@ export async function downloadExpenseDirect(expenseId, format /* 'pdf' | 'png' *
   // Fire-and-forget archive push, similar to receipts. Path template
   // mirrors receipts naming: <eventCodeLower>/<yyyy-mm>/expense_<id>_receipt.pdf
   try {
+    // Per-event opt-out honoured here too — same rule as contribution
+    // receipts so an event marked "not in ledger" never leaks any
+    // financial artefact into the private records repo.
+    if (evt && evt.records_enabled === false) return;
     const soc2 = soc || (await getSociety());
     const archCfg = (soc2 && soc2.receipts && soc2.receipts.archive) || null;
     if (archCfg && archCfg.enabled) {
@@ -769,6 +773,9 @@ export async function renderExpense(root, { match }) {
 }
 
 async function archiveReceiptPdfIfMissing(doc, r, rec, evt, soc) {
+  // Per-event opt-out: sports fixtures + any event with the "record
+  // in ledger" toggle switched off never reach the archive repo.
+  if (evt && evt.records_enabled === false) return;
   const archiveCfg = (soc && soc.receipts && soc.receipts.archive) || DEFAULT_ARCHIVE;
   if (!archiveCfg || !archiveCfg.enabled) return;
   const dataUri = String(doc.output('datauristring') || '');

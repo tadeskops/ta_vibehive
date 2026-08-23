@@ -152,6 +152,10 @@ export async function newEventFromTemplate(templateId, actor) {
     end_at: '',
     status: STATUS.DRAFT,
     features: featuresMap,
+    // Whether receipts + reports for this event are archived to the
+    // society records. Day-to-day sports fixtures default OFF so
+    // casual play doesn't clutter the ledger; committee can flip it.
+    records_enabled: tpl.id !== 'sports',
     created_by: actor ? actor.id : null,
     created_at: now.toISOString(),
     updated_at: now.toISOString(),
