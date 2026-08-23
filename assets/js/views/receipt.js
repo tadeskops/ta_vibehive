@@ -728,6 +728,46 @@ export async function shareExpenseDirect(expenseId) {
   doc.save(expensePdfFileName(x));
 }
 
+/** Expense-voucher preview view — wired at `#/expense/:id`. Enforces
+ *  the same ownership rule as the inline icons: role viewers see any
+ *  verified expense, residents only see their own. */
+export async function renderExpense(root, { match }) {
+  const id = match && match.id;
+  const x = state.expenses().find(e => e && e.id === id);
+  if (!x) return mount(root, el('div', { class: 'card card-pad' }, el('h2', { text: 'Expense not found.' })));
+  const user = session();
+  const isOwn = user && x.created_by && String(x.created_by).toLowerCase() === String(user.email || user.id || '').toLowerCase();
+  const canView = user && (isOwn || await can(user, 'expenses.view'));
+  if (!canView) return mount(root, el('div', { class: 'card card-pad' }, el('h2', { text: 'Not authorised.' })));
+  if (x.status !== 'verified') {
+    return mount(root, el('div', { class: 'card card-pad' },
+      el('h2', { text: 'Pending verification' }),
+      el('p', { text: 'This expense has not been verified yet. A voucher is generated only after verification.' }),
+      el('a', { class: 'btn', href: `#/e/${x.event_id}` }, 'Back to event')
+    ));
+  }
+  const evt = findEvent(x.event_id);
+  const soc = await getSociety();
+  const actions = el('div', { class: 'row row-end print-hide', style: 'margin-bottom:16px;flex-wrap:wrap;gap:8px' },
+    el('a', { class: 'btn btn-ghost', href: `#/e/${x.event_id}` }, '← Event'),
+    el('button', {
+      class: 'btn btn-ghost', type: 'button', title: 'Share expense voucher on WhatsApp',
+      on: { click: async (ev) => { const b = ev.currentTarget; b.disabled = true;
+        try { await shareExpenseDirect(x.id); } catch (e) { toast((e && e.message) || 'Could not share.', 'err'); }
+        finally { b.disabled = false; } } }
+    }, waIcon(), el('span', { text: 'WhatsApp' })),
+    el('button', {
+      class: 'btn', type: 'button', title: 'Download voucher PDF',
+      on: { click: async (ev) => { const b = ev.currentTarget; b.disabled = true; const lbl = b.textContent; b.textContent = 'Preparing…';
+        try { await downloadExpenseDirect(x.id, 'pdf'); toast('Voucher PDF saved.', 'ok'); }
+        catch (e) { toast((e && e.message) || 'Could not download.', 'err'); }
+        finally { b.disabled = false; b.textContent = lbl; } } }
+    }, '⬇ Download PDF')
+  );
+  const article = buildExpenseArticle(x, evt, soc);
+  mount(root, actions, article);
+}
+
 async function archiveReceiptPdfIfMissing(doc, r, rec, evt, soc) {
   const archiveCfg = (soc && soc.receipts && soc.receipts.archive) || DEFAULT_ARCHIVE;
   if (!archiveCfg || !archiveCfg.enabled) return;

@@ -316,6 +316,12 @@ async function renderPublicBoard(evt, hideAmount, user) {
             )
           : canDownloadOwnReceipt(r)
             ? el('span', { class: 'tvh-receipt-actions' },
+              el('a', {
+                class: 'tvh-mini-icon-btn',
+                href: `#/receipt/${encodeURIComponent(r.contribId)}`,
+                title: 'View your receipt',
+                'aria-label': 'View your receipt'
+              }, '👁'),
               receiptWhatsAppIconBtn(r.contribId),
               receiptDownloadIconBtn(r.contribId, { title: 'Download receipt (PDF or PNG)' })
             )
@@ -848,6 +854,12 @@ function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
     el('td', {}, visToggle),
     (canRecord || canVerify) ? el('td', {}, el('div', { class: 'row' },
       (canVerify && status === 'pending') ? el('button', { class: 'btn btn-sm', on: { click: () => verifyExpense(r, evt, user, caps) } }, 'Verify') : null,
+      canSeeVoucher ? el('a', {
+        class: 'tvh-mini-icon-btn',
+        href: `#/expense/${encodeURIComponent(r.id)}`,
+        title: 'View expense voucher',
+        'aria-label': 'View expense voucher'
+      }, '👁') : null,
       canSeeVoucher ? expenseWhatsAppIconBtn(r.id) : null,
       canSeeVoucher ? expenseDownloadIconBtn(r.id, { title: 'Download expense voucher (PDF or PNG)' }) : null,
       canEditThis ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openExpenseDialog(evt, user, r, !!r.visible_to_residents, status, () => renderManage(document.getElementById('main'), evt, user, caps)) } }, 'Edit') : null,

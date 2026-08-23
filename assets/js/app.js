@@ -108,6 +108,12 @@ router.register('/settings/:tab',             (ctx) => mountView(views.settings,
 router.register('/reports',                   (ctx) => mountView(views.reports, ctx));
 router.register('/reports/event/:id',         (ctx) => mountView(views.reports, ctx));
 router.register('/receipt/:id',               (ctx) => mountView(views.receipt, ctx));
+// Expense voucher preview — reuses the receipt module so we don't
+// double-load the jsPDF/html2canvas stack for a second page.
+router.register('/expense/:id',               (ctx) => mountView(async () => {
+  const m = await import('./views/receipt.js');
+  return { render: m.renderExpense };
+}, ctx));
 router.register('/verify',                    (ctx) => mountView(views.verify, ctx));
 router.register('/verify/:id',                (ctx) => mountView(views.verify, ctx));
 router.register('/login',                     (ctx) => mountView(views.login, ctx));

@@ -244,8 +244,11 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
       const amt = c.hide_amount ? '—' : fmtINR(Number(c.amount || 0));
       const stCls = c.status === 'verified' ? 'ok' : 'warn';
       const dateShort = (c.created_at || '').slice(0, 10);
-      const showRoleViewIcon = c.status === 'verified' && canRoleReceiptView;
-      const showResidentDownloadIcon = c.status === 'verified' && isResident && canReceiptDownload && ownedByMe(c);
+      const isOwnRow = ownedByMe(c);
+      // Preview icon: role viewers see it on any verified row;
+      // residents only on their own verified rows.
+      const showViewIcon = c.status === 'verified' && (canRoleReceiptView || (isResident && canReceiptDownload && isOwnRow));
+      const showResidentDownloadIcon = c.status === 'verified' && isResident && canReceiptDownload && isOwnRow;
       const showVerifyIcon = canVerifyContrib && c.status === 'pending';
       return el('div', { class: 'row row-between tvh-latest-row', style: 'gap:10px;padding:10px 0' },
         el('div', { style: 'min-width:0;flex:1' },
@@ -256,8 +259,8 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
           el('div', { style: 'font-weight:800', text: amt }),
           el('div', { class: 'row', style: 'gap:6px;align-items:center;justify-content:flex-end' },
             el('small', { class: 'pill ' + stCls, text: c.status }),
-            showRoleViewIcon ? receiptViewIconLink(c.id) : null,
-            (showRoleViewIcon || showResidentDownloadIcon) ? receiptWhatsAppIconBtn(c.id) : null,
+            showViewIcon ? receiptViewIconLink(c.id) : null,
+            (showViewIcon || showResidentDownloadIcon) ? receiptWhatsAppIconBtn(c.id) : null,
             showResidentDownloadIcon ? receiptDownloadIconLink(c.id) : null,
             showVerifyIcon ? verifyContribIconBtn(c, user, evt) : null
           )

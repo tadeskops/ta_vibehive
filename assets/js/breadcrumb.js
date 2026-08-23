@@ -50,6 +50,11 @@ function labelForParts(parts) {
     chain.push({ href: null, label: 'Receipt' });
     return chain;
   }
+  if (first === '/expense' && parts[1]) {
+    chain.push({ href: '#/events', label: 'Events' });
+    chain.push({ href: null, label: 'Expense voucher' });
+    return chain;
+  }
   const label = SEGMENT_LABELS[first] || first.slice(1).replace(/-/g, ' ');
   chain.push({ href: null, label: label.charAt(0).toUpperCase() + label.slice(1) });
   return chain;
