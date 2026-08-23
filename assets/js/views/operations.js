@@ -99,6 +99,7 @@ export async function render(root, ctx = {}) {
 
   const sub  = (ctx && ctx.match && ctx.match.sub) || 'overview';
   const activityId = ctx && ctx.match && ctx.match.activityId || '';
+  const params = (ctx && ctx.params) || new URLSearchParams();
 
   const doc = loadOps(evt.id);
   const health = healthSnapshot(doc);
@@ -113,7 +114,7 @@ export async function render(root, ctx = {}) {
   } else if (sub === 'people') {
     shell.append(renderPeoplePanel(evt, doc, user, caps));
   } else if (sub === 'plan') {
-    shell.append(renderPlanPanel(evt, doc, user, caps));
+    shell.append(renderPlanPanel(evt, doc, user, caps, params));
   } else if (sub === 'matrix') {
     shell.append(renderMatrixPanel(evt, doc, user, caps));
   } else if (sub === 'activities') {
@@ -780,26 +781,107 @@ function openPersonModal(evt, doc, existing, user) {
   });
 }
 
-/* ---------- 7-day plan (Phase 3 scaffold) ---------- */
+/* ---------- 7-Day visual plan (Slice 2, Phase 3) ---------- */
 
-function renderPlanPanel(evt, doc, user, caps) {
+// Morning 06:00-11:59, Afternoon 12:00-17:59, Evening 18:00-23:59.
+// Activities without a start_time fall into "Anytime" so a coordinator
+// still sees them on the day they own.
+function timeBucket(t) {
+  if (!t) return 'anytime';
+  const h = parseInt(String(t).slice(0, 2), 10);
+  if (!Number.isFinite(h)) return 'anytime';
+  if (h < 12) return 'morning';
+  if (h < 18) return 'afternoon';
+  return 'evening';
+}
+const RAILS = [
+  { id: 'morning',   label: '🌅 Morning',   sub: '6 AM – 12 PM' },
+  { id: 'afternoon', label: '☀ Afternoon', sub: '12 PM – 6 PM' },
+  { id: 'evening',   label: '🌙 Evening',   sub: '6 PM – Midnight' },
+  { id: 'anytime',   label: '⏱ Anytime',    sub: 'no time set' },
+];
+
+function renderPlanPanel(evt, doc, user, caps, params) {
+  if (!caps.opsTimelineOn) {
+    return el('section', { class: 'card card-pad' },
+      el('h3', { style: 'margin:0 0 4px', text: '📅 7-Day plan' }),
+      el('small', { class: 'sub', text: 'Timeline is disabled for this event (operations.timeline is off). Enable it in the event feature toggles.' })
+    );
+  }
   const daysTotal = countDays(evt);
+  const wantedDay = Math.min(Math.max(1, Number(params.get('day')) || 1), daysTotal);
+
+  const dayStrip = el('div', { class: 'tvh-ops-day-pills' },
+    ...Array.from({ length: daysTotal }, (_, i) => {
+      const day = i + 1;
+      const dayActs = doc.activities.filter(a => (a.days || []).includes(day));
+      const attention = dayActs.some(a => !a.primary_lead_id || !a.co_lead_id);
+      return el('a', {
+        class: 'tvh-ops-day-btn' + (day === wantedDay ? ' active' : ''),
+        href: `#/e/${evt.id}/operations/plan?day=${day}`,
+      },
+        el('div', { class: 'tvh-ops-day-btn-num', text: 'DAY ' + day }),
+        el('div', { class: 'tvh-ops-day-btn-date', text: dayLabel(evt, day) || '—' }),
+        el('div', { class: 'tvh-ops-day-btn-meta', text: dayActs.length + (dayActs.length === 1 ? ' activity' : ' activities') }),
+        attention ? el('span', { class: 'tvh-ops-day-btn-dot', title: 'Needs attention', text: '●' }) : null
+      );
+    })
+  );
+
+  const dayActs = doc.activities
+    .filter(a => (a.days || []).includes(wantedDay))
+    .slice()
+    .sort((x, y) => String(x.start_time || 'z').localeCompare(String(y.start_time || 'z')));
+
+  const rails = RAILS.map(r => {
+    const bucket = dayActs.filter(a => timeBucket(a.start_time) === r.id);
+    if (r.id === 'anytime' && !bucket.length) return null;
+    return el('div', { class: 'tvh-ops-rail' },
+      el('div', { class: 'tvh-ops-rail-head' },
+        el('div', { class: 'tvh-ops-rail-label', text: r.label }),
+        el('small', { class: 'sub', text: r.sub })
+      ),
+      bucket.length
+        ? el('div', { class: 'tvh-ops-rail-body' },
+            ...bucket.map(a => renderTimelineActivity(evt, doc, a))
+          )
+        : el('small', { class: 'sub', style: 'display:block;margin-top:6px', text: 'Nothing scheduled.' })
+    );
+  }).filter(Boolean);
+
   return el('section', { class: 'card card-pad' },
-    el('h3', { style: 'margin:0 0 4px', text: '📅 7-Day plan' }),
-    el('small', { class: 'sub', style: 'display:block;margin-bottom:12px', text: 'Visual timeline lands in Phase 3. For now, this shows a summary of activities per day so you can see coverage.' }),
-    el('div', { class: 'tvh-ops-day-strip' },
-      ...Array.from({ length: daysTotal }, (_, i) => {
-        const day = i + 1;
-        const dayActs = doc.activities.filter(a => (a.days || []).includes(day));
-        return el('div', { class: 'tvh-ops-day-card' },
-          el('div', { class: 'lbl', text: 'DAY ' + day }),
-          el('small', { class: 'sub', text: dayLabel(evt, day) }),
-          dayActs.length
-            ? el('ul', {}, ...dayActs.slice(0, 6).map(a => el('li', {}, el('a', { href: `#/e/${evt.id}/operations/activity/${a.id}` }, (a.icon || '·') + ' ' + a.title))))
-            : el('small', { class: 'sub', style: 'display:block;margin-top:4px', text: 'No activities scheduled' })
-        );
-      })
-    )
+    el('div', { class: 'row row-between', style: 'align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px' },
+      el('div', {},
+        el('h3', { style: 'margin:0', text: '📅 Day ' + wantedDay + ' plan' }),
+        el('small', { class: 'sub', text: dayLabel(evt, wantedDay) || 'No date set' })
+      ),
+      caps.opsManage ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/e/${evt.id}/operations/activities` }, '＋ Add activity') : null
+    ),
+    dayStrip,
+    el('div', { class: 'tvh-ops-rails' }, ...rails),
+    !dayActs.length ? el('p', { class: 'sub', style: 'margin-top:12px', text: 'No activities scheduled for this day. Add one from the Activities tab and tick this day in the day picker.' }) : null
+  );
+}
+
+function renderTimelineActivity(evt, doc, a) {
+  const primary = findPerson(doc, a.primary_lead_id);
+  const coLead  = findPerson(doc, a.co_lead_id);
+  const vols = (a.volunteer_ids || []).length;
+  return el('a', { class: 'tvh-ops-timeline-card', href: `#/e/${evt.id}/operations/activity/${a.id}` },
+    el('div', { class: 'tvh-ops-timeline-time', text: a.start_time || '—' }),
+    el('div', { class: 'tvh-ops-timeline-body' },
+      el('div', { class: 'row', style: 'gap:8px;align-items:center' },
+        el('span', { class: 'tvh-ops-activity-icon', style: 'width:28px;height:28px;font-size:16px', text: a.icon || '🎯' }),
+        el('span', { class: 'tvh-ops-activity-title', text: a.title })
+      ),
+      a.location ? el('small', { class: 'sub', text: '📍 ' + a.location }) : null,
+      el('div', { class: 'tvh-ops-activity-leads' },
+        leadChip('Primary', primary),
+        leadChip('Co-lead', coLead),
+        el('span', { class: 'tvh-ops-vol-chip', text: '👥 ' + vols })
+      )
+    ),
+    el('span', { class: 'pill ' + statusPillClass(a.status), text: OPS_STATUS_LABEL[a.status] || a.status })
   );
 }
 
