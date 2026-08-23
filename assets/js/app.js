@@ -120,7 +120,25 @@ router.register('/verify/:id',                (ctx) => mountView(views.verify, c
 router.register('/login',                     (ctx) => mountView(views.login, ctx));
 router.register('/me',                        (ctx) => mountView(views.me, ctx));
 router.register('/manage',                    (ctx) => mountView(views.manage, ctx));
-router.fallback(                              (ctx) => mountView(views.home, ctx));
+// Unknown hash routes get a proper "Not found" panel instead of a
+// silent redirect to Home — makes typos and stale bookmarks visible.
+router.fallback(                              (ctx) => mountView(async () => ({
+  render(root) {
+    const wrap = document.createElement('div');
+    wrap.className = 'card card-pad';
+    wrap.style.textAlign = 'center';
+    const h = document.createElement('h2'); h.textContent = 'Page not found';
+    const p = document.createElement('p'); p.className = 'sub';
+    p.textContent = 'That route doesn\u2019t exist here. Head back to a known page.';
+    const row = document.createElement('div'); row.className = 'row'; row.style.justifyContent = 'center'; row.style.gap = '8px'; row.style.marginTop = '10px';
+    const a1 = document.createElement('a'); a1.className = 'btn'; a1.href = '#/'; a1.textContent = 'Home';
+    const a2 = document.createElement('a'); a2.className = 'btn btn-ghost'; a2.href = '#/events'; a2.textContent = 'Events';
+    row.appendChild(a1); row.appendChild(a2);
+    wrap.appendChild(h); wrap.appendChild(p); wrap.appendChild(row);
+    root.textContent = '';
+    root.appendChild(wrap);
+  }
+}), ctx));
 
 /* Auth icons intentionally mirror TSH semantics:
  * - Sign in: right-to-bracket
