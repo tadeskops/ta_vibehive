@@ -22,6 +22,7 @@
 import { state, getSociety } from './store.js';
 import { queueAndMaybePushArchive } from './archive-runtime.js';
 import { STATUS } from './events.js';
+import { renderPathTemplate, sanitizeForPath, DEFAULT_ARCHIVE } from './paths.js';
 
 const REPORT_MIN_INTERVAL_MS = 20 * 60 * 60 * 1000; // 20 h — daily-ish with tolerance
 let _ran = false;
@@ -137,6 +138,8 @@ export async function runDailyReportsBackfill() {
   try {
     const soc = await getSociety();
     if (!soc || !soc.receipts || !soc.receipts.archive || !soc.receipts.archive.enabled) return 0;
+    const archiveCfg = soc.receipts.archive || {};
+    const reportTpl = archiveCfg.perReportPath || DEFAULT_ARCHIVE.perReportPath;
     const events = state.events().filter((e) => e && (e.status === STATUS.PUBLISHED || e.status === STATUS.CLOSED));
     if (!events.length) return 0;
     const contribs = state.contribs();
@@ -155,8 +158,22 @@ export async function runDailyReportsBackfill() {
         if (prior && prior.hash === hash) continue;      // no change
         if (!stale) continue;                            // too soon
         const code = eventCode(evt);
-        const stamp = stampDDMMYYYY_HHMMSS(new Date());
-        const path = `reports/${code.toLowerCase()}/${prefix}_${code}_${stamp}.json`;
+        const d = new Date();
+        const vars = {
+          prefix,
+          eventCode: code,
+          eventCodeLower: code.toLowerCase(),
+          eventId: evt.id || '',
+          year: String(d.getFullYear()),
+          month: pad2(d.getMonth() + 1),
+          day: pad2(d.getDate()),
+          dateStamp: `${pad2(d.getDate())}${pad2(d.getMonth() + 1)}${d.getFullYear()}`,
+          timeStamp: `${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`,
+          slug: sanitizeForPath(evt.slug || evt.id, 'event'),
+        };
+        const path = renderPathTemplate(reportTpl, vars)
+          .replace(/^\/+/, '')
+          .replace(/\.\.+/g, '.');
         const b64 = textToBase64(json);
         const res = await queueAndMaybePushArchive({
           path,

@@ -115,6 +115,11 @@ function examplePath(tpl, rollup = false) {
     year: y, month: m, day,
     yearMonth: `${y}-${m}`,
     date: `${y}-${m}-${day}`,
+    // Same stamp placeholders as `paths.archiveVars`.
+    dateStamp: `${day}${m}${y}`,
+    timeStamp: '143502',
+    prefix: 'TA',
+    slug: 'ev-example',
     flat: 'B-805',
     contributor: 'anon',
     amount: '5101',
@@ -505,7 +510,8 @@ async function renderAttributes(user, canUsersManage) {
    * archive helpers already consume via `paths.js`. */
   const archCfg = (rcfg.archive) || {};
   const rollCfg = (archCfg.rollup) || {};
-  const DEFAULT_PER_PATH   = '{eventCodeLower}/{yearMonth}/{flat}_{receiptId}.pdf';
+  const DEFAULT_PER_PATH    = '{eventCodeLower}/{yearMonth}/{flat}_{receiptId}_receipt.pdf';
+  const DEFAULT_REPORT_PATH = 'reports/{eventCodeLower}/{prefix}_{eventCode}_{dateStamp}_{timeStamp}_report.json';
   const DEFAULT_ROLLUP_PTH = '{eventCodeLower}/bckp/{period}/{periodKey}.pdf';
 
   const selArchiveEnabled = el('select', {
@@ -528,6 +534,13 @@ async function renderAttributes(user, canUsersManage) {
     on: { input: (e) => { stageAttr('receipts.archive.perReceiptPath', e.target.value.trim() || undefined, { silent: true }); previewPerReceiptPath.textContent = examplePath(e.target.value.trim() || DEFAULT_PER_PATH); } }
   });
   const previewPerReceiptPath = el('code', { class: 'sub', text: examplePath(archCfg.perReceiptPath || DEFAULT_PER_PATH) });
+
+  const inpPerReportPath = el('input', {
+    type: 'text',
+    value: archCfg.perReportPath || DEFAULT_REPORT_PATH,
+    on: { input: (e) => { stageAttr('receipts.archive.perReportPath', e.target.value.trim() || undefined, { silent: true }); previewPerReportPath.textContent = examplePath(e.target.value.trim() || DEFAULT_REPORT_PATH); } }
+  });
+  const previewPerReportPath = el('code', { class: 'sub', text: examplePath(archCfg.perReportPath || DEFAULT_REPORT_PATH) });
 
   const selRollupEnabled = el('select', {
     on: { change: (e) => stageAttr('receipts.archive.rollup.enabled', e.target.value === '1', { silent: true }) }
@@ -956,8 +969,11 @@ async function renderAttributes(user, canUsersManage) {
       'When a contribution is verified the Worker composes a PDF receipt and pushes it to the private receipts repository. Only Society Managers, Committee and Admins can view archived receipts — residents do not see them. All paths are templates; available placeholders: {eventCode} {eventCodeLower} {receiptId} {id} {year} {month} {day} {yearMonth} {flat} {period} {periodKey}.',
       row('Enabled', 'If disabled, on-page receipts still work; nothing is pushed to the private repo.', selArchiveEnabled),
       row('Target repository (from Worker env)', 'Set via GH_ARCHIVE_OWNER / GH_ARCHIVE_REPO / GH_ARCHIVE_BRANCH in wrangler.toml + TVH_ARCHIVE_PAT secret. Displayed read-only here.', inpArchiveTargetReadOnly),
-      row('perReceiptPath', 'Per-receipt PDF location.', el('div', {}, inpPerReceiptPath,
+      row('perReceiptPath', 'Per-receipt PDF/JSON location. End with `_receipt.<ext>` to distinguish from reports.', el('div', {}, inpPerReceiptPath,
         el('div', { style: 'margin-top:6px' }, el('small', { class: 'sub', text: 'Example preview: ' }), previewPerReceiptPath)
+      )),
+      row('perReportPath', 'Per-event daily report JSON location. Placeholders: {prefix} {eventCode} {dateStamp} {timeStamp}. End with `_report.json` to distinguish from receipts.', el('div', {}, inpPerReportPath,
+        el('div', { style: 'margin-top:6px' }, el('small', { class: 'sub', text: 'Example preview: ' }), previewPerReportPath)
       )),
       row('rollup.enabled', 'Also write a consolidated PDF per period alongside the per-receipt files.', selRollupEnabled),
       row('rollup.period', 'Granularity of the consolidated rollup.', selRollupPeriod),

@@ -335,6 +335,12 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .hero h1{font-size:30px}
 .hero .sub{color:var(--muted);font-size:14px}
 .hero-actions{margin-top:14px;display:flex;gap:10px;flex-wrap:wrap}
+/* Committee chips inside the hero — visually merges the old Committee KPI card. */
+.tvh-hero-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.tvh-hero-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.55);color:var(--ink);font-size:12px;font-weight:700;border:1px solid rgba(163,67,40,.14);backdrop-filter:blur(2px)}
+@media(max-width:640px){
+  .tvh-hero-chip{font-size:11px;padding:4px 10px}
+}
 
 /* Grid */
 .grid{display:grid;gap:14px;align-items:stretch}
@@ -342,6 +348,7 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .grid-3{grid-template-columns:repeat(auto-fit,minmax(clamp(220px,26vw,300px),1fr))}
 .grid-4{grid-template-columns:repeat(auto-fit,minmax(clamp(180px,20vw,240px),1fr))}
 .grid-2{grid-template-columns:repeat(auto-fit,minmax(clamp(260px,42vw,420px),1fr))}
+.grid-1{grid-template-columns:1fr}
 /* Widget-style stat cards keep a consistent height + gentle hover lift. */
 .grid .stat,.grid-4 .stat,.grid-3 .stat,.grid-2 .stat{min-height:96px;display:flex;flex-direction:column;justify-content:center;transition:transform .14s ease,box-shadow .14s ease}
 @media (min-width: 641px){

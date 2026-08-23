@@ -61,15 +61,6 @@ export async function render(root) {
   const user = session();
   const events = publicEvents();
   const masked = await shouldMaskPublic(user);
-  /* Society label for the hero pretitle — read live so a short_name /
-   * location override in Settings reflects here on the next render.
-   * Falls back to the shipped brand when the config isn't hydrated. */
-  const socHero = await getSociety().catch(() => null);
-  const heroBrand = socHero && socHero.short_name
-    ? (String(socHero.short_name) + ((socHero.location || '').split(',')[0].trim()
-        ? ' · ' + (socHero.location || '').split(',')[0].trim()
-        : '')).toUpperCase()
-    : 'THE ADDRESS · BANER';
 
   const emerg = events.find(e => e.template === 'emergency' && e.status === STATUS.PUBLISHED);
   /* Belt-and-braces dedupe: publicEvents() already unique-by-id, but home
@@ -78,14 +69,22 @@ export async function render(root) {
    * both the emergency callout and the grid. */
   const rest  = events.filter(e => e !== emerg && !(emerg && e.id === emerg.id));
 
+  // Committee chips — merged into the hero so signed-out visitors see
+  // the community label without a duplicate KPI card underneath.
+  const committeeChips = el('div', { class: 'tvh-hero-chips' },
+    el('span', { class: 'tvh-hero-chip', text: '🎭 Cultural' }),
+    el('span', { class: 'tvh-hero-chip', text: '🏸 Sports' }),
+    el('span', { class: 'tvh-hero-chip', text: '🤝 Volunteers' })
+  );
+
   const hero = el('section', { class: 'hero' },
     el('div', { class: 'row row-between' },
       el('div', {},
-        el('div', { class: 'pill', text: heroBrand }),
         el('h1', { text: user ? `Namaste, ${user.name.split(' ')[0]} 🙏` : 'Welcome to VibeHive' }),
         el('p', { class: 'sub', text: masked
           ? `${events.length} live event${events.length === 1 ? '' : 's'} · ${MASK_LABEL} for community totals.`
-          : `${events.length} live event${events.length === 1 ? '' : 's'} · ${totalPublicSum(events)} raised across the community.` })
+          : `${events.length} live event${events.length === 1 ? '' : 's'} · ${totalPublicSum(events)} raised across the community.` }),
+        committeeChips
       ),
       user ? el('a', { class: 'btn btn-ghost', href: '#/events' }, '＋ Browse events') : null
     )
@@ -135,12 +134,11 @@ export async function render(root) {
         masked ? 'members only' : 'across community'),
       stat('Committee', 'Cultural · Sports · Volunteers', null)
     )
-    /* Signed-out visitors get a lightweight two-tile summary — just
-     * event count + committee label. Every rupee figure and every
-     * contributor count stays behind the sign-in gate. */
-    : el('div', { class: 'grid grid-2' },
-      stat('Events planned', String(events.length), events.length ? 'Sign in to see schedule & finances' : 'Committee will publish soon'),
-      stat('Committee', 'Cultural · Sports · Volunteers', null)
+    /* Signed-out visitors already see the community label as chips
+     * inside the hero; the standalone Committee card was redundant so
+     * only the Events-planned tile survives here as the sign-in CTA. */
+    : el('div', { class: 'grid grid-1' },
+      stat('Events planned', String(events.length), events.length ? 'Sign in to see schedule & finances' : 'Committee will publish soon')
     );
 
   /* Signed-out users get no Latest Contributions surface at all — not

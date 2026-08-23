@@ -52,6 +52,9 @@ export function archiveVars(contribution, event) {
   const y = String(d.getUTCFullYear());
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mi = String(d.getUTCMinutes()).padStart(2, '0');
+  const ss = String(d.getUTCSeconds()).padStart(2, '0');
   const code = ((event && event.template) || 'gen').slice(0, 4).toUpperCase();
   return {
     eventCode: code,
@@ -65,6 +68,10 @@ export function archiveVars(contribution, event) {
     day,
     yearMonth: `${y}-${m}`,
     date: `${y}-${m}-${day}`,
+    // DDMMYYYY / HHMMSS placeholders for report/receipt naming
+    // conventions that follow a stamp-based scheme.
+    dateStamp: `${day}${m}${y}`,
+    timeStamp: `${hh}${mi}${ss}`,
     flat: sanitizeForPath(contribution.flat, 'unknown').toUpperCase(),
     contributor: sanitizeForPath((contribution.contributor || '').replace(/@/g, '_at_'), 'anon').toLowerCase(),
     amount: String(contribution.amount || 0),
@@ -96,7 +103,11 @@ export function rollupKeyFor(iso, period) {
 
 export const DEFAULT_ARCHIVE = Object.freeze({
   enabled: true,
-  perReceiptPath: '{eventCodeLower}/{yearMonth}/{flat}_{receiptId}.json',
+  perReceiptPath: '{eventCodeLower}/{yearMonth}/{flat}_{receiptId}_receipt.json',
+  // Path template for the daily per-event JSON snapshot. Consumed by
+  // `assets/js/daily-reports.js`. Supports the same placeholders as
+  // `perReceiptPath` plus `{prefix}` / `{dateStamp}` / `{timeStamp}`.
+  perReportPath: 'reports/{eventCodeLower}/{prefix}_{eventCode}_{dateStamp}_{timeStamp}_report.json',
   rollup: Object.freeze({
     enabled: true,
     period: 'monthly',

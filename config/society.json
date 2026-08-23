@@ -22,7 +22,8 @@
     "stamp_asset": "assets/images/TaStampBlue.png",
     "archive": {
       "enabled": true,
-      "perReceiptPath": "{eventCodeLower}/{yearMonth}/{flat}_{receiptId}.json",
+      "perReceiptPath": "{eventCodeLower}/{yearMonth}/{flat}_{receiptId}_receipt.json",
+      "perReportPath": "reports/{eventCodeLower}/{prefix}_{eventCode}_{dateStamp}_{timeStamp}_report.json",
       "rollup": {
         "enabled": true,
         "period": "monthly",
