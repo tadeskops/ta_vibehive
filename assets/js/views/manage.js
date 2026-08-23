@@ -5,7 +5,7 @@
  * `expenses.verify`. Anonymous callers are bounced to sign-in.
  */
 'use strict';
-import { el, mount, fmtDate, fmtINR, toast } from '../dom.js';
+import { el, mount, fmtDate, fmtINR, toast, applyResponsiveTableLabels } from '../dom.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { state } from '../store.js';
@@ -303,6 +303,7 @@ export async function render(root) {
     );
 
     root.append(hero, contribCard, expenseCard, activity);
+    applyResponsiveTableLabels(root);
   }
 
   draw();

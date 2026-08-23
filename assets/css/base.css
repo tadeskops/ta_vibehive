@@ -709,6 +709,64 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 .table tr:last-child td{border-bottom:none}
 .table .num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 
+/* Mobile card reflow — narrow viewports drop the tabular layout in favour
+   of stacked label/value cards. `data-label` is stamped on each <td> at
+   mount() time by applyResponsiveTableLabels() in dom.js. */
+@media (max-width: 640px) {
+  .table{min-width:0;display:block;background:transparent;border-radius:0;overflow:visible}
+  .table thead{display:none}
+  .table tbody{display:block}
+  .table tbody tr{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:6px 12px;
+    padding:14px 16px;
+    background:#fff;
+    border-bottom:1px solid var(--line);
+  }
+  .table tbody tr:last-child{border-bottom:0}
+  .table tbody tr td{
+    padding:0;
+    border:0;
+    text-align:left;
+    min-width:0;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+    font-size:14px;
+  }
+  .table tbody tr td::before{
+    content:attr(data-label);
+    display:block;
+    color:var(--muted);
+    font-size:10px;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    margin-bottom:2px;
+    white-space:normal;
+  }
+  .table tbody tr td[data-label=""]::before,
+  .table tbody tr td:not([data-label])::before{content:""}
+  /* Cells that carry compound content or long text span the full row. */
+  .table tbody tr td[data-label="Contributor / Event"],
+  .table tbody tr td[data-label="Category / Event"],
+  .table tbody tr td[data-label="Description"],
+  .table tbody tr td[data-label="Ref / proof"],
+  .table tbody tr td[data-label="Actions"],
+  .table tbody tr td[data-label="Note / detail"],
+  .table tbody tr td[data-label="Subject"],
+  .table tbody tr td[data-label="Note"]{grid-column:1 / -1}
+  .table tbody tr td.num{font-weight:800}
+  /* Buttons in an Actions cell wrap onto multiple lines rather than
+     forcing horizontal scroll. */
+  .table tbody tr td[data-label="Actions"] .row{flex-wrap:wrap;gap:6px}
+  .table tbody tr td[data-label="Actions"] .btn{padding:6px 10px;font-size:13px}
+  /* Colspan placeholders ("Nothing waiting…") — center them across
+     the whole card. */
+  .table tbody tr td[colspan]{grid-column:1 / -1;text-align:center}
+  .table tbody tr td[colspan]::before{content:""}
+}
+
 /* Toast */
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#faf3ea;padding:10px 16px;border-radius:12px;font-weight:600;font-size:14px;z-index:100;box-shadow:var(--shadow-lg)}
 .toast.err{background:var(--emerg)}

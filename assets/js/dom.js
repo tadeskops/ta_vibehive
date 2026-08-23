@@ -25,7 +25,32 @@ export const $  = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 export function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
-export function mount(node, ...children) { clear(node); for (const c of children.flat()) if (c) node.append(c); return node; }
+export function mount(node, ...children) {
+  clear(node);
+  for (const c of children.flat()) if (c) node.append(c);
+  applyResponsiveTableLabels(node);
+  return node;
+}
+
+// Stamp <td> cells with data-label from the header row so the mobile
+// responsive CSS in base.css can reflow tables into label/value cards.
+export function applyResponsiveTableLabels(root) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  for (const table of root.querySelectorAll('table.table')) {
+    const headCells = table.querySelectorAll(':scope > thead > tr > th');
+    if (!headCells.length) continue;
+    const labels = Array.from(headCells, (th) => th.textContent.trim());
+    for (const row of table.querySelectorAll(':scope > tbody > tr')) {
+      const cells = row.children;
+      for (let i = 0; i < cells.length && i < labels.length; i++) {
+        const c = cells[i];
+        if (c.tagName === 'TD' && !c.hasAttribute('data-label')) {
+          c.setAttribute('data-label', labels[i]);
+        }
+      }
+    }
+  }
+}
 
 export function toast(msg, kind = '') {
   const t = document.getElementById('tpl-toast').content.firstElementChild.cloneNode(true);
