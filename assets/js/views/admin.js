@@ -9,6 +9,7 @@ import { session } from '../auth.js';
 import { can, labelForRole, badgeClass } from '../rbac.js';
 import { flushArchiveQueueNow } from '../archive-runtime.js';
 import { detectDataLinkageIssues, migrateContributions, restoreEventToPublished, publicEvents } from '../events.js';
+import { openExpenseDialog } from './event.js';
 
 export async function render(root, { match }) {
   const user = session();
@@ -22,6 +23,7 @@ export async function render(root, { match }) {
    * `reports.export` (admin / mgmt only, matching Reports view). */
   const canBugView      = await can(user, 'reports.view');
   const canBugExport    = await can(user, 'reports.export');
+  const canExpenses     = await can(user, 'expenses.view');
   const canRecovery     = user && user.role === 'admin';
   const linkageIssues   = canRecovery ? detectDataLinkageIssues() : { hiddenOwners: [], orphans: [] };
   const hasLinkageIssues = canRecovery && (linkageIssues.hiddenOwners.length || linkageIssues.orphans.length);
@@ -34,6 +36,7 @@ export async function render(root, { match }) {
     tabLink('settings', 'Society settings', tab),
     tabLink('audit', 'Audit log', tab),
     canBugView ? tabLink('bug-reports', 'Bug reports', tab) : null,
+    canExpenses ? tabLink('expenses', 'Expenses', tab) : null,
     hasLinkageIssues ? tabLink('recovery', `⚠ Data recovery (${linkageIssues.hiddenOwners.length + linkageIssues.orphans.length})`, tab) : null,
   );
 
@@ -44,6 +47,7 @@ export async function render(root, { match }) {
   else if (tab === 'settings' && canSettings)body = await renderSettings(user);
   else if (tab === 'audit' && canAudit)      body = renderAudit();
   else if (tab === 'bug-reports' && canBugView) body = renderBugReports({ canExport: canBugExport, user });
+  else if (tab === 'expenses' && canExpenses)   body = renderExpenses(user);
   else if (tab === 'recovery' && canRecovery)   body = renderRecovery(user, linkageIssues);
   else body = el('div', { class: 'card card-pad' },
     el('h3', { text: 'No access' }),
@@ -537,6 +541,122 @@ function kv(k, v) {
     el('span', { class: 'name', text: k }),
     el('span', { text: v || '—' })
   );
+}
+
+function renderExpenses(user) {
+  const wrap = el('div', {});
+
+  function render() {
+    wrap.replaceChildren();
+    const allEvents = state.events();
+    const eventById = new Map(allEvents.map(e => [e.id, e]));
+    const expenses = state.expenses().slice()
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+    const totalCount = expenses.length;
+    const verified = expenses.filter(x => x.status === 'verified');
+    const pending  = expenses.filter(x => x.status === 'pending' || !x.status);
+    const totalVerified = verified.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const totalPending  = pending.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const totalAll = totalVerified + totalPending;
+
+    const perEvent = new Map();
+    for (const x of expenses) {
+      if (!x || !x.event_id) continue;
+      const bucket = perEvent.get(x.event_id) || { count: 0, total: 0, verified: 0, pending: 0 };
+      bucket.count += 1;
+      bucket.total += Number(x.amount || 0);
+      if (x.status === 'verified') bucket.verified += Number(x.amount || 0);
+      else bucket.pending += Number(x.amount || 0);
+      perEvent.set(x.event_id, bucket);
+    }
+    const perEventRows = [...perEvent.entries()]
+      .map(([id, b]) => ({ id, event: eventById.get(id), ...b }))
+      .sort((a, b) => b.total - a.total);
+
+    const submitBtn = el('button', { class: 'btn', type: 'button' }, '＋ Submit expense');
+    submitBtn.addEventListener('click', () => openExpenseDialog(null, user, null, false, 'pending', render));
+
+    wrap.append(
+      el('div', { class: 'card card-pad' },
+        el('div', { class: 'row row-between', style: 'flex-wrap:wrap;gap:8px' },
+          el('div', {},
+            el('h3', { text: 'Expenses overview' }),
+            el('p', { class: 'sub', style: 'margin:0', text: 'Overall society-wide expense stats plus per-event breakdown and the latest submissions.' })
+          ),
+          submitBtn
+        ),
+        el('div', { class: 'grid grid-4', style: 'margin-top:14px' },
+          statCard('Total ₹',      fmtINR(totalAll),      `${totalCount} entr${totalCount === 1 ? 'y' : 'ies'}`),
+          statCard('Verified ₹',   fmtINR(totalVerified), `${verified.length} verified`),
+          statCard('Pending ₹',    fmtINR(totalPending),  `${pending.length} awaiting review`),
+          statCard('Events covered', String(perEvent.size), `${allEvents.length} total events`)
+        )
+      ),
+      el('section', { class: 'card card-pad', style: 'margin-top:12px' },
+        el('h3', { text: 'By event' }),
+        perEventRows.length
+          ? el('table', { class: 'table' },
+              el('thead', {}, el('tr', {},
+                el('th', { text: 'Event' }),
+                el('th', { class: 'num', text: 'Entries' }),
+                el('th', { class: 'num', text: 'Verified ₹' }),
+                el('th', { class: 'num', text: 'Pending ₹' }),
+                el('th', { class: 'num', text: 'Total ₹' })
+              )),
+              el('tbody', {}, ...perEventRows.map(r => el('tr', {},
+                el('td', {},
+                  el('div', { style: 'font-weight:700', text: (r.event && r.event.title) || r.id }),
+                  el('small', { class: 'sub', text: (r.event && r.event.status) || 'unknown' })
+                ),
+                el('td', { class: 'num', text: String(r.count) }),
+                el('td', { class: 'num', text: fmtINR(r.verified) }),
+                el('td', { class: 'num', text: fmtINR(r.pending) }),
+                el('td', { class: 'num', text: fmtINR(r.total) })
+              )))
+            )
+          : el('p', { class: 'sub', style: 'margin:0', text: 'No expenses recorded yet.' })
+      ),
+      el('section', { class: 'card card-pad', style: 'margin-top:12px' },
+        el('h3', { text: 'Latest expenses' }),
+        expenses.length
+          ? el('table', { class: 'table' },
+              el('thead', {}, el('tr', {},
+                el('th', { text: 'When' }),
+                el('th', { text: 'Event' }),
+                el('th', { text: 'Category' }),
+                el('th', { text: 'Submitted by' }),
+                el('th', { class: 'num', text: 'Amount ₹' }),
+                el('th', { text: 'Status' })
+              )),
+              el('tbody', {}, ...expenses.slice(0, 20).map(x => {
+                const evt = eventById.get(x.event_id);
+                return el('tr', {},
+                  el('td', { text: fmtDate((x.created_at || '').slice(0, 10)) || '—' }),
+                  el('td', { text: (evt && evt.title) || x.event_id || '—' }),
+                  el('td', { text: x.category || '—' }),
+                  el('td', { text: x.created_by || '—' }),
+                  el('td', { class: 'num', text: fmtINR(Number(x.amount || 0)) }),
+                  el('td', {}, el('span', { class: 'pill ' + (x.status === 'verified' ? 'pill-sage' : 'pill-gold'), text: (x.status || 'pending').toUpperCase() }))
+                );
+              }))
+            )
+          : null
+      )
+    );
+  }
+
+  render();
+  return wrap;
+}
+
+function statCard(k, v, d) {
+  const kids = [
+    el('div', { class: 'k', text: k }),
+    el('div', { class: 'v', text: v })
+  ];
+  if (d) kids.push(el('div', { class: 'd', text: d }));
+  return el('div', { class: 'card stat' }, ...kids);
 }
 
 function renderRecovery(user, initialIssues) {

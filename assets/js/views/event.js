@@ -834,12 +834,20 @@ function verifyExpense(r, evt, user, caps) {
   renderManage(document.getElementById('main'), evt, user, caps);
 }
 
-function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDone) {
+export function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDone) {
   const isEdit = !!existing;
   const inpAmount = el('input', { type: 'number', min: '0', step: '1', value: existing ? String(existing.amount || '') : '', placeholder: '2500', required: true });
   const inpCategory = el('input', { type: 'text', maxlength: '48', value: existing ? (existing.category || '') : '', placeholder: 'mandap · prasad · decor · rent · vendor …' });
   const inpDescription = el('textarea', { rows: 2, maxlength: '240', placeholder: 'What was this spent on?', value: existing ? (existing.description || '') : '' });
   const inpReceiptUrl = el('input', { type: 'url', maxlength: '400', value: existing ? (existing.receipt_url || '') : '', placeholder: 'https:// (optional link to invoice / receipt)' });
+  // Event picker for global submissions (called with evt=null). Restricted to
+  // published events so users can only submit against live drives.
+  const canPickEvent = !evt && !isEdit;
+  const liveEvents = canPickEvent ? state.events().filter(e => e && e.status === STATUS.PUBLISHED) : [];
+  const selEvent = canPickEvent ? el('select', { required: true },
+    el('option', { value: '', text: '— choose a live event —', selected: true }),
+    ...liveEvents.map(e => el('option', { value: e.id, text: e.title || e.id }))
+  ) : null;
   const cbVisible = el('input', { type: 'checkbox' });
   cbVisible.checked = existing ? !!existing.visible_to_residents : !!defaultVisible;
   /* Proof upload — the submitter can attach an image / PDF of the
@@ -913,7 +921,17 @@ function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDo
     ctrl
   );
   const willBePending = (statusHint === 'pending');
+  const eventCtxLine = evt
+    ? el('div', { class: 'row', style: 'gap:6px;align-items:center;margin:0 0 8px;flex-wrap:wrap' },
+        el('small', { class: 'pill pill-muted', text: 'Event' }),
+        el('strong', { text: evt.title || evt.id })
+      )
+    : null;
   const body = el('div', {},
+    eventCtxLine,
+    canPickEvent
+      ? field('Event', 'Pick a live event to attach this expense to.', selEvent)
+      : null,
     willBePending ? el('p', { class: 'sub', style: 'margin:0 0 6px', text: '📝 Your submission goes to the committee for verification. Once verified it counts on the event dashboard.' }) : null,
     field('Amount (₹)', 'Whole rupees. This event will be debited by this amount for treasury reporting.', inpAmount),
     field('Category', 'Short tag, free text. Used for grouping in reports.', inpCategory),
@@ -939,6 +957,12 @@ function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDo
         const description = String(inpDescription.value || '').trim();
         const receipt_url = String(inpReceiptUrl.value || '').trim();
         if (receipt_url && !/^https?:\/\//i.test(receipt_url)) { toast('Receipt URL must start with http(s)://', 'err'); return; }
+        let eventId = evt && evt.id;
+        if (canPickEvent) {
+          eventId = selEvent && selEvent.value;
+          if (!eventId) { toast('Pick a live event to attach this expense to.', 'err'); return; }
+        }
+        if (!eventId) { toast('No event context — cannot submit expense.', 'err'); return; }
         const list = state.expenses();
         const nowIso = new Date().toISOString();
         if (isEdit) {
@@ -954,14 +978,14 @@ function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDo
             rec.visible_to_residents = !!cbVisible.checked;
             rec.updated_at = nowIso;
             state.saveExpenses(list);
-            state.audit({ actor: user && user.email || null, action: 'expense.update', expense: rec.id, event: evt.id, amount });
+            state.audit({ actor: user && user.email || null, action: 'expense.update', expense: rec.id, event: rec.event_id, amount });
             toast('Expense updated.', 'ok');
           }
         } else {
           const initialStatus = willBePending ? 'pending' : 'verified';
           const rec = {
             id: 'exp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
-            event_id: evt.id,
+            event_id: eventId,
             amount,
             category,
             description,
@@ -979,7 +1003,7 @@ function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDo
           };
           list.push(rec);
           state.saveExpenses(list);
-          state.audit({ actor: user && user.email || null, action: initialStatus === 'verified' ? 'expense.create' : 'expense.submit', expense: rec.id, event: evt.id, amount });
+          state.audit({ actor: user && user.email || null, action: initialStatus === 'verified' ? 'expense.create' : 'expense.submit', expense: rec.id, event: eventId, amount });
           toast(initialStatus === 'verified' ? 'Expense recorded.' : 'Expense submitted for verification.', 'ok');
         }
         close();
