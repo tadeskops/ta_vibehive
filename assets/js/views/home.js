@@ -244,10 +244,13 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
     .map(c => {
       const evt = eventById.get(c.event);
       const nm  = c.anonymous ? 'Anonymous' : (c.contributor_name || '—');
-      const amt = c.hide_amount ? '—' : fmtINR(Number(c.amount || 0));
+      const isOwnRow = ownedByMe(c);
+      // Residents see rupee figures only on rows they own; everyone else's
+      // amount reads as a lock so the community feed stays private-by-default.
+      const hideAmountForResident = isResident && !isOwnRow;
+      const amt = (c.hide_amount || hideAmountForResident) ? '🔒' : fmtINR(Number(c.amount || 0));
       const stCls = c.status === 'verified' ? 'ok' : 'warn';
       const dateShort = (c.created_at || '').slice(0, 10);
-      const isOwnRow = ownedByMe(c);
       // Preview icon: role viewers see it on any verified row;
       // residents only on their own verified rows.
       const showViewIcon = c.status === 'verified' && (canRoleReceiptView || (isResident && canReceiptDownload && isOwnRow));
