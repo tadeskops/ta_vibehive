@@ -492,15 +492,19 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
  * the card's own background and float the meta/actions as a frosted
  * content panel over it. Falls back to the original stacked layout
  * for cards without an image. */
-.card.has-visual{position:relative;overflow:hidden;min-height:220px;isolation:isolate}
+.card.has-visual{position:relative;overflow:hidden;min-height:240px;isolation:isolate}
 .card.has-visual .card-hero{height:100%;position:absolute;inset:0;z-index:0}
-.card.has-visual .card-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,15,10,0) 0%,rgba(20,15,10,0) 45%,rgba(20,15,10,.55) 100%);z-index:1;pointer-events:none}
+.card.has-visual .card-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,15,10,0) 0%,rgba(20,15,10,.08) 55%,rgba(20,15,10,.42) 100%);z-index:1;pointer-events:none}
 .card.has-visual .card-hero .glyph{opacity:.55}
-.card.has-visual .card-content{position:relative;z-index:2;margin-top:auto;background:rgba(250,243,234,.94);backdrop-filter:blur(4px);border-radius:14px;padding:12px 14px;box-shadow:0 8px 22px rgba(42,26,16,.18);color:var(--ink)}
+/* Frosted content panel — kept semi-transparent so the festival
+ * visual reads through. Heavy blur + a slight terracotta tint keeps
+ * text readable without hiding the artwork. */
+.card.has-visual .card-content{position:relative;z-index:2;margin-top:auto;background:rgba(250,243,234,.72);backdrop-filter:blur(7px) saturate(1.05);-webkit-backdrop-filter:blur(7px) saturate(1.05);border:1px solid rgba(255,255,255,.5);border-radius:14px;padding:12px 14px;box-shadow:0 10px 28px rgba(42,26,16,.22);color:var(--ink)}
+.card.has-visual .card-content .card-title{text-shadow:0 1px 0 rgba(255,255,255,.4)}
 .card.has-visual{display:flex;flex-direction:column;padding:12px}
 .card.has-visual .card-hero{border-radius:12px}
 @media(prefers-reduced-transparency:reduce){
-  .card.has-visual .card-content{background:#faf3ea;backdrop-filter:none}
+  .card.has-visual .card-content{background:#faf3ea;backdrop-filter:none;-webkit-backdrop-filter:none}
 }
 .card-content-inner{padding:12px}
 .card-title{font-size:16px;margin-bottom:2px;font-weight:800}

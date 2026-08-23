@@ -723,8 +723,7 @@ export async function shareExpenseDirect(expenseId) {
     if (e && (e.name === 'AbortError' || String(e.message || '').toLowerCase().includes('abort'))) return;
     console.warn('[receipt] expense share sheet unavailable, falling back to wa.me', e);
   }
-  const waHref = `https://wa.me/?text=${encodeURIComponent(body)}`;
-  window.open(waHref, '_blank', 'noopener');
+  openWhatsAppLink(body);
   toast('Open WhatsApp and attach the downloaded voucher.', 'warn');
   doc.save(expensePdfFileName(x));
 }
@@ -746,6 +745,24 @@ async function archiveReceiptPdfIfMissing(doc, r, rec, evt, soc) {
     actor: user ? (user.email || user.id) : null,
     message: `receipt-pdf: ${r && r.id}`,
   });
+}
+
+/* Open a wa.me deep link via a synthetic anchor click so the
+ * navigation is treated as user-initiated on mobile (avoids the
+ * "popup blocked" behaviour that `window.open` triggers after an
+ * `await`, especially on iOS Safari). The wa.me scheme opens the
+ * WhatsApp app directly when installed and falls back to Web
+ * WhatsApp otherwise. */
+function openWhatsAppLink(body) {
+  const waHref = `https://wa.me/?text=${encodeURIComponent(body)}`;
+  const a = document.createElement('a');
+  a.href = waHref;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { try { a.remove(); } catch (_e) {} }, 0);
 }
 
 /* WhatsApp share:
@@ -776,8 +793,7 @@ async function shareToWhatsApp(r, rec, evt, soc, tpl, theme) {
     if (e && (e.name === 'AbortError' || String(e.message || '').toLowerCase().includes('abort'))) return;
     console.warn('[receipt] share sheet unavailable, falling back to wa.me', e);
   }
-  const waHref = `https://wa.me/?text=${encodeURIComponent(body)}`;
-  window.open(waHref, '_blank', 'noopener');
+  openWhatsAppLink(body);
   toast('Open WhatsApp and attach the downloaded PDF (if not auto-attached).', 'warn');
   try { await downloadReceiptPdf(r, rec, evt, soc, tpl, theme); } catch (_e2) { /* ignore */ }
 }
