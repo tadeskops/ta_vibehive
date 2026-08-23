@@ -136,7 +136,12 @@ export async function render(root, { match }) {
   const pay          = (soc && soc.payment) || {};
   const bank         = pay.bank || {};
 
-  let amount = evt.fixed_amount || (showTiers && (evt.tiers[0] || {}).amount) || 0;
+  // Defensive: an event may arrive with tiers undefined (dev seed,
+  // hand-edited JSON, migrated old data). Coerce to an array so the
+  // tier grid never dereferences undefined.
+  const tiers = Array.isArray(evt.tiers) ? evt.tiers : [];
+
+  let amount = evt.fixed_amount || (showTiers && (tiers[0] || {}).amount) || 0;
   /* Privacy defaults for a fresh contribute form. Admin can flip either
    * default on via Settings → Attributes → Contribution privacy so a
    * community that prefers anonymity gets that as the starting state. */
@@ -190,8 +195,8 @@ export async function render(root, { match }) {
     });
   }
 
-  const tierGrid = showTiers ? el('div', { class: 'tier-grid' },
-    ...evt.tiers.map((t, i) => {
+  const tierGrid = showTiers && tiers.length ? el('div', { class: 'tier-grid' },
+    ...tiers.map((t, i) => {
       const b = el('button', { type: 'button', class: 'tier-btn' + (i === 0 ? ' sel' : '') },
         el('div', { class: 'amt', text: fmtINR(t.amount) }),
         el('div', { class: 'hint', text: t.label || (t.highlight ? 'Popular' : '') })

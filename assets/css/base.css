@@ -636,6 +636,11 @@ label{display:block;font-weight:700;font-size:13px;margin-bottom:4px;color:var(-
 .req{color:var(--emerg);margin-left:3px;font-weight:800}
 .field{margin-bottom:14px}
 .field small{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+/* Long path / hash / URL previews live inside <code class="sub"> across
+ * Settings, Reports, Receipt views. Force wrapping so a wide token
+ * cannot push the whole page past the viewport on mobile. */
+.field code,.panel code,code.sub,pre.sub{word-break:break-all;overflow-wrap:anywhere;white-space:normal;max-width:100%;display:inline-block;box-sizing:border-box}
+.field input[type="text"],.field input[type="url"],.field input[type="email"],.field input[type="number"],.field input[type="date"],.field textarea,.field select{max-width:100%;box-sizing:border-box}
 
 /* Field label helpers — red asterisk for required, muted "optional" chip
  * for optional fields. The optional chip carries a title so hovering
