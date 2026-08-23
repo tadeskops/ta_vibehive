@@ -78,13 +78,18 @@ export async function render(root) {
     el('span', { class: 'tvh-hero-chip', text: '🤝 Volunteers' })
   );
 
+  // "Live" == published only. Closed events stay visible below but
+  // never count toward the community KPIs so a stale sample event
+  // doesn't skew the hero line or the raised-total figure.
+  const liveEvents = events.filter((e) => e && e.status === STATUS.PUBLISHED);
+
   const hero = el('section', { class: 'hero' },
     el('div', { class: 'row row-between' },
       el('div', {},
         el('h1', { text: user ? `Namaste, ${user.name.split(' ')[0]} 🙏` : 'Welcome to VibeHive' }),
         el('p', { class: 'sub', text: masked
-          ? `${events.length} live event${events.length === 1 ? '' : 's'} · ${MASK_LABEL} for community totals.`
-          : `${events.length} live event${events.length === 1 ? '' : 's'} · ${totalPublicSum(events)} raised across the community.` }),
+          ? `${liveEvents.length} live event${liveEvents.length === 1 ? '' : 's'} · ${MASK_LABEL} for community totals.`
+          : `${liveEvents.length} live event${liveEvents.length === 1 ? '' : 's'} · ${totalPublicSum(liveEvents)} raised across the community.` }),
         committeeChips
       ),
       user ? el('a', { class: 'btn btn-ghost', href: '#/events' }, '＋ Browse events') : null
@@ -122,32 +127,36 @@ export async function render(root) {
    * submissions) across every currently-visible event. The old code
    * relied on a `contribUsers(eid)` stub that always returned `[]`,
    * so the KPI was permanently zero even after real donations. */
+  // Closed events remain visible in the grid so history is intact,
+  // but community KPIs should reflect LIVE-only totals so a stale
+  // sample event does not skew "Collected"/"Contributors".
   const visibleEventIds = new Set(events.map(e => e.id));
+  const liveEventIds = new Set(liveEvents.map((e) => e.id));
   const contributorKeys = new Set();
   for (const c of state.contribs()) {
     if (c.status === 'void') continue;
-    if (!visibleEventIds.has(c.event)) continue;
+    if (!liveEventIds.has(c.event)) continue;
     const key = c.contributor
       || `${String(c.flat || '').trim().toLowerCase()}::${String(c.contributor_name || '').trim().toLowerCase()}`;
     if (key && key !== '::') contributorKeys.add(key);
   }
   const stats = user
     ? el('div', { class: 'grid grid-4' },
-      stat('Events', String(events.length), null),
+      stat('Live events', String(liveEvents.length), events.length > liveEvents.length ? `${events.length - liveEvents.length} closed hidden` : null),
       /* Contributors is a count, not a rupee figure -- kept visible even
        * when masking so an admin who briefly flips public_mask on
        * still sees community-activity signal. */
-      stat('Contributors', String(contributorKeys.size), 'unique residents'),
+      stat('Contributors', String(contributorKeys.size), 'unique residents · live'),
       stat('Collected',
-        masked ? MASK_LABEL : fmtINR(events.reduce((s, e) => s + totalFor(e.id), 0)),
-        masked ? 'members only' : 'across community'),
+        masked ? MASK_LABEL : fmtINR(liveEvents.reduce((s, e) => s + totalFor(e.id), 0)),
+        masked ? 'members only' : 'across live events'),
       stat('Committee', 'Cultural · Sports · Volunteers', null)
     )
     /* Signed-out visitors already see the community label as chips
      * inside the hero; the standalone Committee card was redundant so
      * only the Events-planned tile survives here as the sign-in CTA. */
     : el('div', { class: 'grid grid-1' },
-      stat('Events planned', String(events.length), events.length ? 'Sign in to see schedule & finances' : 'Committee will publish soon')
+      stat('Events planned', String(liveEvents.length), liveEvents.length ? 'Sign in to see schedule & finances' : 'Committee will publish soon')
     );
 
   /* Signed-out users get no Latest Contributions surface at all — not

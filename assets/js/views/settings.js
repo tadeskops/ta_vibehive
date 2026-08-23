@@ -16,7 +16,7 @@
  * attributes while admin can enable and disable the feature".
  */
 'use strict';
-import { el, mount, toast, fmtDate } from '../dom.js';
+import { el, mount, toast, fmtDate, modal } from '../dom.js';
 import { state, cfg, getSociety } from '../store.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
@@ -993,6 +993,49 @@ async function renderAttributes(user, canUsersManage) {
     panel('Dashboard',
       'How the home screen surfaces information.',
       row('Recent contributions', 'Rows shown in the "Latest contributions" panel.', selRecent),
+      row('Reset closed events', 'Removes every event with status "closed" or "archived" and every contribution + expense linked to them from local state, so the home dashboard stops counting stale sample data. Live/published events are untouched. Cannot be undone.',
+        (() => {
+          const btn = el('button', { class: 'btn btn-ghost', type: 'button' }, '🗑 Purge closed events');
+          btn.addEventListener('click', () => {
+            const evts = state.events();
+            const closed = evts.filter((e) => e && (e.status === 'closed' || e.status === 'archived'));
+            if (!closed.length) { toast('No closed or archived events to purge.', 'warn'); return; }
+            const closedIds = new Set(closed.map((e) => e.id));
+            const contribs = state.contribs() || [];
+            const expenses = state.expenses() || [];
+            const contribHit = contribs.filter((c) => c && closedIds.has(c.event)).length;
+            const expenseHit = expenses.filter((x) => x && closedIds.has(x.event_id)).length;
+            modal({
+              title: 'Purge closed events?',
+              body: el('div', {},
+                el('p', { text: `About to remove ${closed.length} event${closed.length === 1 ? '' : 's'} (${closed.map((e) => e.title || e.id).join(', ')}).` }),
+                el('p', { class: 'sub', text: `${contribHit} linked contribution${contribHit === 1 ? '' : 's'} and ${expenseHit} linked expense${expenseHit === 1 ? '' : 's'} will also be removed from local state.` }),
+                el('p', { class: 'sub', style: 'margin-top:8px', text: 'Live events and their data are preserved. Cannot be undone — records that were pushed to the private archive remain in the archive repo untouched.' })
+              ),
+              actions: [
+                { label: 'Cancel', close: true },
+                { label: 'Purge', kind: 'btn', onClick: (close) => {
+                  try {
+                    const remainingEvents = evts.filter((e) => !closedIds.has(e.id));
+                    const remainingContribs = contribs.filter((c) => !c || !closedIds.has(c.event));
+                    const remainingExpenses = expenses.filter((x) => !x || !closedIds.has(x.event_id));
+                    state.saveEvents(remainingEvents);
+                    state.saveContribs(remainingContribs);
+                    state.saveExpenses(remainingExpenses);
+                    state.audit({ actor: user && user.email || null, action: 'events.purge_closed', count: closed.length, contribs: contribHit, expenses: expenseHit });
+                    toast(`Purged ${closed.length} closed event${closed.length === 1 ? '' : 's'} · ${contribHit} contribution${contribHit === 1 ? '' : 's'} · ${expenseHit} expense${expenseHit === 1 ? '' : 's'}.`, 'ok');
+                    close();
+                    setTimeout(() => location.reload(), 250);
+                  } catch (e) {
+                    toast((e && e.message) || 'Purge failed', 'err');
+                  }
+                } },
+              ],
+            });
+          });
+          return btn;
+        })()
+      ),
     ),
     panel('Event flow',
       'Controls the approval gate for new event proposals.',
