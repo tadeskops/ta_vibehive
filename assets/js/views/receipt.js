@@ -98,7 +98,11 @@ async function buildReceiptPdfDefault(r, rec, evt, soc, opts) {
   // A4 portrait document. Guarantees "preview == PDF" pixel parity.
   const article = buildReceiptArticle(r, rec, evt, soc, tpl);
   const stage = document.createElement('div');
-  stage.style.cssText = 'position:fixed;left:-20000px;top:0;z-index:-1;opacity:0.01;pointer-events:none;background:#faf3ea;padding:24px 20px;width:794px;'; // 794px ≈ A4 width at 96dpi
+  // Hide the stage off-screen without touching opacity/visibility —
+  // html2canvas honours computed styles, so 0.01 opacity would raster
+  // an almost-blank page. `left:-20000px` keeps it invisible to the
+  // user while retaining full-fidelity paint for the snapshot.
+  stage.style.cssText = 'position:fixed;left:-20000px;top:0;z-index:-1;pointer-events:none;background:#faf3ea;padding:24px 20px;width:794px;'; // 794px ≈ A4 width at 96dpi
   const wrap = document.createElement('div');
   wrap.style.cssText = 'width:754px;margin:0 auto;';
   wrap.appendChild(article);
