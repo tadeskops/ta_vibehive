@@ -127,16 +127,26 @@ export async function renderVisitCard(el, styles) {
   const todayStr = fmtN(data.today || 0);
   el.textContent = '';
   const card = document.createElement('div');
-  card.className = 'card stat tvh-visit-card';
-  card.setAttribute('title', `${todayStr} visitors today · ${totalStr} all-time · updates live`);
+  card.className = 'card tvh-visit-card';
+  card.setAttribute('title', `${todayStr} unique visitors today · ${totalStr} all-time · updates live`);
   card.style.cssText = styles || 'margin-top:12px';
-  const k = document.createElement('div'); k.className = 'k';
-  const pulse = document.createElement('span'); pulse.className = 'tvh-visits-pulse'; pulse.setAttribute('aria-hidden', 'true');
-  const kLabel = document.createElement('span'); kLabel.textContent = 'Visitors today';
-  k.appendChild(pulse); k.appendChild(document.createTextNode(' ')); k.appendChild(kLabel);
-  const v = document.createElement('div'); v.className = 'v'; v.textContent = todayStr;
-  const d = document.createElement('div'); d.className = 'd'; d.textContent = `${totalStr} all-time`;
-  card.appendChild(k); card.appendChild(v); card.appendChild(d);
+  // Split into two mini-stats side-by-side so both today + all-time
+  // are legible at a glance on phones.
+  const mkStat = (label, val, withPulse) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'tvh-visit-stat';
+    const k = document.createElement('div'); k.className = 'k';
+    if (withPulse) {
+      const p = document.createElement('span'); p.className = 'tvh-visits-pulse'; p.setAttribute('aria-hidden', 'true');
+      k.appendChild(p); k.appendChild(document.createTextNode(' '));
+    }
+    k.appendChild(document.createTextNode(label));
+    const v = document.createElement('div'); v.className = 'v'; v.textContent = val;
+    wrap.appendChild(k); wrap.appendChild(v);
+    return wrap;
+  };
+  card.appendChild(mkStat('Today', todayStr, true));
+  card.appendChild(mkStat('All-time', totalStr, false));
   el.appendChild(card);
   return card;
 }

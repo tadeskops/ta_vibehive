@@ -233,7 +233,11 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 .tvh-visits-pulse::after{content:"";position:absolute;inset:-2px;border-radius:999px;border:1px solid rgba(34,197,94,.35)}
 @keyframes tvh-visits-pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
 @media (prefers-reduced-motion:reduce){.tvh-visits-pulse{animation:none}}
-.tvh-visit-card .k{display:flex;align-items:center;gap:6px}
+/* Home visit card — split into today + all-time mini-stats. */
+.tvh-visit-card{padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:14px;border-radius:16px;background:linear-gradient(135deg,#fbf6ee,#f7ede0)}
+.tvh-visit-stat{display:flex;flex-direction:column;gap:2px}
+.tvh-visit-stat .k{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:6px}
+.tvh-visit-stat .v{font-size:22px;font-weight:800;letter-spacing:-.02em;color:var(--ink);line-height:1.15}
 
 /* Minimalist About chip — attribution to Samana Sippa Labs. Keeps the
  * same understated visual weight as the visitors pulse; on mobile the
@@ -547,6 +551,10 @@ label{display:block;font-weight:700;font-size:13px;margin-bottom:4px;color:var(-
  * native OS tooltip. Kept high z-index so modals never occlude it. */
 .tvh-longpress-tip{position:fixed;left:0;top:0;z-index:12000;pointer-events:none;max-width:min(80vw,320px);padding:8px 12px;border-radius:10px;background:rgba(20,15,10,.94);color:#fff;font-size:12px;line-height:1.4;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.35);opacity:0;transform:translateY(4px);transition:opacity .12s ease,transform .12s ease}
 .tvh-longpress-tip.is-open{opacity:1;transform:translateY(0)}
+/* Alt-key hint pills — pressed & released as a batch on the Alt key.
+ * Compact, non-interactive, positioned by JS. */
+.tvh-alt-hint{position:fixed;z-index:11500;pointer-events:none;padding:3px 8px;border-radius:6px;background:rgba(20,15,10,.92);color:#fff;font-size:11px;font-weight:600;line-height:1.35;box-shadow:0 4px 12px rgba(0,0,0,.28);max-width:220px;white-space:normal;animation:tvh-alt-in .12s ease-out both}
+@keyframes tvh-alt-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:translateY(0)}}
 input[type=text],input[type=email],input[type=number],input[type=date],input[type=datetime-local],input[type=password],input[type=search],input[type=tel],input[type=url],select,textarea{
   width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;font-size:16px;min-height:44px;-webkit-appearance:none;appearance:none;
 }
