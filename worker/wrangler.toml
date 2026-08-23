@@ -21,6 +21,12 @@ LOG_LEVEL          = "info"
 # CORS allow-list. Comma-separated origins. Add your Pages URL + local dev.
 ALLOWED_ORIGINS    = "https://tadeskops.github.io,http://localhost:8091,http://127.0.0.1:8091"
 
+# Cron trigger — force-flushes any buffered visit counts once per day at
+# 23:55 UTC so hoarded deltas from a warm isolate can never linger longer
+# than 24 h even under light traffic. Free on Workers.
+[triggers]
+crons = ["55 23 * * *"]
+
 # Preview environment (used for branch deploys + local dev)
 [env.preview]
 name = "tvh-worker-preview"

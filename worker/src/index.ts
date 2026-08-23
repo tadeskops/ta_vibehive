@@ -24,6 +24,7 @@ import { verifyGoogleJwt } from './auth/jwt.ts';
 import { resolveRole } from './auth/roles.ts';
 import { loadAccess } from './config/loader.ts';
 import { buildRouter } from './routes/index.ts';
+import { flushPendingVisits } from './routes/metrics.ts';
 
 const router = buildRouter();
 
@@ -69,5 +70,8 @@ export default {
       log.error(env, 'unhandled_error', { err: String((e as Error).stack ?? e), path: url.pathname });
       return err(env, req, 'Internal error', 500);
     }
+  },
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(flushPendingVisits(env).catch((e) => log.warn(env, 'cron_flush_visits_failed', { err: String(e) })));
   },
 };
