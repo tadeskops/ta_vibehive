@@ -146,12 +146,22 @@ export async function render(root, { match }) {
    * default on via Settings → Attributes → Contribution privacy so a
    * community that prefers anonymity gets that as the starting state. */
   const privDefaults = (soc && soc.contributions) || {};
+  /* payment_type is the user-facing choice: 'online' (UPI or bank
+   * transfer) or 'cash'. online_kind splits Online into 'upi' vs
+   * 'bank' when both are enabled. The stored `method` field on the
+   * contribution record stays 'upi' | 'bank' | 'other' for
+   * backward-compat with receipt / manage / reports display. */
   const st = {
-    amount, method: upiOn ? 'upi' : bankOn ? 'bank' : 'other',
+    amount,
+    payment_type: (upiOn || bankOn) ? 'online' : 'cash',
+    online_kind: upiOn ? 'upi' : (bankOn ? 'bank' : 'upi'),
     anonymous: allowAnon && !!privDefaults.default_anonymous,
     hide_amount: canHideAmt && !!privDefaults.default_hide_amount,
     ref: '', remarks: '',
     proof_data_url: '', proof_name: '', proof_size: 0,
+    /* Cash-only: who the resident handed the money to. Required when
+     * payment_type === 'cash' so the committee can reconcile. */
+    paid_to_name: '', paid_to_flat: '', paid_to_mobile: '',
     /* Contributor details — required on every submit. Prefilled from the
      * signed-in user profile; editable so residents can correct a
      * missing flat or type-o. When on_behalf is true, these fields hold
@@ -167,11 +177,22 @@ export async function render(root, { match }) {
   const draft = state.contribDraft(evt.id);
   if (draft && typeof draft === 'object') {
     if (Number(draft.amount || 0) > 0) st.amount = Number(draft.amount);
-    if (draft.method) st.method = String(draft.method);
+    if (draft.payment_type === 'online' || draft.payment_type === 'cash') {
+      st.payment_type = draft.payment_type;
+    } else if (draft.method === 'other') {
+      st.payment_type = 'cash';
+    } else if (draft.method === 'upi' || draft.method === 'bank') {
+      st.payment_type = 'online';
+      st.online_kind = draft.method;
+    }
+    if (draft.online_kind === 'upi' || draft.online_kind === 'bank') st.online_kind = draft.online_kind;
     if (typeof draft.anonymous === 'boolean') st.anonymous = draft.anonymous;
     if (typeof draft.hide_amount === 'boolean') st.hide_amount = draft.hide_amount;
     if (draft.ref) st.ref = String(draft.ref);
     if (draft.remarks) st.remarks = String(draft.remarks);
+    if (draft.paid_to_name) st.paid_to_name = String(draft.paid_to_name);
+    if (draft.paid_to_flat) st.paid_to_flat = String(draft.paid_to_flat);
+    if (draft.paid_to_mobile) st.paid_to_mobile = String(draft.paid_to_mobile);
     if (draft.contributor_name) st.contributor_name = String(draft.contributor_name);
     if (draft.contributor_email) st.contributor_email = String(draft.contributor_email);
     if (draft.contributor_flat) st.contributor_flat = String(draft.contributor_flat);
@@ -182,11 +203,15 @@ export async function render(root, { match }) {
   function persistDraft() {
     state.saveContribDraft(evt.id, {
       amount: st.amount,
-      method: st.method,
+      payment_type: st.payment_type,
+      online_kind: st.online_kind,
       anonymous: st.anonymous,
       hide_amount: st.hide_amount,
       ref: st.ref,
       remarks: st.remarks,
+      paid_to_name: st.paid_to_name,
+      paid_to_flat: st.paid_to_flat,
+      paid_to_mobile: st.paid_to_mobile,
       contributor_name: st.contributor_name,
       contributor_email: st.contributor_email,
       contributor_flat: st.contributor_flat,
@@ -242,33 +267,55 @@ export async function render(root, { match }) {
     persistDraft();
   });
 
-  const methodSel = el('select', {},
-    upiOn ? el('option', { value: 'upi', text: 'UPI (scan / pay)' }) : null,
-    bankOn ? el('option', { value: 'bank', text: 'Bank transfer (NEFT / IMPS)' }) : null,
-    el('option', { value: 'other', text: 'Cash / cheque (record only)' })
-  );
-  methodSel.value = st.method;
-  methodSel.addEventListener('change', () => { st.method = methodSel.value; refreshPayHint(); refreshRefLabel(); persistDraft(); });
+  /* Payment-type tabs (Online / Cash). Replaces the previous
+   * three-way <select> — cleaner on mobile and unlocks a proper Cash
+   * capture form (name + mobile of the committee member who took the
+   * money). See onlinePanel / cashPanel below. */
+  const tabOnline = el('button', { type: 'button', class: 'tvh-pt-tab' + (st.payment_type === 'online' ? ' active' : ''), role: 'tab', 'aria-selected': String(st.payment_type === 'online') }, '💳 Online');
+  const tabCash   = el('button', { type: 'button', class: 'tvh-pt-tab' + (st.payment_type === 'cash'   ? ' active' : ''), role: 'tab', 'aria-selected': String(st.payment_type === 'cash') }, '💵 Cash');
+  const paymentTypeTabs = el('div', { class: 'tvh-pt-tabs', role: 'tablist' }, tabOnline, tabCash);
+
+  /* Sub-selector inside the Online tab: UPI vs Bank Transfer. Shown
+   * only when BOTH are enabled for the event; otherwise the single
+   * enabled kind is auto-selected and no radios are rendered. */
+  const onlineKindRow = (upiOn && bankOn) ? el('div', { class: 'tvh-pt-subtabs', role: 'radiogroup', 'aria-label': 'Online sub-method' },
+    el('label', { class: 'tvh-pt-chip' + (st.online_kind === 'upi'  ? ' active' : '') },
+      el('input', { type: 'radio', name: 'onlineKind', value: 'upi' }),
+      el('span', { text: 'UPI' })),
+    el('label', { class: 'tvh-pt-chip' + (st.online_kind === 'bank' ? ' active' : '') },
+      el('input', { type: 'radio', name: 'onlineKind', value: 'bank' }),
+      el('span', { text: 'Bank transfer' })),
+  ) : null;
+  if (onlineKindRow) {
+    onlineKindRow.querySelectorAll('input[type=radio]').forEach((rad) => {
+      rad.checked = rad.value === st.online_kind;
+      rad.addEventListener('change', () => {
+        if (!rad.checked) return;
+        st.online_kind = rad.value;
+        onlineKindRow.querySelectorAll('.tvh-pt-chip').forEach((chip) => {
+          const inp = chip.querySelector('input[type=radio]');
+          chip.classList.toggle('active', !!(inp && inp.checked));
+        });
+        refreshPayHint();
+        persistDraft();
+      });
+    });
+  }
 
   const anonToggle = el('button', { type: 'button', class: 'toggle' + (st.anonymous ? ' on' : ''), 'aria-label': 'Anonymous' });
   anonToggle.addEventListener('click', () => { st.anonymous = !st.anonymous; anonToggle.classList.toggle('on', st.anonymous); persistDraft(); });
   const hideToggle = el('button', { type: 'button', class: 'toggle' + (st.hide_amount ? ' on' : ''), 'aria-label': 'Hide amount' });
   hideToggle.addEventListener('click', () => { st.hide_amount = !st.hide_amount; hideToggle.classList.toggle('on', st.hide_amount); persistDraft(); });
 
-  const refLabel = el('label', { text: 'UPI reference / UTR' });
-  const refInp = el('input', { type: 'text', placeholder: '12-digit UPI reference', value: st.ref || '' });
+  const refLabel = el('label', { text: 'Transaction number' });
+  const refInp = el('input', { type: 'text', placeholder: 'e.g. 12-digit UPI ref or NEFT UTR', value: st.ref || '' });
   refInp.addEventListener('input', () => { st.ref = refInp.value.trim(); persistDraft(); });
   const noteInp = el('textarea', {
     rows: 3,
-    placeholder: 'Optional: if you cannot update contribution details yourself, leave a note for committee follow-up.',
+    placeholder: 'Optional. Anything the committee should know about this contribution.',
     value: st.remarks || ''
   });
   noteInp.addEventListener('input', () => { st.remarks = noteInp.value.trim(); persistDraft(); });
-  function refreshRefLabel() {
-    if (st.method === 'upi')        { refLabel.textContent = 'UPI reference / UTR';       refInp.placeholder = '12-digit UPI reference'; }
-    else if (st.method === 'bank')  { refLabel.textContent = 'NEFT / IMPS reference';     refInp.placeholder = 'Bank txn reference'; }
-    else                            { refLabel.textContent = 'Cheque no. / cash memo';    refInp.placeholder = 'Cheque no. or cash memo'; }
-  }
 
   /* ---------- Payment guide (populated from society.payment) ---------- */
   const row2 = (k, v) => el('div', { style: 'display:grid;grid-template-columns:120px 1fr;gap:6px;padding:2px 0' },
@@ -293,7 +340,11 @@ export async function render(root, { match }) {
   const effQr = evtQr || (pay.qr_data_url || '').trim() || (pay.qr_asset_url || '').trim();
   function refreshPayHint() {
     payHint.textContent = '';
-    if (st.method === 'upi' && upiOn) {
+    /* Cash tab has its own dedicated panel; the pay-guide box only
+     * applies to the Online tab. */
+    if (st.payment_type !== 'online') { payHint.hidden = true; return; }
+    payHint.hidden = false;
+    if (st.online_kind === 'upi' && upiOn) {
       if (!effVpa && !effQr) {
         payHint.append(el('small', { text: 'The committee has not published a UPI ID or QR for this event yet. Please choose Bank or Cash, or ask an admin to add UPI details in event settings.' }));
         return;
@@ -396,9 +447,9 @@ export async function render(root, { match }) {
           el('small', { style: 'display:block;margin-top:8px', text: 'On desktop, use the UPI ID above in your bank app. On mobile, tap "Pay", or use View/Save QR and confirm the amount inside your UPI app.' })
         ].filter(Boolean)
       );
-    } else if (st.method === 'bank' && bankOn) {
+    } else if (st.online_kind === 'bank' && bankOn) {
       if (!bank.account) {
-        payHint.append(el('small', { text: 'The committee has not published bank details yet. Please choose UPI or Cash, or ask an admin to add bank details in Society settings.' }));
+        payHint.append(el('small', { text: 'The committee has not published bank details yet. Please switch to UPI or Cash, or ask an admin to add bank details in Society settings.' }));
         return;
       }
       payHint.append(
@@ -410,11 +461,6 @@ export async function render(root, { match }) {
           bank.branch  ? row2('Branch',      bank.branch)  : null,
         ),
         el('small', { text: 'After the transfer, note the UTR from your bank app and paste it below.' })
-      );
-    } else {
-      payHint.append(
-        el('div', { class: 'lbl', text: 'Cash / cheque' }),
-        el('small', { text: 'Hand the cash / cheque to a committee member and enter the receipt number they give you below. The committee will verify on their side.' })
       );
     }
   }
@@ -569,6 +615,65 @@ export async function render(root, { match }) {
   }
   behalfChk.addEventListener('change', () => { st.on_behalf = behalfChk.checked; refreshIdentityLabels(); persistDraft(); });
 
+  /* ---------- Cash-payment fields (committee member who took money) ----------
+   * Only relevant when payment_type === 'cash'. Name + mobile are
+   * required; flat is optional. Mobile is scrubbed to 10 digits with
+   * the same +91 / leading-zero strip as the contributor mobile. */
+  const paidToNameInp   = el('input', { type: 'text', autocomplete: 'off', value: st.paid_to_name,
+    placeholder: 'Committee member who took the cash' });
+  const paidToMobileInp = el('input', { type: 'tel', inputmode: 'numeric', maxlength: '10',
+    pattern: '[6-9][0-9]{9}', placeholder: '10-digit mobile', value: st.paid_to_mobile });
+  const paidToFlatInp   = el('input', { type: 'text', autocomplete: 'off',
+    placeholder: 'e.g. A-101 (optional)', value: st.paid_to_flat });
+  paidToNameInp.addEventListener('input', () => {
+    st.paid_to_name = paidToNameInp.value.trim(); persistDraft();
+  });
+  paidToMobileInp.addEventListener('input', () => {
+    const digits = (paidToMobileInp.value || '').replace(/\D+/g, '').replace(/^91(?=\d{10}$)/, '');
+    if (digits !== paidToMobileInp.value) paidToMobileInp.value = digits;
+    st.paid_to_mobile = digits;
+    persistDraft();
+  });
+  paidToFlatInp.addEventListener('input', () => {
+    st.paid_to_flat = paidToFlatInp.value.trim(); persistDraft();
+  });
+
+  const onlinePanel = el('div', { class: 'tvh-pt-panel', role: 'tabpanel', hidden: st.payment_type !== 'online' },
+    onlineKindRow,
+    payHint,
+    el('div', { class: 'field' }, refLabel, refInp),
+    el('div', { style: 'text-align:center;color:var(--muted);font-weight:800;font-size:12px;letter-spacing:.12em;margin:10px 0', text: '— OR —' }),
+    el('div', { class: 'field' }, proofLabel, proofInp, proofStatus, proofPreview),
+    el('small', { class: 'sub', style: 'display:block;color:var(--muted);margin-top:6px', text: 'At least one of the two — transaction number or payment screenshot — is required. Both cannot be blank.' })
+  );
+
+  const cashPanel = el('div', { class: 'tvh-pt-panel', role: 'tabpanel', hidden: st.payment_type !== 'cash' },
+    el('div', { class: 'callout callout-muted', style: 'margin:0 0 12px;background:#efe4d0;color:var(--muted);border-color:#efe4d0;flex-direction:column;align-items:stretch;gap:2px' },
+      el('div', { class: 'lbl', text: '💵 Cash / cheque' }),
+      el('small', { text: 'Hand the amount to a committee member and note their details below — the committee will match it with their end and verify.' })
+    ),
+    el('div', { class: 'field' }, reqLbl('Paid to (name)'), paidToNameInp),
+    el('div', { class: 'field' }, reqLbl('Paid to (mobile)'), paidToMobileInp,
+      el('small', { class: 'sub', text: '10-digit mobile of the committee member.' })),
+    el('div', { class: 'field' }, el('label', { text: 'Paid to (flat)' }), paidToFlatInp,
+      el('small', { class: 'sub', text: 'Optional — note it if the committee member shared their flat.' }))
+  );
+
+  function switchPaymentType(t) {
+    if (t !== 'online' && t !== 'cash') return;
+    st.payment_type = t;
+    tabOnline.classList.toggle('active', t === 'online');
+    tabCash.classList.toggle('active', t === 'cash');
+    tabOnline.setAttribute('aria-selected', String(t === 'online'));
+    tabCash.setAttribute('aria-selected', String(t === 'cash'));
+    onlinePanel.hidden = t !== 'online';
+    cashPanel.hidden   = t !== 'cash';
+    refreshPayHint();
+    persistDraft();
+  }
+  tabOnline.addEventListener('click', () => switchPaymentType('online'));
+  tabCash.addEventListener('click',   () => switchPaymentType('cash'));
+
   const submitBtn = el('button', { class: 'btn btn-block', on: { click: async () => {
     if (!st.amount || st.amount < 1) return toast('Enter a valid amount', 'err');
     if (!st.contributor_name)  return toast('Name is required', 'err');
@@ -605,14 +710,25 @@ export async function render(root, { match }) {
         return toast('This event accepts only ONE contribution per flat. A submission from your flat already exists.', 'err');
       }
     }
-    /* Payment verification rule (same for self AND on-behalf):
-     *   UPI  → UPI reference (UTR)  OR  payment proof screenshot
-     *   Bank → NEFT/IMPS reference  OR  payment proof screenshot
-     *   Cash → cheque no. / cash memo goes in the ref field; proof
-     *          optional (kept flexible for events where the committee
-     *          collects at a desk and writes a memo). */
-    if ((st.method === 'upi' || st.method === 'bank') && !st.ref && !st.proof_data_url) {
-      return toast('Enter the payment reference OR attach a transaction receipt — one of the two is required.', 'err');
+    /* Payment-type-specific validation.
+     *   Online → transaction number OR payment screenshot (at least one).
+     *   Cash   → 'paid to' name AND mobile of the committee member.
+     * The stored `method` field maps back to 'upi' | 'bank' | 'other'
+     * so existing views (receipt, manage table, reports) render
+     * unchanged. */
+    let effMethod;
+    if (st.payment_type === 'online') {
+      effMethod = st.online_kind === 'bank' ? 'bank' : 'upi';
+      if (!st.ref && !st.proof_data_url) {
+        return toast('Enter the transaction number OR attach a payment screenshot — at least one is required.', 'err');
+      }
+    } else {
+      effMethod = 'other';
+      if (!st.paid_to_name) return toast('"Paid to (name)" is required for cash contributions.', 'err');
+      const paidToMob = validateMobile(st.paid_to_mobile);
+      if (!paidToMob.valid) return toast('Enter a valid 10-digit mobile for the person you paid.', 'err');
+      st.paid_to_mobile = paidToMob.digits;
+      if (paidToMobileInp.value !== paidToMob.digits) paidToMobileInp.value = paidToMob.digits;
     }
     /* Contributor / beneficiary payload. When on_behalf is true the
      * `contributor` id is left blank (the beneficiary may not have an
@@ -625,12 +741,17 @@ export async function render(root, { match }) {
       contributor_email: st.contributor_email,
       contributor_mobile: st.contributor_mobile,
       flat: st.contributor_flat,
-      amount: st.amount, method: st.method,
+      amount: st.amount, method: effMethod,
       anonymous: st.anonymous, hide_amount: st.hide_amount,
       ref: st.ref, remarks: st.remarks,
       proof_data_url: st.proof_data_url,
       proof_name: st.proof_name,
       proof_size: st.proof_size,
+      /* Cash-only fields (empty strings when online, so the record
+       * shape stays flat and diff-friendly). */
+      paid_to_name:   st.payment_type === 'cash' ? st.paid_to_name   : '',
+      paid_to_flat:   st.payment_type === 'cash' ? st.paid_to_flat   : '',
+      paid_to_mobile: st.payment_type === 'cash' ? st.paid_to_mobile : '',
       on_behalf: st.on_behalf,
       filled_by_id:    st.on_behalf ? user.id    : null,
       filled_by_name:  st.on_behalf ? user.name  : null,
@@ -666,8 +787,7 @@ export async function render(root, { match }) {
 
   const form = el('div', { class: 'card card-pad' },
     el('h2', { text: 'Contribute · ' + evt.title }),
-    el('p', { class: 'sub', text: 'Every rupee goes to the committee. The receipt is minted and made available for download only after the Management Committee verifies your payment.' }),
-    el('small', { class: 'sub', style: 'display:block;margin-bottom:14px', text: 'Fields marked with an asterisk (*) are required.' }),
+    el('p', { class: 'sub', style: 'margin-bottom:14px', text: 'Every rupee goes to the committee. The receipt is minted and made available for download only after the Management Committee verifies your payment.' }),
     /* Contributor identity section — first thing residents see. */
     identityHead,
     identitySub,
@@ -687,26 +807,20 @@ export async function render(root, { match }) {
       amtInp
     ) : null,
     appreciateCard,
-    el('div', { class: 'field' }, el('label', { text: 'Payment method' }), methodSel),
-    payHint,
-    /* Payment verification group. Rule: UPI/bank submissions need EITHER
-     * the reference (UTR / txn no.) OR the payment proof — not both.
-     * The `*` sits on the group heading, not the individual fields, so
-     * residents don't misread it as "both required". */
-    el('div', { class: 'field', style: 'padding:12px;border:1px dashed var(--line);border-radius:12px;background:#fbf6ea' },
-      el('label', { style: 'margin-bottom:2px' },
-        el('span', { text: 'Payment verification (any one of the two)' }),
-        el('span', { class: 'req', 'aria-hidden': 'true', text: '*' })
-      ),
-      el('small', { class: 'sub', style: 'display:block;margin-bottom:10px', text: 'Either paste the UPI / bank reference number OR attach a screenshot / PDF of the transaction. One of the two is enough for the committee to verify.' }),
-      el('div', {}, refLabel, refInp),
-      el('div', { style: 'text-align:center;color:var(--muted);font-weight:800;font-size:12px;letter-spacing:.12em;margin:10px 0', text: '— OR —' }),
-      el('div', {}, proofLabel, proofInp, proofStatus, proofPreview)
-    ),
+    /* Payment section — tabbed Online / Cash. The Online panel holds
+     * the pay-guide, transaction number, and screenshot upload. The
+     * Cash panel captures the committee member the resident paid. */
     el('div', { class: 'field' },
-      el('label', { text: 'Need help updating contribution details? Add note' }),
+      el('label', {}, el('span', { text: 'Payment type' }), el('span', { class: 'req', 'aria-hidden': 'true', text: '*' })),
+      paymentTypeTabs
+    ),
+    onlinePanel,
+    cashPanel,
+    /* Single comment field — works for both payment types. */
+    el('div', { class: 'field' },
+      el('label', { text: 'Comment (optional)' }),
       noteInp,
-      el('small', { class: 'sub', text: 'Use this if a committee member needs to correct your entry or payment details.' })
+      el('small', { class: 'sub', text: 'Anything the committee should know — e.g. spelling of the name on the receipt, a request to update payment details later, etc.' })
     ),
     allowAnon ? el('div', { class: 'callout', style: 'margin:14px 0' },
       el('div', {},
@@ -722,11 +836,9 @@ export async function render(root, { match }) {
       ),
       hideToggle
     ) : null,
-    submitBtn,
-    el('div', { style: 'text-align:center;margin-top:10px' }, el('small', { text: 'UPI · NEFT · Cash · Cheque - all methods accepted, ledger stays single-source.' }))
+    submitBtn
   );
 
-  refreshRefLabel();
   refreshPayHint();
   refreshAppreciation();
   refreshIdentityLabels();
