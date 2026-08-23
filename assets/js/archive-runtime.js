@@ -232,3 +232,83 @@ export async function queueAndMaybePushArchive(entry, opts = {}) {
   });
   return { ...out, queued: true, immediateTried: true };
 }
+
+// Probe the archive repo for `path`; returns { exists, sha? } or null on
+// error. Used to make download→archive flows idempotent — we never
+// overwrite a file that is already committed.
+export async function remoteFileExists(path) {
+  const soc = await getSociety().catch(() => null);
+  if (!isArchiveEnabled(soc)) return { exists: false };
+  const token = archiveToken(soc);
+  const branch = archiveBranch(soc);
+  const repoRefs = archiveRepoCandidates(soc);
+  if (!token || !repoRefs.length) return { exists: false };
+  for (const repoRef of repoRefs) {
+    try {
+      const url = `https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}/contents/${encodeURI(path)}?ref=${encodeURIComponent(branch)}`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        credentials: 'omit',
+      });
+      if (res.status === 200) {
+        const j = await res.json().catch(() => null);
+        return { exists: true, sha: (j && j.sha) || '' };
+      }
+      if (res.status === 404) return { exists: false };
+    } catch (_e) { /* try next repo */ }
+  }
+  return { exists: false };
+}
+
+// Verify a base64-encoded PDF starts with %PDF-. Cheap corruption gate
+// so a bad build never lands in the archive.
+export function isValidPdfBase64(b64) {
+  if (!b64 || typeof b64 !== 'string') return false;
+  try {
+    const head = atob(b64.slice(0, 12));
+    return head.startsWith('%PDF-');
+  } catch (_e) { return false; }
+}
+
+// Compute SHA-256 of the decoded base64 payload as a hex string. Used
+// for integrity checks in audit logs.
+export async function sha256Base64(b64) {
+  if (typeof crypto === 'undefined' || !crypto.subtle) return '';
+  try {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const buf = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch (_e) { return ''; }
+}
+
+// Idempotent, corruption-checked archive push. Skips the write when the
+// file already exists at `path` in the private records repo. Returns
+// { ok, existed, queued, invalid, sha } so callers can toast accurately.
+export async function archivePdfIfMissing(path, contentBase64, opts = {}) {
+  if (!path || typeof path !== 'string') return { ok: false, invalid: true };
+  if (!isValidPdfBase64(contentBase64)) return { ok: false, invalid: true };
+  const probe = await remoteFileExists(path).catch(() => ({ exists: false }));
+  if (probe && probe.exists) return { ok: true, existed: true };
+  const sha = await sha256Base64(contentBase64).catch(() => '');
+  const res = await queueAndMaybePushArchive({
+    path,
+    encoding: 'base64',
+    contentBase64,
+    kind: opts.kind || 'pdf',
+    receiptId: opts.receiptId,
+    contribId: opts.contribId,
+    scope: opts.scope,
+    sha256: sha,
+  }, {
+    actor: opts.actor || null,
+    message: opts.message || `pdf: ${path}`,
+  });
+  return { ok: !!(res && res.ok), queued: true, sha, existed: false, detail: res };
+}

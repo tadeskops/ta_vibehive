@@ -28,7 +28,7 @@ import { isSystemOn, isEventOn } from '../features.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { findEvent, canViewEventDetailedReport } from '../events.js';
-import { queueAndMaybePushArchive } from '../archive-runtime.js';
+import { queueAndMaybePushArchive, archivePdfIfMissing } from '../archive-runtime.js';
 
 const LS_KEY = 'tvh:v1:reports:filters';
 const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
@@ -642,6 +642,31 @@ export async function render(root, { match } = {}) {
     const doc = await buildPdfDoc(rows);
     doc.save(filename('pdf'));
     toast(`PDF downloaded · ${rows.length} row${rows.length === 1 ? '' : 's'}`, 'ok');
+    // Auto-mirror to archive at a stable per-day path so re-downloads on
+    // the same day never duplicate. Different scope or different day
+    // produces a distinct filename.
+    archiveDownloadedReportIfMissing(doc, rows).catch(() => { /* best-effort */ });
+  }
+
+  async function archiveDownloadedReportIfMissing(doc, rows) {
+    try {
+      const soc = await getSociety();
+      const archiveCfg = (soc && soc.receipts && soc.receipts.archive) || {};
+      if (!archiveCfg.enabled) return;
+      const scopeSlug = scopeSlugFor();
+      const day = new Date().toISOString().slice(0, 10);
+      const path = `reports/${scopeSlug}/${day}.pdf`;
+      const dataUri = String(doc.output('datauristring') || '');
+      const comma = dataUri.indexOf(',');
+      const pdfB64 = comma >= 0 ? dataUri.slice(comma + 1) : '';
+      if (!pdfB64) return;
+      await archivePdfIfMissing(path, pdfB64, {
+        kind: 'report-pdf',
+        scope: scopeSlug,
+        actor: user.id,
+        message: `report-pdf: ${scopeSlug} ${day} (${rows.length} rows)`,
+      });
+    } catch (_e) { /* silent */ }
   }
 
   async function saveToArchive(rows) {

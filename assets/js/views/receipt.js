@@ -10,6 +10,8 @@ import { findEvent } from '../events.js';
 import { attachReceipt } from '../receipts.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
+import { archivePdfIfMissing } from '../archive-runtime.js';
+import { archivePathFor, DEFAULT_ARCHIVE } from '../paths.js';
 
 const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 
@@ -444,6 +446,28 @@ function drawFlatStamp(doc, x, y) {
 async function downloadReceiptPdf(r, rec, evt, soc, tpl, theme) {
   const doc = await buildReceiptPdf(r, rec, evt, soc, { tpl, theme });
   doc.save(pdfFileName(r));
+  // Fire-and-forget: mirror the downloaded PDF into the private archive
+  // if it isn't already there. Idempotent + corruption-checked.
+  archiveReceiptPdfIfMissing(doc, r, rec, evt, soc).catch(() => { /* best-effort */ });
+}
+
+async function archiveReceiptPdfIfMissing(doc, r, rec, evt, soc) {
+  const archiveCfg = (soc && soc.receipts && soc.receipts.archive) || DEFAULT_ARCHIVE;
+  if (!archiveCfg || !archiveCfg.enabled) return;
+  const dataUri = String(doc.output('datauristring') || '');
+  const comma = dataUri.indexOf(',');
+  const pdfB64 = comma >= 0 ? dataUri.slice(comma + 1) : '';
+  if (!pdfB64) return;
+  const jsonPath = archivePathFor(rec || {}, evt, archiveCfg);
+  const pdfPath = jsonPath.replace(/\.json$/i, '.pdf');
+  const user = session();
+  await archivePdfIfMissing(pdfPath, pdfB64, {
+    kind: 'receipt-pdf',
+    receiptId: r && r.id,
+    contribId: rec && rec.id,
+    actor: user ? (user.email || user.id) : null,
+    message: `receipt-pdf: ${r && r.id}`,
+  });
 }
 
 /* WhatsApp share:
