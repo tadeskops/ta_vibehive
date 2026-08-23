@@ -273,3 +273,41 @@ Core implementation:
 - `assets/js/archive-runtime.js` — `queueAndMaybePushArchive`,
   `archivePdfIfMissing`
 - `assets/js/views/home.js` — mount-time invocation gated by RBAC
+
+## 15) Per-Event Receipt Theme
+
+Implemented (2026-08-23):
+
+**Event creator picks the receipt theme** — the event editor
+(`renderEdit` in `assets/js/views/event.js`) gained a "Receipt theme
+(optional)" field with the three shipped themes:
+- Default · Community Warmth
+- Cheque Classic · blue grid
+- Certificate Brand · indigo + gold
+
+Left blank, the receipt inherits the society-wide default. The
+chosen theme is persisted on the event as `evt.receipt_theme` and is
+the primary source used by every receipt download for that event.
+A small hint under the picker explains each theme; a "Preview →"
+link opens the corresponding shipped preview asset in a new tab so
+committee members can eyeball the layout before publishing.
+
+**Residents never see the theme picker** — the picker on the receipt
+preview page is gated by both:
+1. `receipts.theme.override` capability (already admin/secretary/mgmt),
+2. an explicit `user.role !== 'resident'` guard (belt-and-suspenders).
+
+Residents (and any other role without the capability) silently use
+whichever theme the event creator selected, so their downloaded
+receipt looks exactly like the moderators intended.
+
+**Theme resolution precedence** at download time:
+`evt.receipt_theme` → active shipped template → `society.receipts.default_theme` → `default`.
+
+Core implementation:
+- `assets/js/views/event.js` — event editor `themeI` field +
+  `receipt_theme` on the save payload.
+- `assets/js/views/receipt.js` — `defaultTheme` and
+  `downloadReceiptDirect` both prefer the event-level theme.
+- `config/roles.json` — `receipts.theme.override` remains
+  `[admin, secretary, mgmt]`.

@@ -377,6 +377,38 @@ async function renderEdit(root, evt, user, caps) {
   const titleI = field('title', 'Event title', el('input', { type: 'text', value: evt.title, required: true }));
   const purposeI = field('purpose', 'Purpose (1-line)', el('input', { type: 'text', value: evt.purpose || '' }));
   const goalI = field('goal', 'Goal (₹)', el('input', { type: 'number', value: String(evt.goal || 0), min: '0' }));
+  // Per-event receipt theme override. Optional — when blank, society default is used.
+  const RECEIPT_THEMES = [
+    { id: '',                   label: '— use society default —', hint: '' },
+    { id: 'default',            label: 'Default · Community Warmth',   hint: 'Warm cream + terracotta, festive vibe.' },
+    { id: 'cheque-classic',     label: 'Cheque Classic · blue grid',   hint: 'Formal, treasurer-friendly ledger look.' },
+    { id: 'certificate-brand',  label: 'Certificate Brand · indigo + gold', hint: 'Presentation-grade certificate for donors.' },
+  ];
+  const themeSel = el('select', {}, ...RECEIPT_THEMES.map(t =>
+    el('option', { value: t.id, selected: (evt.receipt_theme || '') === t.id, text: t.label })
+  ));
+  const themeHint = el('small', { class: 'sub', style: 'display:block;margin-top:4px' });
+  const themePreviewLink = el('a', {
+    class: 'sub',
+    href: '#',
+    style: 'margin-left:8px;font-weight:600',
+    text: 'Preview →'
+  });
+  function refreshThemeHint() {
+    const found = RECEIPT_THEMES.find(t => t.id === themeSel.value) || RECEIPT_THEMES[0];
+    themeHint.textContent = found.hint || 'When blank, society default receipt theme is used.';
+    themePreviewLink.style.display = themeSel.value ? '' : 'none';
+    themePreviewLink.setAttribute('href', 'assets/images/receipt-theme-' + (themeSel.value || 'default') + '.png');
+    themePreviewLink.setAttribute('target', '_blank');
+    themePreviewLink.setAttribute('rel', 'noopener');
+  }
+  themeSel.addEventListener('change', refreshThemeHint);
+  refreshThemeHint();
+  const themeI = el('div', { class: 'field' },
+    el('label', { text: 'Receipt theme (optional)' }),
+    themeSel,
+    el('div', { class: 'row', style: 'gap:8px;align-items:baseline;margin-top:4px' }, themeHint, themePreviewLink)
+  );
   const startI = field('start', 'Start date', el('input', { type: 'date', value: evt.start_at || '' }));
   const endI = field('end', 'End / deadline', el('input', { type: 'date', value: evt.end_at || '' }));
   const capI = field('cap', 'Capacity', el('input', { type: 'number', value: String(evt.capacity || 0), min: '0' }));
@@ -610,6 +642,7 @@ async function renderEdit(root, evt, user, caps) {
           features: updatedFeatures,
           status: statusSel.value,
           festival_visual_id: visualSel ? (visualSel.value || '') : (evt.festival_visual_id || ''),
+          receipt_theme: (themeSel.value || ''),
         };
         const errs = await validateEventFeatures(updated.features);
         if (errs.length) { toast(`Fix dependencies: ${errs[0].id} needs ${errs[0].missing}`, 'err'); return; }
@@ -648,7 +681,7 @@ async function renderEdit(root, evt, user, caps) {
   );
 
   form.append(el('h2', { text: 'Edit event' }),
-    el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI, suggestedI, appreciateI),
+    el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI, suggestedI, appreciateI, themeI),
     visualI ? el('section', { style: 'margin-top:14px' },
       el('h3', { text: 'Event visual' }),
       el('p', { class: 'sub', style: 'margin-bottom:10px', text: 'Cultural / festival events can display a curated illustration on the event grid and hero.' }),

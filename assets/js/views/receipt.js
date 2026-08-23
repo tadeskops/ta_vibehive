@@ -552,7 +552,11 @@ export async function downloadReceiptDirect(contribId, format /* 'pdf' | 'png' *
   const soc = await getSociety();
   const templates = state.receiptTemplates() || [];
   const tpl = templates.find(t => t.active) || null;
-  const theme = (soc && soc.receipts && soc.receipts.theme) || 'default';
+  // Prefer the event creator's per-event theme so each event's
+  // receipts feel personalised, then society-wide default.
+  const theme = (evt && evt.receipt_theme)
+    || (soc && soc.receipts && (soc.receipts.theme || soc.receipts.default_theme))
+    || 'default';
   if (format === 'png' || format === 'image') return downloadReceiptImage(r, rec, evt, soc, tpl);
   return downloadReceiptPdf(r, rec, evt, soc, tpl, theme);
 }
@@ -704,14 +708,17 @@ export async function render(root, { match, params }) {
     'shipped-certificate-brand': 'certificate-brand',
   };
   const themeFromActive = SHIPPED_THEME_BY_ID[activeTplId] || '';
-  const defaultTheme = themeFromActive
-    || (soc.receipts && soc.receipts.default_theme)
+  // Precedence: event-level theme (set by the event creator) →
+  // active-template mapping → society default → hard default.
+  const defaultTheme = (evt && evt.receipt_theme)
+    || themeFromActive
+    || (soc.receipts && (soc.receipts.default_theme || soc.receipts.theme))
     || 'default';
-  const canOverrideTheme = await can(user, 'receipts.theme.override');
+  const canOverrideTheme = user && user.role !== 'resident' && await can(user, 'receipts.theme.override');
   const themePicker = el('select', {
     class: 'btn btn-ghost',
     style: 'min-width:180px',
-    title: 'Choose the theme for this download'
+    title: 'One-off theme override for this download (event default: ' + defaultTheme + ')'
   },
     el('option', { value: 'default',           text: 'Default · Community Warmth' }),
     el('option', { value: 'cheque-classic',    text: 'Cheque Classic · blue grid' }),
