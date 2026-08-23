@@ -14,6 +14,7 @@ import { archivePdfIfMissing } from '../archive-runtime.js';
 import { archivePathFor, DEFAULT_ARCHIVE } from '../paths.js';
 
 const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+const HTML2CANVAS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
 
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
@@ -39,6 +40,12 @@ async function ensureJsPdf() {
   if (!(window.jspdf && window.jspdf.jsPDF)) throw new Error('PDF library did not initialise');
 }
 export { ensureJsPdf };
+
+async function ensureHtml2Canvas() {
+  if (typeof window.html2canvas === 'function') return;
+  await loadScriptOnce(HTML2CANVAS_URL);
+  if (typeof window.html2canvas !== 'function') throw new Error('html2canvas did not initialise');
+}
 
 /* Event-type-aware copy for curated receipt templates.
  * The visual template (cheque-classic / certificate-brand) is fixed
@@ -83,174 +90,125 @@ export { buildReceiptPdf };
 
 async function buildReceiptPdfDefault(r, rec, evt, soc, opts) {
   const tpl = opts && opts.tpl;
-  const doc = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
-  const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN');
-  const INK = [15, 23, 42];
-  const MUTED = [100, 116, 139];
-  const BLUE = [62, 90, 158];
-  const TERRA = [163, 67, 40];
-  const LINE = [226, 232, 240];
-  const CREAM = [250, 243, 234];
+  await Promise.all([ensureJsPdf(), ensureHtml2Canvas()]);
 
-  const [logoData, stampData, watermarkData] = await Promise.all([
-    loadImageAsDataUrl('assets/images/TaLogo.png').catch(() => null),
-    loadImageAsDataUrl('assets/images/TaStampBlue.png').catch(() => null),
-    loadImageAsDataUrl('assets/images/TaStampBlueOverlay.png').catch(() => null),
-  ]);
+  // Build the exact same DOM the on-screen preview uses, mount it in a
+  // hidden off-canvas stage sized like an A4 page at ~96dpi, snapshot it
+  // with html2canvas, drop the node, then embed the raster into a jsPDF
+  // A4 portrait document. Guarantees "preview == PDF" pixel parity.
+  const article = buildReceiptArticle(r, rec, evt, soc, tpl);
+  const stage = document.createElement('div');
+  stage.style.cssText = 'position:fixed;left:-20000px;top:0;z-index:-1;opacity:0.01;pointer-events:none;background:#faf3ea;padding:24px 20px;width:794px;'; // 794px ≈ A4 width at 96dpi
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'width:754px;margin:0 auto;';
+  wrap.appendChild(article);
+  stage.appendChild(wrap);
+  document.body.appendChild(stage);
 
-  const MARGIN = 12;
-  const contentW = pageW - MARGIN * 2;
+  try {
+    // Wait one frame so images (logo, stamp) start loading, then wait
+    // for any <img> inside the article to resolve so the snapshot is
+    // complete. Without this the raster occasionally captures empty
+    // logo/stamp boxes.
+    await new Promise(requestAnimationFrame);
+    await waitForImages(article);
 
-  // Diagonal watermark — repeating VERIFIED · <SHORT_NAME> text so a scan
-  // shows the pattern shifted across the page (like the on-screen preview).
-  if (watermarkData) {
-    try {
-      doc.addImage(watermarkData, 'PNG', -20, 8, pageW + 40, pageH - 16, undefined, 'FAST');
-    } catch (_e) { /* image add failure — skip watermark */ }
-  }
-
-  // Header row: logo left, society block right.
-  let y = MARGIN + 4;
-  if (logoData) {
-    try { doc.addImage(logoData, 'PNG', MARGIN, y, 20, 20, undefined, 'FAST'); }
-    catch (_e) { /* skip */ }
-  }
-  doc.setTextColor(...BLUE);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.text(String(soc.english_name || soc.short_name || 'The Address Co-operative Housing Society Ltd.'), MARGIN + 24, y + 6);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(...MUTED);
-  const legalLine1 = `${soc.legal_name || ''} · Reg`;
-  doc.text(legalLine1, MARGIN + 24, y + 12);
-  const legalLine2 = `${soc.reg_no || ''} · ${soc.location || ''}`.replace(/^ · | · $/g, '');
-  const wrappedLegal = doc.splitTextToSize(legalLine2, contentW - 26);
-  doc.text(wrappedLegal, MARGIN + 24, y + 17);
-  y = Math.max(y + 24, y + 15 + wrappedLegal.length * 4);
-
-  // Divider under header.
-  doc.setDrawColor(...LINE);
-  doc.setLineWidth(0.3);
-  doc.line(MARGIN, y, pageW - MARGIN, y);
-  y += 8;
-
-  // Centered receipt title.
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.setTextColor(...INK);
-  doc.text('Contribution Receipt', pageW / 2, y, { align: 'center' });
-  y += 8;
-
-  // Two-column meta grid — mirrors the on-screen `.receipt-meta`.
-  const colGap = 8;
-  const colW = (contentW - colGap) / 2;
-  const leftX = MARGIN;
-  const rightX = MARGIN + colW + colGap;
-  const rowH = 12;
-  const cell = (x, yTop, label, value, valueFont = 'bold') => {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(...MUTED);
-    doc.text(String(label).toUpperCase(), x, yTop);
-    doc.setFont('helvetica', valueFont);
-    doc.setFontSize(11);
-    doc.setTextColor(...INK);
-    const lines = doc.splitTextToSize(String(value || '—'), colW - 2);
-    doc.text(lines, x, yTop + 5);
-    return yTop + Math.max(rowH, 5 + lines.length * 4.5);
-  };
-  const pairs = [
-    ['Receipt no.',       r.id],
-    ['Issued on',         fmtDate(r.issued_at)],
-    ['Event',             evt ? evt.title : '—'],
-    ['Purpose',           evt ? (evt.purpose || evt.template) : '—'],
-    ['Contributor',       rec.anonymous ? 'Anonymous (record maintained)' : (rec.contributor_name || '—')],
-    ['Flat / Unit',       rec.anonymous ? '—' : (rec.flat || '—')],
-    ['Payment method',    rec.method || '—'],
-    ['Payment reference', rec.ref || '—'],
-  ];
-  let yLeft = y;
-  let yRight = y;
-  for (let i = 0; i < pairs.length; i += 2) {
-    yLeft  = cell(leftX,  yLeft,  pairs[i][0],  pairs[i][1]);
-    if (i + 1 < pairs.length) {
-      yRight = cell(rightX, yRight, pairs[i + 1][0], pairs[i + 1][1]);
+    const canvas = await window.html2canvas(stage, {
+      backgroundColor: '#faf3ea',
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      logging: false,
+      windowWidth: stage.offsetWidth,
+      windowHeight: stage.offsetHeight,
+    });
+    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+    const doc = new window.jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    // Fit the snapshot to the page while preserving aspect ratio.
+    const ratio = canvas.height / canvas.width;
+    let drawW = pageW;
+    let drawH = pageW * ratio;
+    if (drawH > pageH) {
+      drawH = pageH;
+      drawW = pageH / ratio;
     }
+    const offsetX = (pageW - drawW) / 2;
+    const offsetY = (pageH - drawH) / 2;
+    doc.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH, undefined, 'FAST');
+    return doc;
+  } finally {
+    try { stage.remove(); } catch (_e) { /* ignore */ }
   }
-  y = Math.max(yLeft, yRight) + 4;
+}
 
-  // Cream amount panel — the terra "Amount received · ₹X,XXX" line.
-  doc.setFillColor(...CREAM);
-  doc.roundedRect(MARGIN, y, contentW, 18, 3, 3, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.setTextColor(...TERRA);
-  doc.text('Amount received  ·  ' + rs(r.amount), pageW / 2, y + 12, { align: 'center' });
-  y += 24;
+function waitForImages(root) {
+  const imgs = Array.from(root.querySelectorAll('img'));
+  if (!imgs.length) return Promise.resolve();
+  return Promise.all(imgs.map((img) => {
+    if (img.complete && img.naturalWidth) return Promise.resolve();
+    return new Promise((resolve) => {
+      img.addEventListener('load', resolve, { once: true });
+      img.addEventListener('error', resolve, { once: true });
+      setTimeout(resolve, 3000);
+    });
+  }));
+}
 
-  // Thank-you line in italic muted.
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(9);
-  doc.setTextColor(...MUTED);
-  const thankYou = tpl && tpl.thank_you_line
+// Shared builder that produces the .receipt article node. Used by
+// render() to show it on-screen and by buildReceiptPdfDefault() to
+// snapshot it for the downloaded PDF — same DOM, same styles.
+function buildReceiptArticle(r, rec, evt, soc, tpl) {
+  const showQr        = tpl ? tpl.show_qr !== false          : true;
+  const showGrid      = tpl ? tpl.show_verify_grid !== false : true;
+  const showWatermark = tpl ? tpl.show_watermark !== false   : true;
+  const headerNote    = tpl && tpl.header_note ? String(tpl.header_note) : '';
+  const thankYouLine  = tpl && tpl.thank_you_line
     ? String(tpl.thank_you_line)
     : 'Received with thanks. This receipt is issued for records only. No goods or services have been supplied in exchange.';
-  const thankyouLines = doc.splitTextToSize(thankYou, contentW);
-  doc.text(thankyouLines, MARGIN, y);
-  y += thankyouLines.length * 4 + 6;
-
-  // Signatory + stamp row.
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(...MUTED);
-  doc.text('For ' + (soc.short_name || 'The Address'), MARGIN, y);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(...INK);
-  doc.text(rec.verified_by || 'Authorised signatory', MARGIN, y + 10);
-  if (stampData) {
-    try {
-      doc.addImage(stampData, 'PNG', pageW - MARGIN - 30, y - 6, 30, 30, undefined, 'FAST');
-    } catch (_e) { /* skip */ }
-  }
-  y += 22;
-
-  // Verification block.
-  doc.setDrawColor(...LINE);
-  doc.line(MARGIN, y, pageW - MARGIN, y);
-  y += 5;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(...INK);
-  doc.text('Verify hash:', MARGIN, y);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...MUTED);
-  doc.text(String(r.verify_hash || ''), MARGIN + 22, y);
-  y += 5;
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...INK);
-  doc.text('Verify online:', MARGIN, y);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...MUTED);
-  doc.text(verifyUrl(r.id), MARGIN + 25, y);
-
-  // Microtext along the bottom edge (anti-copy).
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(4);
-  doc.setTextColor(180, 180, 180);
-  const micro = microtextLine(r.id, r.verify_hash || '');
-  doc.text(micro, MARGIN, pageH - 10, { maxWidth: contentW });
-
-  // Page footer.
-  doc.setFontSize(7);
-  doc.setTextColor(...MUTED);
-  doc.text('VibeHive · ' + (soc.short_name || 'The Address'), MARGIN, pageH - 5);
-  doc.text('Page 1/1', pageW - MARGIN, pageH - 5, { align: 'right' });
-
-  return doc;
+  const footerNote    = tpl && tpl.footer_note ? String(tpl.footer_note) : '';
+  const sealGlyph     = tpl && tpl.seal_glyph ? String(tpl.seal_glyph) : '';
+  return el('article', { class: 'receipt' },
+    showWatermark ? textmark(soc.short_name, r.id, r.verify_hash) : null,
+    el('header', { class: 'receipt-head' },
+      el('img', { src: 'assets/images/TaLogo.png', alt: '' }),
+      el('div', {},
+        el('h2', { text: soc.english_name }),
+        el('small', { text: `${soc.legal_name} · Reg ${soc.reg_no} · ${soc.location}` })
+      )
+    ),
+    headerNote ? el('p', { style: 'text-align:center;margin:6px 0 0;font-weight:600;color:var(--terra)', text: headerNote }) : null,
+    el('h3', { style: 'text-align:center;margin:0 0 8px', text: 'Contribution Receipt' + (sealGlyph ? ' ' + sealGlyph : '') }),
+    el('div', { class: 'receipt-meta' },
+      metaRow('Receipt no.', r.id),
+      metaRow('Issued on', fmtDate(r.issued_at)),
+      metaRow('Event', (evt ? evt.title : '—')),
+      metaRow('Purpose', (evt ? (evt.purpose || evt.template) : '—')),
+      metaRow('Contributor', rec.anonymous ? 'Anonymous (record maintained)' : rec.contributor_name),
+      flatMetaRow(rec.anonymous ? '—' : (rec.flat || '—')),
+      metaRow('Payment method', rec.method || '—'),
+      metaRow('Payment reference', rec.ref || '—')
+    ),
+    el('div', { class: 'receipt-amount-wrap' },
+      el('div', { class: 'receipt-total', text: 'Amount received · ' + fmtINR(r.amount) })
+    ),
+    el('p', { style: 'font-size:12px;color:var(--muted)', text: thankYouLine }),
+    el('div', { class: 'receipt-stamp' },
+      el('div', {},
+        el('small', { text: 'For ' + soc.short_name }),
+        el('div', { style: 'font-weight:800;margin-top:20px', text: rec.verified_by || 'Authorised signatory' })
+      ),
+      showGrid ? hashGrid(r.verify_hash) : el('div', {}),
+      el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
+    ),
+    showQr ? el('div', { class: 'receipt-verify' },
+      el('div', {}, el('b', { text: 'Verify hash: ' }), el('span', { text: r.verify_hash })),
+      el('div', {}, el('b', { text: 'Verify online: ' }), el('span', { text: verifyUrl(r.id) }))
+    ) : null,
+    footerNote ? el('p', { style: 'text-align:center;font-size:11px;color:var(--muted);margin-top:8px', text: footerNote }) : null,
+    el('div', { class: 'receipt-microtext', 'aria-hidden': 'true', text: microtextLine(r.id, r.verify_hash) })
+  );
 }
 
 // Fetch a local image and convert to a data URL for jsPDF's addImage.
@@ -754,52 +712,7 @@ export async function render(root, { match, params }) {
     ...actionKids
   );
 
-  const receipt = el('article', { class: 'receipt' },
-    showWatermark ? textmark(soc.short_name, r.id, r.verify_hash) : null,
-    el('header', { class: 'receipt-head' },
-      el('img', { src: 'assets/images/TaLogo.png', alt: '' }),
-      el('div', {},
-        el('h2', { text: soc.english_name }),
-        el('small', { text: `${soc.legal_name} · Reg ${soc.reg_no} · ${soc.location}` })
-      )
-    ),
-    headerNote ? el('p', { style: 'text-align:center;margin:6px 0 0;font-weight:600;color:var(--terra)', text: headerNote }) : null,
-    el('h3', { style: 'text-align:center;margin:0 0 8px', text: 'Contribution Receipt' + (sealGlyph ? ' ' + sealGlyph : '') }),
-    el('div', { class: 'receipt-meta' },
-      metaRow('Receipt no.', r.id),
-      metaRow('Issued on', fmtDate(r.issued_at)),
-      metaRow('Event', (evt ? evt.title : '—')),
-      metaRow('Purpose', (evt ? (evt.purpose || evt.template) : '—')),
-      metaRow('Contributor', rec.anonymous ? 'Anonymous (record maintained)' : rec.contributor_name),
-      flatMetaRow(rec.anonymous ? '—' : (rec.flat || '—')),
-      metaRow('Payment method', rec.method || '—'),
-      metaRow('Payment reference', rec.ref || '—')
-    ),
-    /* Single stamp policy: the amount stays clean; the ONE seal is the
-     * blue society stamp inside the .receipt-stamp block below. Keeping
-     * a second wet-stamp overlay here looked "duplicated" on the page,
-     * so it has been removed. */
-    el('div', { class: 'receipt-amount-wrap' },
-      el('div', { class: 'receipt-total', text: 'Amount received · ' + fmtINR(r.amount) })
-    ),
-    el('p', { style: 'font-size:12px;color:var(--muted)', text: thankYouLine }),
-    el('div', { class: 'receipt-stamp' },
-      el('div', {},
-        el('small', { text: 'For ' + soc.short_name }),
-        el('div', { style: 'font-weight:800;margin-top:20px', text: rec.verified_by || 'Authorised signatory' })
-      ),
-      showGrid ? hashGrid(r.verify_hash) : el('div', {}),
-      el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
-    ),
-    showQr ? el('div', { class: 'receipt-verify' },
-      el('div', {}, el('b', { text: 'Verify hash: ' }), el('span', { text: r.verify_hash })),
-      el('div', {}, el('b', { text: 'Verify online: ' }), el('span', { text: verifyUrl(r.id) }))
-    ) : null,
-    footerNote ? el('p', { style: 'text-align:center;font-size:11px;color:var(--muted);margin-top:8px', text: footerNote }) : null,
-    /* microtext repeats the receipt ID + hash at 5.5px along the bottom;
-     * cannot be reproduced by hand-editing / photocopying without smudging. */
-    el('div', { class: 'receipt-microtext', 'aria-hidden': 'true', text: microtextLine(r.id, r.verify_hash) })
-  );
+  const receipt = buildReceiptArticle(r, rec, evt, soc, tpl);
 
   mount(root, actions, receipt);
 
