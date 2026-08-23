@@ -9,6 +9,7 @@ import { cfg, getSociety, state } from '../store.js';
 import { can } from '../rbac.js';
 import { renderVisitCard } from '../visit-counter.js';
 import { promptVerifyComment } from '../verify-prompt.js';
+import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
 import { openExpenseDialog } from './event.js';
 
 /* Community Warmth · v0.1 -- privacy.public_mask
@@ -307,12 +308,7 @@ function receiptViewIconLink(contribId) {
 }
 
 function receiptDownloadIconLink(contribId) {
-  return el('a', {
-    class: 'tvh-mini-icon-btn',
-    href: `#/receipt/${encodeURIComponent(String(contribId || ''))}?download=1`,
-    title: 'Download receipt PDF',
-    'aria-label': 'Download receipt PDF'
-  }, '⬇');
+  return receiptDownloadIconBtn(contribId, { title: 'Download receipt (PDF or PNG)' });
 }
 
 /* Sleek inline verify icon button (check glyph) for the

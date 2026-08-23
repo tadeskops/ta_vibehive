@@ -57,6 +57,9 @@
   "navigation": {
     "show_verify": false
   },
+  "ui": {
+    "breadcrumbs": true
+  },
   "footer": {
     "desktop": {
       "show_social": true,

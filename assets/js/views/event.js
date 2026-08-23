@@ -8,6 +8,7 @@ import { can } from '../rbac.js';
 import { navigate } from '../router.js';
 import { cfg, getSociety, state } from '../store.js';
 import { promptVerifyComment } from '../verify-prompt.js';
+import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
 
 /* ---------- payment-input validation helpers ----------
  * Both used ONLY inside the event editor (renderEdit). Kept module-
@@ -308,21 +309,11 @@ async function renderPublicBoard(evt, hideAmount, user) {
                 title: 'View receipt',
                 'aria-label': 'View receipt'
               }, '👁'),
-              el('a', {
-                class: 'tvh-mini-icon-btn',
-                href: `#/receipt/${encodeURIComponent(r.contribId)}?download=1`,
-                title: 'Download receipt PDF',
-                'aria-label': 'Download receipt PDF'
-              }, '⬇')
+              receiptDownloadIconBtn(r.contribId, { title: 'Download receipt (PDF or PNG)' })
             )
           : canDownloadOwnReceipt(r)
             ? el('span', { class: 'tvh-receipt-actions' },
-              el('a', {
-                class: 'tvh-mini-icon-btn',
-                href: `#/receipt/${encodeURIComponent(r.contribId)}?download=1`,
-                title: 'Download receipt PDF',
-                'aria-label': 'Download receipt PDF'
-              }, '⬇')
+              receiptDownloadIconBtn(r.contribId, { title: 'Download receipt (PDF or PNG)' })
             )
           : el('small', { class: 'sub', text: '—' })
       )

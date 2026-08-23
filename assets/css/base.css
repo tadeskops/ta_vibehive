@@ -199,6 +199,20 @@ body.is-busy .topbar::after{opacity:1;animation:tvh-topbar-shine 1.2s linear inf
 /* Stage / footer */
 .stage{max-width:1200px;margin:0 auto;padding:26px max(20px,env(safe-area-inset-right)) 60px max(20px,env(safe-area-inset-left));width:100%}
 .stage-narrow{max-width:640px}
+/* Breadcrumb — sits between the header and the stage. Feature-gated
+ * by `society.ui.breadcrumbs`. */
+.tvh-breadcrumb{max-width:1200px;margin:0 auto;padding:10px max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left));width:100%}
+.tvh-breadcrumb[hidden]{display:none}
+.tvh-breadcrumb-list{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
+.tvh-breadcrumb-item{display:inline-flex;align-items:center;gap:4px}
+.tvh-breadcrumb-item + .tvh-breadcrumb-item::before{content:"›";margin:0 4px;color:var(--muted);font-weight:800}
+.tvh-breadcrumb-item a{color:var(--terra);text-decoration:none;font-weight:600}
+.tvh-breadcrumb-item a:hover,.tvh-breadcrumb-item a:focus-visible{text-decoration:underline}
+.tvh-breadcrumb-item.is-current span{color:var(--ink);font-weight:700}
+@media(max-width:640px){
+  .tvh-breadcrumb{padding-top:8px}
+  .tvh-breadcrumb-list{font-size:11px}
+}
 /* Guardrail: any element marked hidden must stay hidden even when
  * component classes set display:flex/grid elsewhere. */
 [hidden]{display:none!important}
@@ -551,6 +565,11 @@ label{display:block;font-weight:700;font-size:13px;margin-bottom:4px;color:var(-
  * native OS tooltip. Kept high z-index so modals never occlude it. */
 .tvh-longpress-tip{position:fixed;left:0;top:0;z-index:12000;pointer-events:none;max-width:min(80vw,320px);padding:8px 12px;border-radius:10px;background:rgba(20,15,10,.94);color:#fff;font-size:12px;line-height:1.4;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.35);opacity:0;transform:translateY(4px);transition:opacity .12s ease,transform .12s ease}
 .tvh-longpress-tip.is-open{opacity:1;transform:translateY(0)}
+/* Inline receipt-download menu — floating popover with PDF/PNG. */
+.tvh-download-menu{position:fixed;z-index:12100;min-width:170px;padding:6px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 34px rgba(42,26,16,.18);animation:tvh-alt-in .12s ease-out both}
+.tvh-download-menu-label{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 10px 4px}
+.tvh-download-menu-item{display:block;width:100%;text-align:left;padding:8px 10px;border:none;background:transparent;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer}
+.tvh-download-menu-item:hover,.tvh-download-menu-item:focus-visible{background:var(--terra-soft);color:var(--terra);outline:none}
 /* Alt-key hint pills — pressed & released as a batch on the Alt key.
  * Compact, non-interactive, positioned by JS. */
 .tvh-alt-hint{position:fixed;z-index:11500;pointer-events:none;padding:3px 8px;border-radius:6px;background:rgba(20,15,10,.92);color:#fff;font-size:11px;font-weight:600;line-height:1.35;box-shadow:0 4px 12px rgba(0,0,0,.28);max-width:220px;white-space:normal;animation:tvh-alt-in .12s ease-out both}

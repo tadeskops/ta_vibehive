@@ -507,6 +507,56 @@ async function downloadReceiptPdf(r, rec, evt, soc, tpl, theme) {
   archiveReceiptPdfIfMissing(doc, r, rec, evt, soc).catch(() => { /* best-effort */ });
 }
 
+export { downloadReceiptPdf };
+
+// Snapshot the same DOM as the PDF renderer to a PNG and download it.
+// The receipt article is built off-screen and rastered via html2canvas,
+// so image and PDF stay pixel-consistent.
+async function downloadReceiptImage(r, rec, evt, soc, tpl) {
+  await ensureHtml2Canvas();
+  const article = buildReceiptArticle(r, rec, evt, soc, tpl);
+  const stage = document.createElement('div');
+  stage.style.cssText = 'position:fixed;left:-20000px;top:0;z-index:-1;pointer-events:none;background:#faf3ea;padding:24px 20px;width:794px;';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'width:754px;margin:0 auto;';
+  wrap.appendChild(article);
+  stage.appendChild(wrap);
+  document.body.appendChild(stage);
+  try {
+    await new Promise(requestAnimationFrame);
+    await waitForImages(article);
+    const canvas = await window.html2canvas(stage, {
+      backgroundColor: '#faf3ea', scale: 2, useCORS: true, allowTaint: false, logging: false,
+    });
+    const dataUrl = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = pdfFileName(r).replace(/\.pdf$/i, '.png');
+    document.body.appendChild(a); a.click(); a.remove();
+  } finally {
+    try { stage.remove(); } catch (_e) { /* ignore */ }
+  }
+}
+
+export { downloadReceiptImage };
+
+/** High-level programmatic download entry point used by inline icons
+ *  on Home/Event so they can skip the preview route entirely. */
+export async function downloadReceiptDirect(contribId, format /* 'pdf' | 'png' */) {
+  const rec = state.contribs().find(c => c && c.id === contribId);
+  if (!rec) throw new Error('Contribution not found.');
+  if (rec.status !== 'verified') throw new Error('Only verified contributions have a receipt.');
+  if (!rec.receipt) { await attachReceipt(rec); }
+  const r = state.contribs().find(c => c.id === rec.id).receipt;
+  const evt = findEvent(rec.event);
+  const soc = await getSociety();
+  const templates = state.receiptTemplates() || [];
+  const tpl = templates.find(t => t.active) || null;
+  const theme = (soc && soc.receipts && soc.receipts.theme) || 'default';
+  if (format === 'png' || format === 'image') return downloadReceiptImage(r, rec, evt, soc, tpl);
+  return downloadReceiptPdf(r, rec, evt, soc, tpl, theme);
+}
+
 async function archiveReceiptPdfIfMissing(doc, r, rec, evt, soc) {
   const archiveCfg = (soc && soc.receipts && soc.receipts.archive) || DEFAULT_ARCHIVE;
   if (!archiveCfg || !archiveCfg.enabled) return;
@@ -669,7 +719,21 @@ export async function render(root, { match, params }) {
   );
   themePicker.value = ['default', 'cheque-classic', 'certificate-brand'].includes(defaultTheme) ? defaultTheme : 'default';
   const currentTheme = () => themePicker.value || 'default';
-  const wantsAutoDownload = !!(params && (params.get('download') === '1' || params.get('dl') === '1'));
+
+  // Format selector — user chooses PDF or PNG and then hits Download.
+  // Autoinit from `?format=png` when the inline icon requested image.
+  const formatSelect = el('select', {
+    class: 'btn btn-ghost',
+    style: 'min-width:120px',
+    title: 'Pick file format for download',
+    'aria-label': 'File format'
+  },
+    el('option', { value: 'pdf', text: 'PDF (A4)' }),
+    el('option', { value: 'png', text: 'PNG image' })
+  );
+  const requestedFormat = params && (params.get('format') || params.get('fmt'));
+  if (requestedFormat === 'png' || requestedFormat === 'image') formatSelect.value = 'png';
+  const currentFormat = () => formatSelect.value || 'pdf';
 
   const actionKids = [
     el('a', { class: 'btn btn-ghost', href: `#/e/${rec.event}` }, '← Event'),
@@ -677,6 +741,7 @@ export async function render(root, { match, params }) {
     el('a', { class: 'btn btn-ghost', href: mailtoHref, title: 'Open your mail client with a pre-filled message' }, '✉ Email'),
   ];
   if (canOverrideTheme) actionKids.push(themePicker);
+  actionKids.push(formatSelect);
   actionKids.push(
     el('button', {
       class: 'btn btn-ghost',
@@ -693,23 +758,28 @@ export async function render(root, { match, params }) {
     el('button', {
       class: 'btn',
       type: 'button',
-      title: 'Download the receipt as a PDF file',
+      title: 'Download the receipt in the selected format',
       on: { click: async (ev) => {
         const btn = ev.currentTarget;
         btn.disabled = true;
         const originalLabel = btn.textContent;
         btn.textContent = 'Preparing…';
         try {
-          await downloadReceiptPdf(r, rec, evt, soc, tpl, currentTheme());
-          toast('Receipt PDF saved to Downloads.', 'ok');
+          if (currentFormat() === 'png') {
+            await downloadReceiptImage(r, rec, evt, soc, tpl);
+            toast('Receipt image saved to Downloads.', 'ok');
+          } else {
+            await downloadReceiptPdf(r, rec, evt, soc, tpl, currentTheme());
+            toast('Receipt PDF saved to Downloads.', 'ok');
+          }
         } catch (e) {
-          toast((e && e.message) || 'Could not generate the receipt PDF', 'err');
+          toast((e && e.message) || 'Could not generate the receipt', 'err');
         } finally {
           btn.disabled = false;
           btn.textContent = originalLabel;
         }
       } }
-    }, '⬇ Download PDF')
+    }, '⬇ Download')
   );
 
   const actions = el('div', { class: 'row row-end print-hide', style: 'margin-bottom:16px;flex-wrap:wrap;gap:8px' },
@@ -719,15 +789,6 @@ export async function render(root, { match, params }) {
   const receipt = buildReceiptArticle(r, rec, evt, soc, tpl);
 
   mount(root, actions, receipt);
-
-  if (wantsAutoDownload) {
-    try {
-      await downloadReceiptPdf(r, rec, evt, soc, tpl, currentTheme());
-      toast('Receipt PDF saved to Downloads.', 'ok');
-    } catch (e) {
-      toast((e && e.message) || 'Could not generate the receipt PDF', 'err');
-    }
-  }
 }
 
 /* --- SVG helpers (createElementNS to avoid innerHTML per CSP posture) --- */

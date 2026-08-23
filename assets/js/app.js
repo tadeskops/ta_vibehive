@@ -10,6 +10,7 @@ import { mountBell as mountNotifyBell } from './notify.js';
 import { syncFromWorker, installAutoRefresh } from './sync.js';
 import { mountVisitCounter } from './visit-counter.js';
 import { installLongPressTooltips } from './longpress-tooltip.js';
+import { installBreadcrumb } from './breadcrumb.js';
 import { wireAboutTriggers } from './about-modal.js';
 
 /* Global background-activity tracker: wraps window.fetch so every network
@@ -552,6 +553,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   mountSheet();
   mountBackToTop();
   installLongPressTooltips();
+  installBreadcrumb();
   wireAboutTriggers();
   /* Society sub-line under the VibeHive wordmark. Reads through
    * getSociety() so admin overrides show up immediately. */
