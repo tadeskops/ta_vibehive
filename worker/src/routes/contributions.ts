@@ -1,6 +1,6 @@
 import type { Ctx } from '../lib/ctx.ts';
 import { ok, err } from '../lib/envelope.ts';
-import { readJson, writeJson, listDir } from '../github/client.ts';
+import { readJson, writeJson, writeBinary, listDir } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -45,6 +45,54 @@ function newId(): string {
   return `c-${Date.now().toString(36)}-${rand}`;
 }
 
+/** Slugify an event id or flat number to a safe path segment. */
+function safeSegment(v: unknown): string {
+  return String(v || '').trim().replace(/[^a-z0-9_.-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'unknown';
+}
+
+/** Map a data-URL MIME type to a file extension. Falls back to `bin`. */
+function extForMime(mime: string): string {
+  const m = String(mime || '').toLowerCase();
+  if (m === 'image/png') return 'png';
+  if (m === 'image/jpeg' || m === 'image/jpg') return 'jpg';
+  if (m === 'image/webp') return 'webp';
+  if (m === 'image/gif') return 'gif';
+  if (m === 'application/pdf') return 'pdf';
+  return 'bin';
+}
+
+/**
+ * Persist the raw payment-proof binary at
+ *   contributions/{YYYY}/{event}/{flat}/{contribId}.{ext}
+ * so the record repo carries the transaction receipt separately from
+ * the JSON envelope. Returns the archive path on success, or null
+ * when the record has no proof / event / flat to hang it under.
+ * Failures are swallowed — the JSON write is the source of truth
+ * and a missing binary parallel-write must never break the API call.
+ */
+async function archiveProofBinary(ctx: Ctx, record: Contribution): Promise<string | null> {
+  const dataUrl = String((record as Record<string, unknown>)['proof_data_url'] || '');
+  const flat = String((record as Record<string, unknown>)['flat'] || '');
+  const event = String(record.event || '');
+  if (!dataUrl || !flat || !event) return null;
+  const m = dataUrl.match(/^data:([^;,]+)(?:;base64)?,(.*)$/);
+  if (!m) return null;
+  const mime = m[1] || 'application/octet-stream';
+  const b64 = m[2] || '';
+  if (!b64) return null;
+  const created = String(record.created_at || new Date().toISOString());
+  const year = new Date(created).getUTCFullYear();
+  const ext = extForMime(mime);
+  const path = `contributions/${year}/${safeSegment(event)}/${safeSegment(flat)}/${safeSegment(record.id)}.${ext}`;
+  const message = `contribution: archive proof for ${record.id} (${event}/${flat}) by ${ctx.identity?.email ?? 'unknown'}`;
+  try {
+    await writeBinary(ctx.env, path, b64, message);
+    return path;
+  } catch (_e) {
+    return null;
+  }
+}
+
 /**
  * POST /contributions
  * Body: { contribution: Partial<Contribution> }
@@ -73,6 +121,8 @@ export async function createContribution(ctx: Ctx): Promise<Response> {
   const path = pathFor(stamped.id, nowIso);
   const message = `contribution: submitted by ${ctx.identity?.email ?? 'unknown'} for ${stamped.event}`;
   try {
+    const archivePath = await archiveProofBinary(ctx, stamped);
+    if (archivePath) (stamped as Record<string, unknown>)['proof_archive_path'] = archivePath;
     const result = await writeJson(ctx.env, path, stamped, message);
     return ok(ctx.env, ctx.req, { contribution: stamped, path, sha: result.sha });
   } catch (e) {
@@ -161,6 +211,12 @@ export async function putContribution(ctx: Ctx, params: Record<string, string>):
   } as Contribution;
   const message = `contribution: updated ${id} by ${ctx.identity?.email ?? 'unknown'}`;
   try {
+    const patchHasProof = typeof (patch as Record<string, unknown>)['proof_data_url'] === 'string'
+      && String((patch as Record<string, unknown>)['proof_data_url'] || '').length > 0;
+    if (patchHasProof) {
+      const archivePath = await archiveProofBinary(ctx, updated);
+      if (archivePath) (updated as Record<string, unknown>)['proof_archive_path'] = archivePath;
+    }
     const result = await writeJson(ctx.env, path, updated, message, doc.sha);
     return ok(ctx.env, ctx.req, { contribution: updated, sha: result.sha, commitSha: result.commitSha });
   } catch (e) {

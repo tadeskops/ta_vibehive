@@ -229,7 +229,7 @@ function openEditContribDialog(c, evt, user, onDone) {
     field('Transaction ref', refInp, 'UPI UTR / NEFT ref / cheque no.'),
     field('Remarks (optional)', remInp),
     field('Transaction receipt / proof', el('div', {}, proofInp, proofStatus, draft.proof_data_url ? removeProofBtn : null),
-      'Images or PDFs up to 750 KB. Stored on this device — moderators viewing from another browser will see only the ref number, not the file.')
+      'Images or PDFs up to 750 KB. Archived to the record repo under year/event/flat so any moderator can view it later.')
   );
 
   modal({
@@ -249,6 +249,9 @@ function openEditContribDialog(c, evt, user, onDone) {
           method: methodSel.value,
           ref: (refInp.value || '').trim(),
           remarks: (remInp.value || '').trim(),
+          proof_data_url: draft.proof_data_url || '',
+          proof_name: draft.proof_name || '',
+          proof_size: Number(draft.proof_size || 0),
         };
         try {
           const arr = state.contribs();

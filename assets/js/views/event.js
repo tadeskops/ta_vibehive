@@ -270,6 +270,10 @@ async function renderPublicBoard(evt, hideAmount, user, opts = {}) {
           contributorEmail: c.contributor_email || '',
           createdBy: c.created_by || '',
           filledByEmail: c.filled_by_email || '',
+          contributor_name: c.contributor_name || '',
+          proof_data_url: c.proof_data_url || '',
+          proof_name: c.proof_name || '',
+          proof_size: c.proof_size || 0,
         }))
         .sort((a, b) => (b.when || '').localeCompare(a.when || ''));
   const canReceiptDownload = user ? await can(user, 'receipts.download') : false;
@@ -304,6 +308,14 @@ async function renderPublicBoard(evt, hideAmount, user, opts = {}) {
     }
     return el('td', { class: 'num', text: fmtINR(r.amount) });
   };
+  const canViewProof = (r) => !!(user && !isResident && r.proof_data_url);
+  const proofIconBtn = (r) => el('button', {
+    class: 'tvh-mini-icon-btn',
+    type: 'button',
+    title: 'View transaction receipt',
+    'aria-label': 'View transaction receipt',
+    on: { click: () => openProof(r) }
+  }, '📎');
   const body = el('table', { class: 'table' },
     el('thead', {}, el('tr', {},
       el('th', { text: 'When' }),
@@ -333,7 +345,8 @@ async function renderPublicBoard(evt, hideAmount, user, opts = {}) {
                 'aria-label': 'View receipt'
               }, '👁'),
               receiptWhatsAppIconBtn(r.contribId),
-              receiptDownloadIconBtn(r.contribId, { title: 'Download receipt (PDF or PNG)' })
+              receiptDownloadIconBtn(r.contribId, { title: 'Download receipt (PDF or PNG)' }),
+              canViewProof(r) ? proofIconBtn(r) : null
             )
           : canDownloadOwnReceipt(r)
             ? el('span', { class: 'tvh-receipt-actions' },
@@ -346,7 +359,9 @@ async function renderPublicBoard(evt, hideAmount, user, opts = {}) {
               receiptWhatsAppIconBtn(r.contribId),
               receiptDownloadIconBtn(r.contribId, { title: 'Download receipt (PDF or PNG)' })
             )
-          : el('small', { class: 'sub', text: '—' })
+          : canViewProof(r)
+            ? el('span', { class: 'tvh-receipt-actions' }, proofIconBtn(r))
+            : el('small', { class: 'sub', text: '—' })
       )
     )) : [el('tr', {}, el('td', { colspan: isResident ? 5 : 6, text: 'No contributions in scope yet.', style: 'text-align:center;color:var(--muted)' }))]))
   );
@@ -358,7 +373,7 @@ async function renderPublicBoard(evt, hideAmount, user, opts = {}) {
     canReceiptDownload
       ? el('p', { class: 'sub', style: 'margin:0 0 8px', text: isResident
         ? 'Residents can download (⬇) their own verified receipts only.'
-        : 'Access roles can view (👁) and download (⬇) verified receipts from here.' })
+        : 'Access roles can view (👁) and download (⬇) verified receipts, and view (📎) the payment transaction attachment when the contributor uploaded one.' })
       : null,
     body
   );

@@ -131,6 +131,46 @@ export interface DirEntry {
   size: number;
 }
 
+/**
+ * Write a binary file whose content is already base64-encoded (e.g.
+ * the tail of a data URL). Used for archived payment-proof
+ * attachments so the raw image/PDF lives alongside its contribution
+ * JSON in the record repo. Semantics otherwise match writeJson —
+ * optimistic-lock via `expectedSha`, current-sha lookup when omitted.
+ */
+export async function writeBinary(
+  env: Env,
+  path: string,
+  contentBase64: string,
+  message: string,
+  expectedSha?: string,
+): Promise<{ sha: string; commitSha: string }> {
+  const content = String(contentBase64 || '').replace(/\s+/g, '');
+  const url = `${repoBase(env)}/contents/${encodeURI(path)}`;
+  const body: Record<string, unknown> = {
+    message,
+    content,
+    branch: env.GH_ARCHIVE_BRANCH,
+  };
+  if (expectedSha) body['sha'] = expectedSha;
+  else {
+    const current = await readJson(env, path).catch(() => null);
+    if (current) body['sha'] = current.sha;
+  }
+  try {
+    const resp = await gh(env, 'PUT', url, body) as { content?: { sha?: string }; commit?: { sha?: string } };
+    return {
+      sha: resp?.content?.sha ?? '',
+      commitSha: resp?.commit?.sha ?? '',
+    };
+  } catch (e) {
+    if (e instanceof GhErr && e.status === 409) {
+      throw new HttpError(409, 'Conflict: file was changed since read. Re-fetch and retry.');
+    }
+    throw e;
+  }
+}
+
 export async function listDir(env: Env, path: string): Promise<DirEntry[]> {
   const url = `${repoBase(env)}/contents/${encodeURI(path)}?ref=${encodeURIComponent(env.GH_ARCHIVE_BRANCH)}`;
   try {
