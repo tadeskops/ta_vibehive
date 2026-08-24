@@ -58,6 +58,9 @@
   "navigation": {
     "show_verify": false
   },
+  "dashboard": {
+    "recent_n": 40
+  },
   "ui": {
     "breadcrumbs": true
   },

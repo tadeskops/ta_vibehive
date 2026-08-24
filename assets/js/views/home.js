@@ -49,7 +49,7 @@ export async function shouldMaskPublic(user) {
 
 /* Options the dashboard "Latest contributions" widget offers when
  * configuring how many rows to show. Change here to expand. */
-const RECENT_N_CHOICES = [5, 10, 20];
+const RECENT_N_CHOICES = [5, 10, 20, 40];
 
 let _festivalVisualsList = null;
 cfg.festivalVisuals().then(v => { _festivalVisualsList = Array.isArray(v && v.visuals) ? v.visuals : []; }).catch(() => { _festivalVisualsList = []; });
