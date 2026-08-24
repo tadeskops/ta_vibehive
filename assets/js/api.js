@@ -236,6 +236,52 @@ export async function deleteEventRemote(slug) {
   return request('DELETE', '/events/' + encodeURIComponent(slug));
 }
 
+/* ---------- Item contributions ---------- */
+
+/** List item contributions visible to the caller. Optionally filter
+ *  by event slug. Residents see their own only; committee+ see all. */
+export async function listItemContributions(eventFilter) {
+  const qs = eventFilter ? '?event=' + encodeURIComponent(eventFilter) : '';
+  const data = await request('GET', '/item-contributions' + qs);
+  return (data && data.item_contributions) || [];
+}
+
+/** Submit a new item contribution (pledge). Server stamps `id`,
+ *  `created_at`, `created_by`, `status='pending'`. Returned record
+ *  has `_path` set so a later accept/receive/void call knows the
+ *  storage location. */
+export async function createItemContribution(itemContribution) {
+  const data = await request('POST', '/item-contributions', { item_contribution: itemContribution });
+  if (data && data.item_contribution && data.path && !data.item_contribution._path) {
+    data.item_contribution._path = data.path;
+  }
+  return data;
+}
+
+function parseItemPath(itemPath) {
+  const m = String(itemPath || '').match(/item_contributions\/(\d{4})\/(\d{2})\/([^/]+)\.json$/);
+  if (!m) throw new ApiError(400, 'Invalid item contribution path');
+  return { year: m[1], month: m[2], id: m[3] };
+}
+
+/** Accept a pending item pledge (committee+). */
+export async function acceptItemContribution(itemPath) {
+  const { year, month, id } = parseItemPath(itemPath);
+  return request('POST', `/item-contributions/${year}/${month}/${encodeURIComponent(id)}/accept`);
+}
+
+/** Mark an accepted item pledge as physically received (committee+). */
+export async function receiveItemContribution(itemPath) {
+  const { year, month, id } = parseItemPath(itemPath);
+  return request('POST', `/item-contributions/${year}/${month}/${encodeURIComponent(id)}/receive`);
+}
+
+/** Void an item pledge (committee+). Preserves the record for audit. */
+export async function voidItemContribution(itemPath, reason) {
+  const { year, month, id } = parseItemPath(itemPath);
+  return request('POST', `/item-contributions/${year}/${month}/${encodeURIComponent(id)}/void`, reason ? { reason } : {});
+}
+
 /* ---------- Metrics ---------- */
 
 /** Read the site-wide visit counter (`{ total, today }`). Anonymous

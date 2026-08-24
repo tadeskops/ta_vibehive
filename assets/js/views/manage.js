@@ -186,6 +186,76 @@ function renderExpenseRow(x, evt, user, canVerifyExpense, onDone) {
   );
 }
 
+function renderItemRow(c, evt, user, canAct, onDone) {
+  const acceptBtn = el('button', { class: 'btn btn-sm', type: 'button' }, 'Accept');
+  const receiveBtn = el('button', { class: 'btn btn-sm btn-sage', type: 'button' }, '✓ Received');
+  const voidBtn = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Decline');
+  const isAccepted = c.status === 'accepted';
+  acceptBtn.hidden = c.status !== 'pending';
+  receiveBtn.hidden = c.status === 'pending' ? false : !isAccepted;
+  acceptBtn.addEventListener('click', async () => {
+    try {
+      const mod = await import('../events.js');
+      await withSavingRing(acceptBtn, () => mod.acceptItemContribution(c.id, user), { savingLabel: 'Accepting…', busyLabel: 'Accepting pledge…' });
+      toast('Pledge accepted.', 'ok');
+      onDone();
+    } catch (e) { toast((e && e.message) || 'Accept failed', 'err'); }
+  });
+  receiveBtn.addEventListener('click', async () => {
+    try {
+      const mod = await import('../events.js');
+      await withSavingRing(receiveBtn, () => mod.receiveItemContribution(c.id, user), { savingLabel: 'Marking…', busyLabel: 'Marking received…' });
+      toast('Item received. Ledger updated.', 'ok');
+      onDone();
+    } catch (e) { toast((e && e.message) || 'Update failed', 'err'); }
+  });
+  voidBtn.addEventListener('click', async () => {
+    const reason = await promptVerifyComment({
+      title: 'Decline this pledge?',
+      subject: `${c.item_name} × ${c.quantity} from ${c.contributor_name || 'a resident'}`,
+      helpText: 'Reason for declining (visible to contributor).',
+      confirmLabel: 'Decline pledge',
+    });
+    if (reason === null) return;
+    try {
+      const mod = await import('../events.js');
+      await withSavingRing(voidBtn, () => mod.voidItemContribution(c.id, user, reason), { savingLabel: 'Declining…', busyLabel: 'Declining pledge…' });
+      toast('Pledge declined.', 'ok');
+      onDone();
+    } catch (e) { toast((e && e.message) || 'Decline failed', 'err'); }
+  });
+  const statusPill = el('span', {
+    class: 'pill ' + (c.status === 'accepted' ? 'pill-sage' : 'warn'),
+    text: (c.status || 'pending').toUpperCase(),
+  });
+  const itemCell = el('td', {},
+    el('div', { style: 'font-weight:700' },
+      (c.item_glyph ? c.item_glyph + ' ' : '') + c.item_name,
+      c.is_custom ? el('span', { class: 'pill pill-muted', style: 'margin-left:6px;font-size:10px', text: 'Others' }) : null
+    ),
+    c.note ? el('small', { class: 'sub', style: 'display:block', text: c.note }) : null
+  );
+  return el('tr', {},
+    el('td', { text: fmtDateTime(c.created_at) }),
+    el('td', {},
+      el('div', { style: 'font-weight:700', text: c.contributor_name || '—' }),
+      el('small', { class: 'sub', style: 'display:block' },
+        evt
+          ? el('a', { href: `#/e/${evt.id}/manage`, style: 'color:var(--terra);text-decoration:none' }, evt.title || evt.id)
+          : el('span', { text: c.event })
+      )
+    ),
+    itemCell,
+    el('td', { class: 'num', text: String(c.quantity || 0) + (c.unit ? ' ' + c.unit : '') }),
+    el('td', {}, statusPill),
+    el('td', {}, el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
+      canAct ? acceptBtn : null,
+      canAct ? receiveBtn : null,
+      canAct ? voidBtn : null
+    ))
+  );
+}
+
 /* Recent-activity log — reads state.audit() entries and filters to
  * the verify/void actions so the page ends with a clear "who did
  * what" tail. Kept to the last 25 relevant entries. */
@@ -277,6 +347,9 @@ export async function render(root) {
     const pendingExpenses = state.expenses()
       .filter((x) => x && (x.status === 'pending' || !x.status))
       .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    const pendingItems = state.itemContribs()
+      .filter((c) => c && (c.status === 'pending' || c.status === 'accepted'))
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 
     const contribTotal = pendingContribs.reduce((s, c) => s + Number(c.amount || 0), 0);
     const expenseTotal = pendingExpenses.reduce((s, x) => s + Number(x.amount || 0), 0);
@@ -354,7 +427,28 @@ export async function render(root) {
       renderActivityLog(events)
     );
 
-    root.append(hero, contribCard, expenseCard, activity);
+    const itemsCard = el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' },
+      el('div', { style: 'padding:14px 16px' },
+        el('h3', { style: 'margin:0', text: '📦 Pending item pledges' }),
+        el('small', { class: 'sub', text: canVerifyContrib ? 'Accept a pledge to commit the slot. Mark Received when the item is dropped off. Custom "Others" entries need CC approval before they count toward slots.' : 'You can view; contributions.verify is required to act.' })
+      ),
+      el('table', { class: 'table' },
+        el('thead', {}, el('tr', {},
+          el('th', { text: 'When' }),
+          el('th', { text: 'Contributor / Event' }),
+          el('th', { text: 'Item' }),
+          el('th', { class: 'num', text: 'Qty' }),
+          el('th', { text: 'Status' }),
+          el('th', { text: 'Actions' })
+        )),
+        el('tbody', {}, ...(pendingItems.length
+          ? pendingItems.map((c) => renderItemRow(c, eventById.get(c.event), user, canVerifyContrib, draw))
+          : [el('tr', {}, el('td', { colspan: 6, style: 'text-align:center;color:var(--muted);padding:16px', text: 'No item pledges awaiting action.' }))]
+        ))
+      )
+    );
+
+    root.append(hero, contribCard, expenseCard, itemsCard, activity);
     applyResponsiveTableLabels(root);
   }
 

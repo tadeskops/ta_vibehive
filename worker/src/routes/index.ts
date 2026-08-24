@@ -4,6 +4,10 @@ import { getSettings, putSettings } from './settings.ts';
 import { listEvents, getEvent, putEvent, deleteEvent } from './events.ts';
 import { createContribution, verifyContribution, voidContribution, listContributions } from './contributions.ts';
 import { createExpense, verifyExpense, putExpense, deleteExpense, listExpenses } from './expenses.ts';
+import {
+  createItemContribution, acceptItemContribution, receiveItemContribution,
+  voidItemContribution, listItemContributions,
+} from './item-contributions.ts';
 import { getVisitCount, incrementVisitCount } from './metrics.ts';
 
 export function buildRouter(): Router {
@@ -35,6 +39,13 @@ export function buildRouter(): Router {
   r.put('/expenses/:year/:month/:id', putExpense);
   r.del('/expenses/:year/:month/:id', deleteExpense);
   r.post('/expenses/:year/:month/:id/verify', verifyExpense);
+
+  // Item contributions — goods pledged against an event's wishlist.
+  r.get('/item-contributions', listItemContributions);
+  r.post('/item-contributions', createItemContribution);
+  r.post('/item-contributions/:year/:month/:id/accept', acceptItemContribution);
+  r.post('/item-contributions/:year/:month/:id/receive', receiveItemContribution);
+  r.post('/item-contributions/:year/:month/:id/void', voidItemContribution);
 
   // Metrics — anonymous visit counter (feature-flag gated on the client)
   r.get('/metrics/visit', getVisitCount);

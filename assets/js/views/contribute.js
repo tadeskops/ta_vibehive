@@ -26,7 +26,7 @@
  * - contribution.custom
  */
 import { el, mount, fmtINR, toast } from '../dom.js';
-import { findEvent, addContribution, contribsFor } from '../events.js';
+import { findEvent, addContribution, contribsFor, addItemContribution, itemContribsFor, itemSlotFillFor } from '../events.js';
 import { isEventOn } from '../features.js';
 import { session } from '../auth.js';
 import { navigate } from '../router.js';
@@ -187,6 +187,8 @@ export async function render(root, { match }) {
   const canHideAmt   = await isEventOn('privacy.amount_hidden', evt);
   const upiOn        = await isEventOn('payment.upi', evt);
   const bankOn       = await isEventOn('payment.bank', evt);
+  const itemsOn      = await isEventOn('contribution.items', evt);
+  const itemsMisc    = itemsOn && await isEventOn('contribution.items_misc', evt);
   const soc          = await getSociety();
   const pay          = (soc && soc.payment) || {};
   const bank         = pay.bank || {};
@@ -864,7 +866,152 @@ export async function render(root, { match }) {
     navigate('/e/' + evt.id);
   } } }, 'Submit for verification');
 
-  const form = el('div', { class: 'card card-pad' },
+  /* ---------- Item pledge panel ----------
+   * Only rendered when contribution.items is enabled for this event.
+   * Reuses the resident's identity block above, adds catalog picker +
+   * quantity + note + submit-pledge button. */
+  const catalog = Array.isArray(evt.item_catalog) ? evt.item_catalog : [];
+  const slotFill = itemsOn ? itemSlotFillFor(evt.id) : new Map();
+  const itemState = { item_id: '', item_name: '', item_glyph: '', unit: '', is_custom: false, quantity: 1, note: '' };
+  const itemPickerRows = el('div', { style: 'display:flex;flex-direction:column;gap:6px' });
+
+  function itemLabelFor(row, fill) {
+    const glyph = row.glyph ? row.glyph + ' ' : '';
+    const slots = Number(row.slots || 0);
+    const pledged = Number((fill && fill.pledged) || 0);
+    const remain = slots > 0 ? Math.max(0, slots - pledged) : null;
+    const status = slots > 0
+      ? (remain === 0 ? ' · FULL' : ` · ${pledged}/${slots} pledged · ${remain} left`)
+      : (pledged > 0 ? ` · ${pledged} pledged` : '');
+    return glyph + row.name + status;
+  }
+
+  function renderItemPicker() {
+    itemPickerRows.textContent = '';
+    for (const row of catalog) {
+      const key = row.id || ('custom:' + String(row.name || '').toLowerCase());
+      const fill = slotFill.get(key);
+      const slots = Number(row.slots || 0);
+      const remain = slots > 0 ? Math.max(0, slots - Number((fill && fill.pledged) || 0)) : null;
+      const isFull = remain === 0;
+      const selected = itemState.item_id === row.id;
+      const btn = el('button', {
+        type: 'button',
+        class: 'btn btn-block' + (selected ? '' : ' btn-ghost'),
+        disabled: isFull ? '' : null,
+        style: 'justify-content:flex-start;text-align:left;padding:10px 12px' + (isFull ? ';opacity:.55' : ''),
+      }, itemLabelFor(row, fill));
+      btn.addEventListener('click', () => {
+        if (isFull) return;
+        itemState.item_id = row.id;
+        itemState.item_name = row.name;
+        itemState.item_glyph = row.glyph || '';
+        itemState.unit = row.unit || '';
+        itemState.is_custom = false;
+        renderItemPicker();
+      });
+      itemPickerRows.append(btn);
+    }
+    if (itemsMisc) {
+      const selected = itemState.is_custom;
+      const btn = el('button', {
+        type: 'button',
+        class: 'btn btn-block' + (selected ? '' : ' btn-ghost'),
+        style: 'justify-content:flex-start;text-align:left;padding:10px 12px;border-style:dashed',
+      }, '➕ Others / Miscellaneous (needs CC approval)');
+      btn.addEventListener('click', () => {
+        itemState.item_id = '';
+        itemState.is_custom = true;
+        renderItemPicker();
+      });
+      itemPickerRows.append(btn);
+    }
+  }
+  renderItemPicker();
+
+  const itemCustomInp = el('input', { type: 'text', placeholder: 'e.g. Marigold garlands', value: '' });
+  itemCustomInp.addEventListener('input', () => { itemState.item_name = itemCustomInp.value.trim(); });
+  const itemQtyInp = el('input', { type: 'number', min: '1', value: '1' });
+  itemQtyInp.addEventListener('input', () => { itemState.quantity = Math.max(1, Number(itemQtyInp.value || 1)); });
+  const itemNoteInp = el('textarea', { rows: 2, placeholder: 'Drop-off note or preference (optional)' });
+  itemNoteInp.addEventListener('input', () => { itemState.note = itemNoteInp.value.trim(); });
+
+  const itemSubmitBtn = el('button', { class: 'btn btn-block', on: { click: async (ev) => {
+    if (!itemState.is_custom && !itemState.item_id) return toast('Pick an item from the wishlist.', 'err');
+    if (itemState.is_custom && !itemState.item_name) return toast('Type the item name for "Others".', 'err');
+    if (!(itemState.quantity > 0)) return toast('Quantity must be at least 1.', 'err');
+    if (!st.contributor_name) return toast('Your name is required (see Money tab identity fields).', 'err');
+    const payload = {
+      event: evt.id,
+      item_id: itemState.is_custom ? '' : itemState.item_id,
+      item_name: itemState.is_custom ? itemState.item_name : (catalog.find((c) => c.id === itemState.item_id) || {}).name,
+      item_glyph: itemState.is_custom ? '' : itemState.item_glyph,
+      unit: itemState.is_custom ? '' : itemState.unit,
+      quantity: itemState.quantity,
+      is_custom: itemState.is_custom,
+      contributor_name: st.contributor_name,
+      contributor_email: st.contributor_email,
+      contributor_flat: st.contributor_flat,
+      contributor_mobile: st.contributor_mobile,
+      note: itemState.note,
+    };
+    try {
+      await withSavingRing(ev && ev.currentTarget, () => addItemContribution(payload, user), { savingLabel: 'Submitting…', busyLabel: 'Submitting item pledge…' });
+    } catch (e) {
+      return toast(e.message || 'Could not submit pledge', 'err');
+    }
+    toast('Pledge submitted · CC will accept and mark received on drop-off.', 'ok');
+    navigate('/e/' + evt.id);
+  } } }, 'Submit pledge');
+
+  const itemPanel = itemsOn ? el('div', { class: 'card card-pad', style: 'margin-top:12px' },
+    el('h3', { text: '📦 Pledge an item' }),
+    el('p', { class: 'sub', text: 'Pick something the committee needs for this event. You physically deliver it; a moderator marks it received.' }),
+    el('div', { class: 'field' },
+      el('label', {}, el('span', { text: 'Item *' })),
+      itemPickerRows,
+      el('small', { class: 'sub', text: 'Rows marked FULL cannot be pledged. Committee can adjust slot counts in the event editor.' })
+    ),
+    itemsMisc ? el('div', { class: 'field', id: 'item-custom-name-wrap', style: 'display:' + (itemState.is_custom ? 'block' : 'none') },
+      el('label', {}, el('span', { text: 'Item name *' })),
+      itemCustomInp
+    ) : null,
+    el('div', { class: 'field' },
+      el('label', {}, el('span', { text: 'Quantity *' })),
+      itemQtyInp
+    ),
+    el('div', { class: 'field' },
+      el('label', { text: 'Note to committee (optional)' }),
+      itemNoteInp
+    ),
+    itemSubmitBtn
+  ) : null;
+
+  /* Toggle the custom-name field when "Others" is picked. */
+  if (itemsMisc && itemPanel) {
+    const observer = new MutationObserver(() => {
+      const wrap = itemPanel.querySelector('#item-custom-name-wrap');
+      if (wrap) wrap.style.display = itemState.is_custom ? 'block' : 'none';
+    });
+    observer.observe(itemPickerRows, { childList: true });
+  }
+
+  /* Outer Money / Item tab bar — only rendered when items are on. */
+  const tabMoney = el('button', { type: 'button', class: 'tvh-pt-tab active', role: 'tab', 'aria-selected': 'true' }, '💰 Money');
+  const tabItem  = el('button', { type: 'button', class: 'tvh-pt-tab', role: 'tab', 'aria-selected': 'false' }, '📦 Item');
+  const contribTypeTabs = itemsOn ? el('div', { class: 'tvh-pt-tabs', role: 'tablist', style: 'margin-bottom:14px' }, tabMoney, tabItem) : null;
+  function switchContribType(t) {
+    tabMoney.classList.toggle('active', t === 'money');
+    tabItem.classList.toggle('active', t === 'item');
+    tabMoney.setAttribute('aria-selected', String(t === 'money'));
+    tabItem.setAttribute('aria-selected', String(t === 'item'));
+    if (moneyPanel) moneyPanel.hidden = t !== 'money';
+    if (itemPanel)  itemPanel.hidden  = t !== 'item';
+  }
+  tabMoney.addEventListener('click', () => switchContribType('money'));
+  tabItem.addEventListener('click',  () => switchContribType('item'));
+
+  const moneyPanel = el('div', { class: 'card card-pad' },
     el('h2', { text: 'Contribute · ' + evt.title }),
     el('p', { class: 'sub', style: 'margin-bottom:14px', text: 'Every rupee goes to the committee. The receipt is minted and made available for download only after the Management Committee verifies your payment.' }),
     /* Contributor identity section — first thing residents see. */
@@ -918,9 +1065,14 @@ export async function render(root, { match }) {
     submitBtn
   );
 
+  const root_form = itemsOn
+    ? el('div', {}, contribTypeTabs, moneyPanel, itemPanel)
+    : moneyPanel;
+
   refreshPayHint();
   refreshAppreciation();
   refreshIdentityLabels();
   persistDraft();
-  mount(root, form);
+  if (itemsOn) switchContribType('money');
+  mount(root, root_form);
 }

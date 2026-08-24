@@ -356,6 +356,133 @@ export function contribsFor(eventId) {
   return state.contribs().filter(c => c.event === eventId);
 }
 
+/* ---------- Item contributions (goods pledged against event.item_catalog) ---------- */
+
+export function itemContribsFor(eventId) {
+  return state.itemContribs().filter(c => c && c.event === eventId);
+}
+
+/** Aggregate per-item slot fill for a given event so the wishlist
+ *  picker can show `X of Y pledged` next to each catalog row. Counts
+ *  every non-void pledge (pending + accepted + received) as filling a
+ *  slot — pending pledges block others from over-pledging until CC
+ *  declines them. Custom "Others" pledges are keyed by lowered name. */
+export function itemSlotFillFor(eventId) {
+  const out = new Map();
+  for (const c of itemContribsFor(eventId)) {
+    if (!c || c.status === 'void') continue;
+    const key = c.item_id || ('custom:' + String(c.item_name || '').toLowerCase());
+    const bucket = out.get(key) || { pledged: 0, accepted: 0, received: 0 };
+    bucket.pledged += Number(c.quantity || 0);
+    if (c.status === 'accepted' || c.status === 'received') bucket.accepted += Number(c.quantity || 0);
+    if (c.status === 'received') bucket.received += Number(c.quantity || 0);
+    out.set(key, bucket);
+  }
+  return out;
+}
+
+export async function addItemContribution(payload, actor) {
+  const list = state.itemContribs();
+  const nowIso = new Date().toISOString();
+  const optimistic = {
+    id: 'ic-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+    event: payload.event,
+    item_id: payload.item_id || null,
+    item_name: payload.item_name,
+    item_glyph: payload.item_glyph || '',
+    unit: payload.unit || '',
+    quantity: Number(payload.quantity || 0),
+    is_custom: !!payload.is_custom,
+    contributor_name: payload.contributor_name || '',
+    contributor_email: payload.contributor_email || '',
+    contributor_flat: payload.contributor_flat || '',
+    contributor_mobile: payload.contributor_mobile || '',
+    note: payload.note || '',
+    status: 'pending',
+    created_at: nowIso,
+    created_by: (actor && (actor.email || actor.id)) || 'unknown',
+  };
+  list.push(optimistic);
+  state.saveItemContribs(list);
+  state.audit({
+    actor: (actor && actor.email) || null,
+    action: 'item_contribution.submit',
+    contrib: optimistic.id,
+    event: optimistic.event,
+    detail: `${optimistic.quantity} ${optimistic.item_name}`,
+  });
+  notifyRoles(APPROVER_ROLES_CONTRIB, {
+    kind: 'item_contrib.submit',
+    title: 'New item pledge · awaiting accept',
+    body: `${optimistic.item_name} × ${optimistic.quantity} from ${optimistic.contributor_name || 'a resident'}`,
+    link: `#/e/${optimistic.event}/manage`,
+  });
+  try {
+    const wirePayload = { ...optimistic };
+    delete wirePayload.id; delete wirePayload.created_at; delete wirePayload.created_by; delete wirePayload.status;
+    const res = await api.createItemContribution(wirePayload);
+    if (res && res.item_contribution) {
+      const list2 = state.itemContribs();
+      const idx = list2.findIndex((x) => x && x.id === optimistic.id);
+      if (idx >= 0) {
+        list2[idx] = { ...list2[idx], ...res.item_contribution, _path: res.path };
+        state.saveItemContribs(list2);
+      }
+    }
+  } catch (e) {
+    console.warn('[item_contribution] server POST failed; row stays local until next sync', e);
+  }
+  return optimistic;
+}
+
+async function transitionItemContribution(id, actor, action, reason) {
+  const list = state.itemContribs();
+  const target = list.find((x) => x && x.id === id);
+  if (!target) throw new Error('Item pledge not found.');
+  const nowIso = new Date().toISOString();
+  const actorEmail = (actor && (actor.email || actor.id)) || 'unknown';
+  if (action === 'accept') {
+    if (target.status !== 'pending') return target;
+    target.status = 'accepted';
+    target.accepted_at = nowIso;
+    target.accepted_by = actorEmail;
+  } else if (action === 'receive') {
+    if (target.status === 'received') return target;
+    target.status = 'received';
+    target.received_at = nowIso;
+    target.received_by = actorEmail;
+    if (!target.accepted_at) { target.accepted_at = nowIso; target.accepted_by = actorEmail; }
+  } else if (action === 'void') {
+    target.status = 'void';
+    target.void_at = nowIso;
+    target.void_by = actorEmail;
+    if (reason) target.void_reason = reason;
+  }
+  target.updated_at = nowIso;
+  state.saveItemContribs(list);
+  state.audit({
+    actor: actorEmail,
+    action: 'item_contribution.' + action,
+    contrib: target.id,
+    event: target.event,
+    detail: `${target.quantity} ${target.item_name}` + (reason ? ' · ' + reason : ''),
+  });
+  if (target._path) {
+    try {
+      if (action === 'accept')  await api.acceptItemContribution(target._path);
+      if (action === 'receive') await api.receiveItemContribution(target._path);
+      if (action === 'void')    await api.voidItemContribution(target._path, reason);
+    } catch (e) {
+      console.warn('[item_contribution ' + action + '] server call failed; will retry on next sync', e);
+    }
+  }
+  return target;
+}
+
+export function acceptItemContribution(id, actor) { return transitionItemContribution(id, actor, 'accept'); }
+export function receiveItemContribution(id, actor) { return transitionItemContribution(id, actor, 'receive'); }
+export function voidItemContribution(id, actor, reason) { return transitionItemContribution(id, actor, 'void', reason); }
+
 export function totalFor(eventId) {
   return contribsFor(eventId)
     .filter(c => c.status === 'verified')

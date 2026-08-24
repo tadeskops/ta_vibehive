@@ -1,7 +1,7 @@
 /* Event detail view — public read-only + admin edit tabs. */
 'use strict';
 import { el, mount, fmtDate, fmtINR, daysLeft, toast, modal } from '../dom.js';
-import { findEvent, totalFor, verifiedCount, publicBoardFor, saveEvent, STATUS, contribsFor, canViewEventDetailedReport, nextStatusesFor, isTransitionAllowed, purgeEvent } from '../events.js';
+import { findEvent, totalFor, verifiedCount, publicBoardFor, saveEvent, STATUS, contribsFor, canViewEventDetailedReport, nextStatusesFor, isTransitionAllowed, purgeEvent, itemContribsFor } from '../events.js';
 import { catalog, isEventOn, validateEventFeatures } from '../features.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
@@ -170,6 +170,7 @@ export async function render(root, { match }) {
    * both verified AND flagged `visible_to_residents`. Keeps unverified
    * or opaque outflows out of the resident-facing view by default. */
   const publicExpenses = await renderPublicExpensesCard(evt, user);
+  const publicItems = await renderPublicItemsCard(evt, user);
   /* Signed-in users can submit expenses against the event (e.g.
    * volunteers who advanced petty cash). Committee verifies later. */
   const canSubmitExpense = user ? await can(user, 'expenses.record') : false;
@@ -189,6 +190,55 @@ export async function render(root, { match }) {
   const mountEventView = () => location.reload();
 
   mount(root, hero, stats, progress, board, publicExpenses, submitExpenseCard, reportCard);
+}
+
+async function renderPublicItemsCard(evt, user) {
+  try {
+    if (!await isEventOn('contribution.items', evt)) return null;
+    const catalog = Array.isArray(evt.item_catalog) ? evt.item_catalog : [];
+    const rows = itemContribsFor(evt.id).filter(c => c && c.status !== 'void');
+    if (!catalog.length && !rows.length) return null;
+    const fillByKey = new Map();
+    for (const c of rows) {
+      const key = c.item_id || ('custom:' + String(c.item_name || '').toLowerCase());
+      const bucket = fillByKey.get(key) || { pledged: 0, received: 0, name: c.item_name, glyph: c.item_glyph, unit: c.unit, custom: !!c.is_custom, catalog_slots: 0 };
+      bucket.pledged += Number(c.quantity || 0);
+      if (c.status === 'received') bucket.received += Number(c.quantity || 0);
+      fillByKey.set(key, bucket);
+    }
+    for (const cat of catalog) {
+      const key = cat.id;
+      const bucket = fillByKey.get(key) || { pledged: 0, received: 0, name: cat.name, glyph: cat.glyph, unit: cat.unit, custom: false, catalog_slots: Number(cat.slots || 0) };
+      bucket.catalog_slots = Number(cat.slots || 0);
+      bucket.name = cat.name;
+      bucket.glyph = cat.glyph;
+      bucket.unit = cat.unit;
+      fillByKey.set(key, bucket);
+    }
+    const totalPledged = rows.length;
+    const totalReceived = rows.filter(r => r.status === 'received').length;
+    return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
+      el('h3', { text: '📦 Item pledges' }),
+      el('p', { class: 'sub', text: `${totalPledged} pledge${totalPledged === 1 ? '' : 's'} · ${totalReceived} received · committee marks each as received on drop-off.` }),
+      el('table', { class: 'table', style: 'margin-top:8px' },
+        el('thead', {}, el('tr', {},
+          el('th', { text: 'Item' }),
+          el('th', { class: 'num', text: 'Pledged' }),
+          el('th', { class: 'num', text: 'Received' }),
+          el('th', { class: 'num', text: 'Slots' }),
+        )),
+        el('tbody', {}, ...Array.from(fillByKey.values()).map(b => el('tr', {},
+          el('td', {},
+            el('div', { style: 'font-weight:700', text: (b.glyph ? b.glyph + ' ' : '') + (b.name || '—') }),
+            b.custom ? el('small', { class: 'sub', style: 'display:block', text: 'Others / custom' }) : null
+          ),
+          el('td', { class: 'num', text: String(b.pledged) + (b.unit ? ' ' + b.unit : '') }),
+          el('td', { class: 'num', text: String(b.received) }),
+          el('td', { class: 'num', text: b.catalog_slots ? String(b.catalog_slots) : '—' })
+        )))
+      )
+    );
+  } catch (_e) { return null; }
 }
 
 async function renderPublicExpensesCard(evt, user) {
@@ -505,6 +555,32 @@ async function renderEdit(root, evt, user, caps) {
       text: 'Add one by one. Residents can tap these quickly in the contribute form.'
     })
   );
+
+  /* ---------- Item wishlist catalog ---------- *
+   * Only takes effect when the event has `contribution.items` on.
+   * Renders always so the CC can prep the list before flipping the
+   * flag. Rows serialize into `evt.item_catalog` on save. */
+  const itemCatalogRows = el('div', { style: 'display:flex;flex-direction:column;gap:6px' });
+  function addItemCatalogRow(item) {
+    const glyph = el('input', { type: 'text', maxlength: '4', value: (item && item.glyph) || '', placeholder: '🪔', style: 'width:52px;text-align:center;font-size:16px', 'data-item-glyph': '1' });
+    const name = el('input', { type: 'text', value: (item && item.name) || '', placeholder: 'e.g. Diyas', 'data-item-name': '1' });
+    const unit = el('input', { type: 'text', value: (item && item.unit) || '', placeholder: 'piece / bunch', style: 'width:110px', 'data-item-unit': '1' });
+    const slots = el('input', { type: 'number', min: '0', value: item && Number(item.slots) > 0 ? String(item.slots) : '', placeholder: 'slots', style: 'width:80px', 'data-item-slots': '1' });
+    const removeBtn = el('button', { type: 'button', class: 'btn btn-ghost btn-sm', on: { click: () => row.remove() } }, '🗑');
+    const row = el('div', { class: 'row', style: 'gap:6px;align-items:center;flex-wrap:wrap' }, glyph, name, unit, slots, removeBtn);
+    itemCatalogRows.append(row);
+  }
+  const existingItems = Array.isArray(evt.item_catalog) ? evt.item_catalog : [];
+  if (existingItems.length) existingItems.forEach(addItemCatalogRow);
+  const itemsI = el('div', { class: 'field' },
+    el('label', { text: 'Item wishlist (goods the committee needs)' }),
+    itemCatalogRows,
+    el('div', { style: 'margin-top:8px' },
+      el('button', { type: 'button', class: 'btn btn-ghost btn-sm', on: { click: () => addItemCatalogRow(null) } }, '+ Add item')
+    ),
+    el('small', { class: 'sub', text: 'Each row: emoji · name · unit · number of slots. Residents pick from this list on the contribute page (Item tab). Effective only when the "Item contributions" feature is on for this event.' })
+  );
+
   const appreciateI = el('div', { class: 'field' },
     el('label', { text: 'Appreciation note shown on contribute screen (optional)' }),
     el('input', {
@@ -681,6 +757,7 @@ async function renderEdit(root, evt, user, caps) {
         const updated = {
           ...evt,
           tiers: tiersFromRows(suggestedRows),
+          item_catalog: itemCatalogFromRows(itemCatalogRows),
           appreciation_note: (appreciateI.querySelector('input').value || '').trim().slice(0, 160),
           title: titleI.querySelector('input').value.trim() || evt.title,
           purpose: purposeI.querySelector('input').value.trim(),
@@ -740,7 +817,7 @@ async function renderEdit(root, evt, user, caps) {
   );
 
   form.append(el('h2', { text: 'Edit event' }),
-    el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI, suggestedI, appreciateI, themeI, recordsI),
+    el('div', { class: 'grid grid-2' }, titleI, purposeI, goalI, capI, startI, endI, fixedI, suggestedI, itemsI, appreciateI, themeI, recordsI),
     visualI ? el('section', { style: 'margin-top:14px' },
       el('h3', { text: 'Event visual' }),
       el('p', { class: 'sub', style: 'margin-bottom:10px', text: 'Cultural / festival events can display a curated illustration on the event grid and hero.' }),
@@ -777,6 +854,23 @@ function tiersFromRows(rowsRoot) {
     label: idx === 0 ? 'Starter' : '',
     highlight: idx === 1,
   }));
+}
+
+function itemCatalogFromRows(rowsRoot) {
+  const rows = Array.from(rowsRoot.children);
+  const out = [];
+  for (const r of rows) {
+    const name = (r.querySelector('input[data-item-name="1"]') || {}).value || '';
+    if (!name.trim()) continue;
+    out.push({
+      id: 'item-' + name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40),
+      glyph: ((r.querySelector('input[data-item-glyph="1"]') || {}).value || '').trim().slice(0, 4),
+      name: name.trim().slice(0, 60),
+      unit: ((r.querySelector('input[data-item-unit="1"]') || {}).value || '').trim().slice(0, 20),
+      slots: Math.max(0, Number((r.querySelector('input[data-item-slots="1"]') || {}).value || 0)),
+    });
+  }
+  return out;
 }
 
 function field(id, label, input) {

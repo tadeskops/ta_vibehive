@@ -105,6 +105,8 @@ export const state = {
   saveEvents(evts) { return local.set('events', evts); },
   contribs() { return local.get('contribs', []); },
   saveContribs(c) { local.set('contribs', c); },
+  itemContribs() { return local.get('itemContribs', []); },
+  saveItemContribs(list) { local.set('itemContribs', Array.isArray(list) ? list : []); },
   /* Expenses — per-event outflows recorded by committee/manager. Each
    * row: { id, event_id, amount, category, description, receipt_url,
    * created_at, created_by, visible_to_residents }.  Aggregated in

@@ -17,7 +17,7 @@
  * viewing work.
  */
 'use strict';
-import { listEvents, listContributions, listExpenses, whoami, readSettings } from './api.js';
+import { listEvents, listContributions, listExpenses, listItemContributions, whoami, readSettings } from './api.js';
 import { state } from './store.js';
 import { applyRecoveryOverridesToState } from './events.js';
 
@@ -187,6 +187,22 @@ export async function syncFromWorker() {
           }
         }
         state.saveExpenses(Array.from(byId.values()));
+      }
+    } catch (_e) { /* auth / network — fall back to local cache */ }
+
+    /* Hydrate item contributions — parallel to money contribs. */
+    try {
+      const remote = await listItemContributions();
+      if (Array.isArray(remote)) {
+        const local = state.itemContribs() || [];
+        const byId = new Map();
+        for (const r of remote) if (r && r.id) byId.set(r.id, { ...r });
+        for (const l of local) if (l && l.id) {
+          if (!byId.has(l.id) && !l._path) {
+            byId.set(l.id, l);
+          }
+        }
+        state.saveItemContribs(Array.from(byId.values()));
       }
     } catch (_e) { /* auth / network — fall back to local cache */ }
 
