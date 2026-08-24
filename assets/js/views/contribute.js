@@ -673,7 +673,12 @@ export async function render(root, { match }) {
     const isBehalf = st.on_behalf;
     filledByChip.hidden = !isBehalf;
     nameField.querySelector('label span:first-child').textContent  = isBehalf ? 'Beneficiary name'        : 'Name';
-    emailField.querySelector('label span:first-child').textContent = isBehalf ? 'Beneficiary email'       : 'Email';
+    emailField.querySelector('label span:first-child').textContent = isBehalf ? 'Beneficiary email (optional)' : 'Email';
+    /* Hide the red-asterisk on email when on_behalf is true — the
+     * beneficiary may not have an email (elderly parent, cash gift). */
+    const emailStar = emailField.querySelector('label span.req');
+    if (emailStar) emailStar.hidden = !!isBehalf;
+    emailInp.required = !isBehalf;
     mobileField.querySelector('label span:first-child').textContent = isBehalf ? 'Beneficiary mobile number' : 'Mobile number';
     flatField.querySelector('label span:first-child').textContent  = isBehalf ? 'Beneficiary flat number' : 'Flat number';
     /* Reset autofilled values only when TOGGLING on/off with untouched
@@ -756,8 +761,17 @@ export async function render(root, { match }) {
   const submitBtn = el('button', { class: 'btn btn-block', on: { click: async (ev) => {
     if (!st.amount || st.amount < 1) return toast('Enter a valid amount', 'err');
     if (!st.contributor_name)  return toast('Name is required', 'err');
-    if (!st.contributor_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.contributor_email)) {
-      return toast('Enter a valid email address', 'err');
+    /* Email is mandatory only for the resident's own submissions.
+     * When submitting on behalf of someone else (elderly parent,
+     * cash donation from a non-account holder), the beneficiary may
+     * not have an email — the payer's email is already captured on
+     * `user.email` for downstream notifications. */
+    if (!st.on_behalf) {
+      if (!st.contributor_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.contributor_email)) {
+        return toast('Enter a valid email address', 'err');
+      }
+    } else if (st.contributor_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.contributor_email)) {
+      return toast('Beneficiary email looks invalid. Leave blank if unavailable.', 'err');
     }
     /* Mobile: strict 10-digit / 6-9 start / defensive strip of +91
      * & leading 0 via the shared validator. */

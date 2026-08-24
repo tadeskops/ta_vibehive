@@ -26,6 +26,7 @@
     "events.archive":            ["admin", "secretary", "mgmt"],
     "contributions.verify":      ["admin", "secretary", "mgmt", "manager"],
     "contributions.void":        ["admin", "secretary", "mgmt"],
+    "contributions.edit":        ["admin", "secretary", "mgmt"],
     "contributions.record.cash": ["admin", "secretary", "mgmt", "manager"],
     "receipts.generate":         ["admin", "secretary", "mgmt", "manager"],
     "receipts.download":         ["admin", "secretary", "mgmt", "committee", "manager", "resident"],

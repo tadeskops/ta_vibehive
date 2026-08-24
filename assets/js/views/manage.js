@@ -5,7 +5,7 @@
  * `expenses.verify`. Anonymous callers are bounced to sign-in.
  */
 'use strict';
-import { el, mount, fmtDate, fmtINR, toast, applyResponsiveTableLabels } from '../dom.js';
+import { el, mount, fmtDate, fmtINR, toast, modal, applyResponsiveTableLabels } from '../dom.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { state } from '../store.js';
@@ -99,7 +99,7 @@ async function voidContribAction(rec, evt, user) {
   return true;
 }
 
-function renderContribRow(c, evt, user, canVerifyContrib, onDone) {
+function renderContribRow(c, evt, user, canVerifyContrib, canEditContrib, onDone) {
   const proofCell = el('td', {},
     c.ref ? el('div', { style: 'font-family:ui-monospace,monospace;font-size:12px', text: c.ref }) : el('span', { class: 'sub', text: '—' }),
     c.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', style: 'margin-top:4px', type: 'button', on: { click: async () => {
@@ -116,6 +116,7 @@ function renderContribRow(c, evt, user, canVerifyContrib, onDone) {
   );
   const verifyBtn = el('button', { class: 'btn btn-sm', type: 'button' }, 'Verify');
   const voidBtn   = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Invalid');
+  const editBtn   = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Edit');
   verifyBtn.addEventListener('click', async () => {
     voidBtn.disabled = true;
     try {
@@ -132,6 +133,7 @@ function renderContribRow(c, evt, user, canVerifyContrib, onDone) {
     } catch (e) { toast((e && e.message) || 'Void failed', 'err'); }
     finally { verifyBtn.disabled = false; }
   });
+  editBtn.addEventListener('click', () => openEditContribDialog(c, evt, user, onDone));
   return el('tr', {},
     el('td', { text: fmtDateTime(c.created_at) }),
     contributorCell,
@@ -143,9 +145,138 @@ function renderContribRow(c, evt, user, canVerifyContrib, onDone) {
     el('td', {}, el('div', { class: 'row', style: 'gap:6px' },
       canVerifyContrib ? verifyBtn : null,
       canVerifyContrib ? voidBtn : null,
+      canEditContrib ? editBtn : null,
       evt ? el('a', { class: 'btn btn-sm btn-ghost', href: `#/e/${evt.id}/manage`, title: 'Open the event Manage view' }, 'Open') : null
     ))
   );
+}
+
+/* Contribution editor modal — admin/secretary/mgmt only. Lets the
+ * moderator correct name / flat / amount / method / ref / remarks
+ * and (re-)upload the transaction receipt when the resident missed
+ * something. Server call is fire-and-forget with a rollback shadow
+ * copy, matching the expense-edit pattern. Proof data URLs stay
+ * local only (never crossed the wire on submit either). */
+const EDIT_PROOF_MAX_BYTES = 750 * 1024;
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error('Could not read the file.'));
+    r.onload = () => resolve(String(r.result || ''));
+    r.readAsDataURL(file);
+  });
+}
+
+function openEditContribDialog(c, evt, user, onDone) {
+  const draft = {
+    contributor_name: c.contributor_name || '',
+    flat: c.flat || '',
+    contributor_mobile: c.contributor_mobile || '',
+    amount: Number(c.amount || 0),
+    method: c.method || 'upi',
+    ref: c.ref || '',
+    remarks: c.remarks || '',
+    proof_data_url: c.proof_data_url || '',
+    proof_name: c.proof_name || '',
+    proof_size: c.proof_size || 0,
+  };
+  const nameInp = el('input', { type: 'text', value: draft.contributor_name, placeholder: 'Contributor name' });
+  const flatInp = el('input', { type: 'text', value: draft.flat, placeholder: 'e.g. A-201' });
+  const mobInp  = el('input', { type: 'text', value: draft.contributor_mobile, placeholder: '10-digit mobile' });
+  const amtInp  = el('input', { type: 'number', min: '1', value: String(draft.amount) });
+  const methodSel = el('select', {},
+    el('option', { value: 'upi' }, 'UPI'),
+    el('option', { value: 'bank' }, 'Bank transfer'),
+    el('option', { value: 'other' }, 'Cash / cheque / other'),
+  );
+  methodSel.value = draft.method;
+  const refInp  = el('input', { type: 'text', value: draft.ref, placeholder: 'UTR / bank ref' });
+  const remInp  = el('textarea', { rows: 2 }, draft.remarks);
+  const proofInp = el('input', { type: 'file', accept: 'image/*,application/pdf' });
+  const proofStatus = el('small', { class: 'sub', style: 'display:block;margin-top:4px' },
+    draft.proof_data_url ? `Attached: ${draft.proof_name || 'proof'} · ~${Math.round((draft.proof_size || 0) / 1024)} KB` : 'No proof attached.'
+  );
+  proofInp.addEventListener('change', async () => {
+    const f = proofInp.files && proofInp.files[0];
+    if (!f) return;
+    if (f.size > EDIT_PROOF_MAX_BYTES) { toast('Attachment must stay under 750 KB.', 'err'); proofInp.value = ''; return; }
+    try {
+      const url = await readFileAsDataUrl(f);
+      draft.proof_data_url = url;
+      draft.proof_name = f.name;
+      draft.proof_size = f.size;
+      proofStatus.textContent = `Attached: ${f.name} · ~${Math.round(f.size / 1024)} KB`;
+    } catch (e) { toast(e.message || 'Could not read the file.', 'err'); }
+  });
+  const removeProofBtn = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Remove attachment');
+  removeProofBtn.addEventListener('click', () => {
+    draft.proof_data_url = ''; draft.proof_name = ''; draft.proof_size = 0;
+    proofInp.value = '';
+    proofStatus.textContent = 'No proof attached.';
+  });
+
+  const field = (label, input, hint) => el('div', { class: 'field' },
+    el('label', {}, el('span', { text: label })),
+    input,
+    hint ? el('small', { class: 'sub', text: hint }) : null
+  );
+  const body = el('div', {},
+    field('Contributor name', nameInp),
+    field('Flat', flatInp),
+    field('Mobile', mobInp, '10 digits, +91 accepted.'),
+    field('Amount (₹)', amtInp),
+    field('Method', methodSel),
+    field('Transaction ref', refInp, 'UPI UTR / NEFT ref / cheque no.'),
+    field('Remarks (optional)', remInp),
+    field('Transaction receipt / proof', el('div', {}, proofInp, proofStatus, draft.proof_data_url ? removeProofBtn : null),
+      'Images or PDFs up to 750 KB. Stored on this device — moderators viewing from another browser will see only the ref number, not the file.')
+  );
+
+  modal({
+    title: 'Edit contribution',
+    body,
+    actions: [
+      { label: 'Cancel', close: true },
+      { label: 'Save changes', kind: '', onClick: async (close) => {
+        const amount = Number(amtInp.value || 0);
+        if (!(amount > 0)) { toast('Amount must be positive.', 'err'); return; }
+        const nowIso = new Date().toISOString();
+        const patch = {
+          contributor_name: (nameInp.value || '').trim(),
+          flat: (flatInp.value || '').trim(),
+          contributor_mobile: (mobInp.value || '').trim(),
+          amount,
+          method: methodSel.value,
+          ref: (refInp.value || '').trim(),
+          remarks: (remInp.value || '').trim(),
+        };
+        try {
+          const arr = state.contribs();
+          const rec = arr.find((x) => x && x.id === c.id);
+          if (rec) {
+            Object.assign(rec, patch);
+            rec.proof_data_url = draft.proof_data_url;
+            rec.proof_name = draft.proof_name;
+            rec.proof_size = draft.proof_size;
+            rec.updated_at = nowIso;
+            state.saveContribs(arr);
+            state.audit({ actor: user && user.email || null, action: 'contribution.edit', contrib: rec.id, event: rec.event, detail: `by ${user && user.email || 'admin'}` });
+          }
+        } catch (_e) { /* silent */ }
+        if (c._path) {
+          try {
+            const { updateContribution } = await import('../api.js');
+            updateContribution(c._path, patch).catch((e) => {
+              console.warn('[contribution edit] server PUT failed; row will re-sync', e);
+            });
+          } catch (_e) { /* silent */ }
+        }
+        close();
+        toast('Contribution updated.', 'ok');
+        if (typeof onDone === 'function') onDone();
+      } },
+    ],
+  });
 }
 
 function renderExpenseRow(x, evt, user, canVerifyExpense, onDone) {
@@ -233,9 +364,10 @@ function renderActivityLog(events) {
 export async function render(root) {
   const user = session();
   if (!user) return mount(root, el('div', { class: 'card card-pad' }, el('h2', { text: 'Sign in required' }), el('a', { class: 'btn', href: '#/login' }, 'Sign in')));
-  const [canVerifyContrib, canVerifyExpense] = await Promise.all([
+  const [canVerifyContrib, canVerifyExpense, canEditContrib] = await Promise.all([
     can(user, 'contributions.verify'),
     can(user, 'expenses.verify'),
+    can(user, 'contributions.edit'),
   ]);
   if (!canVerifyContrib && !canVerifyExpense) {
     return mount(root, el('div', { class: 'card card-pad' },
@@ -320,7 +452,7 @@ export async function render(root) {
           el('th', { text: 'Actions' })
         )),
         el('tbody', {}, ...(pendingContribs.length
-          ? pendingContribs.map((c) => renderContribRow(c, eventById.get(c.event), user, canVerifyContrib, draw))
+          ? pendingContribs.map((c) => renderContribRow(c, eventById.get(c.event), user, canVerifyContrib, canEditContrib, draw))
           : [el('tr', {}, el('td', { colspan: 8, style: 'text-align:center;color:var(--muted);padding:16px', text: 'Nothing waiting for approval — nice work.' }))]
         ))
       )

@@ -230,6 +230,17 @@ export async function voidContributionRemote(contribPath, reason) {
   return request('POST', `/contributions/${year}/${month}/${encodeURIComponent(id)}/void`, reason ? { reason } : {});
 }
 
+/** Edit an existing contribution (admin / secretary / mgmt).
+ *  Patch payload is merged on the server; server-controlled fields
+ *  such as id, status, created_at, verified_at and receipt_id are
+ *  preserved. */
+export async function updateContribution(contribPath, patch) {
+  const m = String(contribPath || '').match(/contributions\/(\d{4})\/(\d{2})\/([^/]+)\.json$/);
+  if (!m) throw new ApiError(400, 'Invalid contribution path');
+  const [, year, month, id] = m;
+  return request('PUT', `/contributions/${year}/${month}/${encodeURIComponent(id)}`, { contribution: patch });
+}
+
 /** Delete an event (admin only). Contributions and expenses are left
  *  in place; only `event.json` is removed. Idempotent. */
 export async function deleteEventRemote(slug) {
