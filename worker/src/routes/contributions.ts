@@ -124,8 +124,9 @@ export async function verifyContribution(ctx: Ctx, params: Record<string, string
  * Committee+ only (mgmt / secretary / admin in practice; frontend
  * gates via the `contributions.edit` permission). Body:
  * { contribution: Partial<Contribution> }. Merges over the stored
- * record, preserving server-controlled fields (id/status/created_*
- * verified_*/receipt_id) so a caller cannot forge attribution.
+ * record, preserving server-controlled fields such as id, status,
+ * created_at, verified_at and receipt_id so a caller cannot forge
+ * attribution.
  */
 export async function putContribution(ctx: Ctx, params: Record<string, string>): Promise<Response> {
   if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
