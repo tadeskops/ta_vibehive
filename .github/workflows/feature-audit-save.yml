@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: feature-audit-save
@@ -28,21 +28,13 @@ jobs:
         run: |
           node scripts/feature-audit.mjs
 
-      - name: Save snapshot
+      - name: Publish snapshot to step summary
         run: |
-          set -euo pipefail
-          mkdir -p docs/ops
-          cp temp/feature-audit.md docs/ops/feature-audit-latest.md
+          cat temp/feature-audit.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit snapshot
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if [ -n "$(git status --porcelain docs/ops/feature-audit-latest.md)" ]; then
-            git add docs/ops/feature-audit-latest.md
-            git commit -m "chore(ci): update feature audit snapshot"
-            git push
-          else
-            echo "No feature audit changes."
-          fi
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-audit-${{ github.run_number }}
+          path: temp/feature-audit.md
+          retention-days: 90
