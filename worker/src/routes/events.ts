@@ -1,6 +1,6 @@
 import type { Ctx } from '../lib/ctx.ts';
 import { ok, err } from '../lib/envelope.ts';
-import { readJson, writeJson, listDir } from '../github/client.ts';
+import { readJson, writeJson, listDir, deleteFile } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -148,6 +148,27 @@ export async function putEvent(ctx: Ctx, params: Record<string, string>): Promis
     const result = await writeJson(ctx.env, path, stamped, message, body.expectedSha);
     _listCache = null;
     return ok(ctx.env, ctx.req, { event: stamped, sha: result.sha, commitSha: result.commitSha });
+  } catch (e) {
+    if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
+    throw e;
+  }
+}
+
+/**
+ * DELETE /events/:slug
+ * Admin-only. Removes the event.json (contributions and expenses are
+ * left in place so audit history survives). Idempotent — a missing
+ * file returns `{ deleted: false }`.
+ */
+export async function deleteEvent(ctx: Ctx, params: Record<string, string>): Promise<Response> {
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
+  if (!atLeast(ctx.role, 'admin')) return err(ctx.env, ctx.req, 'Admin only', 403);
+  const path = pathFor(params['slug']);
+  const message = `event: deleted ${sanitizeSlug(params['slug'])} by ${ctx.identity?.email ?? 'unknown'}`;
+  try {
+    const result = await deleteFile(ctx.env, path, message);
+    _listCache = null;
+    return ok(ctx.env, ctx.req, { deleted: !!result, path });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
     throw e;

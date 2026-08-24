@@ -148,3 +148,35 @@ export async function listDir(env: Env, path: string): Promise<DirEntry[]> {
     throw e;
   }
 }
+
+/** Delete a file from the archive repo. If `expectedSha` is omitted
+ *  the current sha is looked up; a 404 is treated as already-gone
+ *  (idempotent). */
+export async function deleteFile(
+  env: Env,
+  path: string,
+  message: string,
+  expectedSha?: string,
+): Promise<{ commitSha: string } | null> {
+  let sha = expectedSha;
+  if (!sha) {
+    const current = await readJson(env, path).catch(() => null);
+    if (!current) return null;
+    sha = current.sha;
+  }
+  const url = `${repoBase(env)}/contents/${encodeURI(path)}`;
+  try {
+    const resp = await gh(env, 'DELETE', url, {
+      message,
+      sha,
+      branch: env.GH_ARCHIVE_BRANCH,
+    }) as { commit?: { sha?: string } };
+    return { commitSha: resp?.commit?.sha ?? '' };
+  } catch (e) {
+    if (e instanceof GhErr && e.status === 404) return null;
+    if (e instanceof GhErr && e.status === 409) {
+      throw new HttpError(409, 'Conflict: file was changed since read. Re-fetch and retry.');
+    }
+    throw e;
+  }
+}

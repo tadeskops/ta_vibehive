@@ -4,12 +4,14 @@
 'use strict';
 import { el, mount, toast, fmtDate, fmtINR } from '../dom.js';
 import { state, cfg, getSociety } from '../store.js';
-import { catalog, isSystemOn, setSystemOverride } from '../features.js';
+import { catalog, isSystemOn, setSystemOverride, saveOverridesToServer } from '../features.js';
 import { session } from '../auth.js';
 import { can, labelForRole, badgeClass } from '../rbac.js';
 import { flushArchiveQueueNow } from '../archive-runtime.js';
 import { detectDataLinkageIssues, migrateContributions, restoreEventToPublished, publicEvents } from '../events.js';
 import { openExpenseDialog } from './event.js';
+import { withSavingRing } from '../busy.js';
+import * as api from '../api.js';
 
 export async function render(root, { match }) {
   const user = session();
@@ -81,6 +83,29 @@ function collapsiblePanel(title, hint, bodyNodes, collapsedByDefault = true) {
 async function renderFeatures(user) {
   const cat = await catalog();
   const container = el('div', {});
+
+  /* Snapshot of last-saved overrides so Discard can restore, and the
+   * "unsaved" pill can compare against server-persisted state. */
+  const savedSnapshot = JSON.parse(JSON.stringify(state.featureOverrides() || {}));
+
+  const dirtyPill = el('span', { class: 'pill pill-muted', text: 'no unsaved edits' });
+  const saveBtn = el('button', { type: 'button', class: 'btn', disabled: true }, 'Save to server');
+  const discardBtn = el('button', { type: 'button', class: 'btn btn-ghost', disabled: true }, 'Discard changes');
+
+  function isDirty() {
+    const now = state.featureOverrides() || {};
+    const keys = new Set([...Object.keys(savedSnapshot), ...Object.keys(now)]);
+    for (const k of keys) if (!!savedSnapshot[k] !== !!now[k]) return true;
+    return false;
+  }
+  function refreshDirty() {
+    const dirty = isDirty();
+    dirtyPill.textContent = dirty ? 'Unsaved changes' : 'no unsaved edits';
+    dirtyPill.className = 'pill ' + (dirty ? 'pill-gold' : 'pill-muted');
+    saveBtn.disabled = !dirty;
+    discardBtn.disabled = !dirty;
+  }
+
   for (const cluster of cat.clusters) {
     const feats = cat.features.filter(f => f.cluster === cluster.id);
     if (!feats.length) continue;
@@ -93,7 +118,7 @@ async function renderFeatures(user) {
         if (f.requires_role && !(await can(user, 'features.registry.edit'))) return toast('Only Admin', 'err');
         const now = toggle.classList.toggle('on');
         await setSystemOverride(f.id, now, user);
-        toast(`${f.label}: ${now ? 'ON' : 'OFF'}`, 'ok');
+        refreshDirty();
       });
       rows.push(el('div', { class: 'feature-row' },
         el('div', {},
@@ -105,6 +130,42 @@ async function renderFeatures(user) {
     }
     container.append(collapsiblePanel(cluster.label, `${feats.length} feature${feats.length === 1 ? '' : 's'} in this cluster.`, rows));
   }
+
+  saveBtn.addEventListener('click', async () => {
+    try {
+      await withSavingRing(saveBtn, () => saveOverridesToServer(user), { savingLabel: 'Saving…', busyLabel: 'Saving feature toggles…' });
+      Object.assign(savedSnapshot, JSON.parse(JSON.stringify(state.featureOverrides() || {})));
+      for (const k of Object.keys(savedSnapshot)) if (!(k in (state.featureOverrides() || {}))) delete savedSnapshot[k];
+      toast('Feature toggles saved to server', 'ok');
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : 'Save failed';
+      toast(msg, 'err');
+    } finally {
+      refreshDirty();
+    }
+  });
+
+  discardBtn.addEventListener('click', () => {
+    state.saveFeatureOverrides(JSON.parse(JSON.stringify(savedSnapshot)));
+    toast('Local changes discarded', 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  });
+
+  container.append(
+    el('div', { class: 'panel', style: 'position:sticky;bottom:12px;margin-top:14px;padding:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px' },
+      el('div', { class: 'row', style: 'gap:10px;align-items:center;flex-wrap:wrap' },
+        el('div', { style: 'flex:1;min-width:200px' },
+          el('div', { class: 'lbl', text: 'Publish feature toggles' }),
+          el('small', { class: 'sub', text: 'Changes stay local until you press Save. Save writes society-overrides.json via the Worker so every device picks them up on next sync.' })
+        ),
+        dirtyPill,
+        discardBtn,
+        saveBtn,
+      )
+    )
+  );
+
+  refreshDirty();
   return container;
 }
 
@@ -424,7 +485,8 @@ async function renderSettings(user) {
     outboxCount.className   = 'pill ' + (q ? 'pill-sage' : 'pill-muted');
   }
 
-  const saveBtn = el('button', { class: 'btn', on: { click: () => {
+  const saveBtn = el('button', { type: 'button', class: 'btn' }, 'Save all');
+  saveBtn.addEventListener('click', async () => {
     if (draft.receipts && draft.receipts.archive_repo && !REPO_RE.test(draft.receipts.archive_repo)) {
       toast('Archive repo must be owner/name', 'err'); return;
     }
@@ -434,13 +496,20 @@ async function renderSettings(user) {
     /* Merge draft on top of current overrides so partial edits accumulate. */
     const next = mergeDeep(structuredClone(overrides || {}), draft);
     pruneEmpty(next);
-    state.saveSocietyOverrides(next);
-    state.clearSettingsDraft();
-    draft = {};
-    state.audit({ actor: user.id, action: 'society.settings.save', detail: flatKeys(next).join(',') || 'cleared' });
-    toast('Settings saved · one atomic write', 'ok');
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-  } } }, 'Save all');
+    try {
+      await withSavingRing(saveBtn, async () => {
+        await api.writeSettings(next);
+        state.saveSocietyOverrides(next);
+        state.clearSettingsDraft();
+        draft = {};
+        state.audit({ actor: user.id, action: 'society.settings.save', detail: flatKeys(next).join(',') || 'cleared' });
+      }, { savingLabel: 'Saving…', busyLabel: 'Saving settings…' });
+      toast('Settings saved to server', 'ok');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    } catch (e) {
+      toast((e && e.message) || 'Save failed', 'err');
+    }
+  });
 
   const discardBtn = el('button', { class: 'btn btn-ghost', on: { click: () => {
     if (!flatKeys(draft).length) { toast('No draft to discard'); return; }
@@ -449,13 +518,21 @@ async function renderSettings(user) {
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   } } }, 'Discard draft');
 
-  const resetBtn = el('button', { class: 'btn btn-ghost', on: { click: () => {
+  const resetBtn = el('button', { type: 'button', class: 'btn btn-ghost' }, 'Reset to shipped defaults');
+  resetBtn.addEventListener('click', async () => {
     if (!Object.keys(overrides).length) { toast('Nothing to reset'); return; }
-    state.saveSocietyOverrides({});
-    state.audit({ actor: user.id, action: 'society.settings.reset' });
-    toast('Overrides cleared', 'ok');
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-  } } }, 'Reset to shipped defaults');
+    try {
+      await withSavingRing(resetBtn, async () => {
+        await api.writeSettings({});
+        state.saveSocietyOverrides({});
+        state.audit({ actor: user.id, action: 'society.settings.reset' });
+      }, { savingLabel: 'Resetting…', busyLabel: 'Clearing server overrides…' });
+      toast('Overrides cleared on server', 'ok');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    } catch (e) {
+      toast((e && e.message) || 'Reset failed', 'err');
+    }
+  });
 
   /* Outbox flush now performs a real GitHub push through archive.js.
    * On failure entries are re-queued so nothing is lost. */

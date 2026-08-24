@@ -20,7 +20,7 @@ import { el, mount, toast, fmtDate, modal } from '../dom.js';
 import { state, cfg, getSociety } from '../store.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
-import { busy } from '../busy.js';
+import { busy, withSavingRing } from '../busy.js';
 import { queueAndMaybePushArchive, flushArchiveQueueNow, sanitizeForArchive } from '../archive-runtime.js';
 import * as api from '../api.js';
 
@@ -1186,21 +1186,20 @@ async function renderTemplates(user) {
       }
       const beforeTemplates = structuredClone(state.receiptTemplates() || []);
       const beforeOverrides = structuredClone(state.societyOverrides() || {});
-      await runBusy('Saving receipt templates…', async () => {
+      await withSavingRing(saveBtn, async () => {
         state.saveReceiptTemplates(clone(draftTemplates));
         const o = state.societyOverrides() || {};
         setAt(o, 'receipts.active_template_id', draftActiveId || undefined);
+        // Templates ride inside society-overrides.json so a single PUT /settings
+        // reaches every device via sync.js (the standalone receipt-templates.json
+        // path was previously silently dropped by pushArchiveBatchStrict).
+        setAt(o, 'receipts.templates', clone(draftTemplates));
         pruneEmpty(o);
         state.saveSocietyOverrides(o);
         const merged = await mergeOverridesWithWorker(o);
         const forRemote = sanitizeForArchive(merged);
         try {
           await pushArchiveBatchStrict([
-            {
-              kind: 'settings',
-              path: 'settings/receipt-templates.json',
-              content: JSON.stringify(clone(draftTemplates), null, 2),
-            },
             {
               kind: 'settings',
               path: 'settings/society-overrides.json',
@@ -1219,7 +1218,7 @@ async function renderTemplates(user) {
         });
         persistedTemplates = clone(draftTemplates);
         persistedActiveId = draftActiveId || '';
-      });
+      }, { savingLabel: 'Saving templates…', busyLabel: 'Saving receipt templates…' });
       toast('Template changes saved.', 'ok');
       render();
     });

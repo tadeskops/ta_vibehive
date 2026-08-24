@@ -202,6 +202,40 @@ export async function verifyExpenseRemote(expensePath, comment) {
   return request('POST', `/expenses/${year}/${month}/${encodeURIComponent(id)}/verify`, comment ? { comment } : {});
 }
 
+/** Update an existing expense (committee+). Patch payload is merged
+ *  on the server; server-controlled fields (id, status, created_by,
+ *  verified_*) are preserved. */
+export async function updateExpense(expensePath, patch) {
+  const m = String(expensePath || '').match(/expenses\/(\d{4})\/(\d{2})\/([^/]+)\.json$/);
+  if (!m) throw new ApiError(400, 'Invalid expense path');
+  const [, year, month, id] = m;
+  return request('PUT', `/expenses/${year}/${month}/${encodeURIComponent(id)}`, { expense: patch });
+}
+
+/** Delete an expense (committee+). Idempotent — a missing file is
+ *  treated as already-deleted. */
+export async function deleteExpenseRemote(expensePath) {
+  const m = String(expensePath || '').match(/expenses\/(\d{4})\/(\d{2})\/([^/]+)\.json$/);
+  if (!m) throw new ApiError(400, 'Invalid expense path');
+  const [, year, month, id] = m;
+  return request('DELETE', `/expenses/${year}/${month}/${encodeURIComponent(id)}`);
+}
+
+/** Void a pending or verified contribution (committee+). Status
+ *  becomes `void`; the record is preserved for audit. */
+export async function voidContributionRemote(contribPath, reason) {
+  const m = String(contribPath || '').match(/contributions\/(\d{4})\/(\d{2})\/([^/]+)\.json$/);
+  if (!m) throw new ApiError(400, 'Invalid contribution path');
+  const [, year, month, id] = m;
+  return request('POST', `/contributions/${year}/${month}/${encodeURIComponent(id)}/void`, reason ? { reason } : {});
+}
+
+/** Delete an event (admin only). Contributions and expenses are left
+ *  in place; only `event.json` is removed. Idempotent. */
+export async function deleteEventRemote(slug) {
+  return request('DELETE', '/events/' + encodeURIComponent(slug));
+}
+
 /* ---------- Metrics ---------- */
 
 /** Read the site-wide visit counter (`{ total, today }`). Anonymous

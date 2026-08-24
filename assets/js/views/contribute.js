@@ -33,6 +33,7 @@ import { navigate } from '../router.js';
 import { getSociety, state } from '../store.js';
 import { emit as notifyEmit } from '../notify.js';
 import { parseFlat, validateMobile, flatRuleText } from '../validators.js';
+import { withSavingRing } from '../busy.js';
 
 /* Client-side image compression so payment screenshots don't blow the
  * ~5 MB localStorage quota. Non-images (PDFs) are passed through as
@@ -674,7 +675,7 @@ export async function render(root, { match }) {
   tabOnline.addEventListener('click', () => switchPaymentType('online'));
   tabCash.addEventListener('click',   () => switchPaymentType('cash'));
 
-  const submitBtn = el('button', { class: 'btn btn-block', on: { click: async () => {
+  const submitBtn = el('button', { class: 'btn btn-block', on: { click: async (ev) => {
     if (!st.amount || st.amount < 1) return toast('Enter a valid amount', 'err');
     if (!st.contributor_name)  return toast('Name is required', 'err');
     if (!st.contributor_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.contributor_email)) {
@@ -759,7 +760,7 @@ export async function render(root, { match }) {
     };
     let rec;
     try {
-      rec = await addContribution(payload, user);
+      rec = await withSavingRing(ev && ev.currentTarget, () => addContribution(payload, user), { savingLabel: 'Submitting…', busyLabel: 'Submitting contribution…' });
     } catch (e) {
       /* addContribution enforces the one-per-flat rule at storage
        * time. Surface its message as a friendly toast rather than a

@@ -8,8 +8,9 @@ import { can } from '../rbac.js';
 import { navigate } from '../router.js';
 import { cfg, getSociety, state } from '../store.js';
 import { promptVerifyComment } from '../verify-prompt.js';
-import { createExpense, verifyExpenseRemote } from '../api.js';
+import { createExpense, verifyExpenseRemote, updateExpense, deleteExpenseRemote, deleteEventRemote } from '../api.js';
 import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
+import { withSavingRing } from '../busy.js';
 import { receiptWhatsAppIconBtn } from '../receipt-download-menu.js';
 import { expenseDownloadIconBtn, expenseWhatsAppIconBtn } from '../receipt-download-menu.js';
 
@@ -660,7 +661,7 @@ async function renderEdit(root, evt, user, caps) {
         ),
         statusHelp
       ),
-      el('button', { class: 'btn', on: { click: async () => {
+      el('button', { class: 'btn', on: { click: async (ev) => {
         /* Validate the UPI VPA if the creator entered one. Blank is
          * fine (falls back to society-wide settings) but a non-blank
          * VPA must match the strict NPCI-ish regex to prevent
@@ -726,8 +727,9 @@ async function renderEdit(root, evt, user, caps) {
           } catch (_e) { /* if flag lookup fails, keep existing publish behaviour */ }
         }
         if (updated.status === STATUS.CLOSED && !caps.canClose) { toast('Only Management Committee can close.', 'err'); return; }
+        const saveBtn = ev && ev.currentTarget;
         try {
-          await saveEvent(updated, user);
+          await withSavingRing(saveBtn, () => saveEvent(updated, user), { savingLabel: 'Saving…', busyLabel: 'Saving event…' });
           toast('Event saved', 'ok');
           navigate('/e/' + updated.id);
         } catch (err) {
@@ -844,10 +846,16 @@ function renderDangerZone(evt, user) {
     else purgeBtn.setAttribute('disabled', '');
   });
   purgeBtn.addEventListener('click', async () => {
-    purgeBtn.disabled = true;
     try {
-      const res = purgeEvent(evt.id, user);
-      toast(`Purged "${res.eventTitle}" · ${res.contribs} contrib · ${res.expenses} expense · ${res.history + res.audits} log rows`, 'ok');
+      await withSavingRing(purgeBtn, async () => {
+        const res = purgeEvent(evt.id, user);
+        try {
+          await deleteEventRemote(evt.slug || evt.id);
+        } catch (e) {
+          console.warn('[event purge] server DELETE failed; blocklist keeps re-sync from resurrecting the row', e);
+        }
+        toast(`Purged "${res.eventTitle}" · ${res.contribs} contrib · ${res.expenses} expense · ${res.history + res.audits} log rows`, 'ok');
+      }, { savingLabel: 'Purging…', busyLabel: 'Purging event…' });
       navigate('/events');
     } catch (e) {
       purgeBtn.disabled = false;
@@ -1212,6 +1220,17 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
             state.saveExpenses(list);
             state.audit({ actor: user && user.email || null, action: 'expense.update', expense: rec.id, event: rec.event_id, amount });
             toast('Expense updated.', 'ok');
+            if (rec._path) {
+              updateExpense(rec._path, {
+                amount,
+                category,
+                description,
+                receipt_url: receipt_url || '',
+                visible_to_residents: !!cbVisible.checked,
+              }).catch((e) => {
+                console.warn('[expense edit] server PUT failed; row will re-sync', e);
+              });
+            }
           }
         } else {
           const initialStatus = willBePending ? 'pending' : 'verified';
@@ -1284,6 +1303,11 @@ function confirmDeleteExpense(r, evt, user, caps) {
         const list = state.expenses().filter(x => x && x.id !== r.id);
         state.saveExpenses(list);
         state.audit({ actor: user && user.email || null, action: 'expense.delete', expense: r.id, event: evt.id, amount: r.amount });
+        if (r._path) {
+          deleteExpenseRemote(r._path).catch((e) => {
+            console.warn('[expense delete] server DELETE failed; row will re-sync', e);
+          });
+        }
         close(); toast('Expense removed.', 'ok');
         renderManage(document.getElementById('main'), evt, user, caps);
       } }

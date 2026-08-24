@@ -11,6 +11,7 @@ import { can } from '../rbac.js';
 import { state } from '../store.js';
 import { promptVerifyComment } from '../verify-prompt.js';
 import { syncFromWorker, lastSyncAt } from '../sync.js';
+import { withSavingRing } from '../busy.js';
 
 function fmtDateTime(iso) {
   if (!iso) return '';
@@ -86,6 +87,14 @@ async function voidContribAction(rec, evt, user) {
   target.updated_at = new Date().toISOString();
   state.saveContribs(list);
   state.audit({ actor: user && user.email || null, action: 'contribution.void', contrib: target.id, event: target.event, comment: comment || undefined });
+  if (target._path) {
+    try {
+      const { voidContributionRemote } = await import('../api.js');
+      voidContributionRemote(target._path, comment).catch((e) => {
+        console.warn('[contribution void] server call failed; will retry on next sync', e);
+      });
+    } catch (_e) { /* silent */ }
+  }
   toast('Contribution marked invalid.', 'ok');
   return true;
 }
@@ -108,14 +117,20 @@ function renderContribRow(c, evt, user, canVerifyContrib, onDone) {
   const verifyBtn = el('button', { class: 'btn btn-sm', type: 'button' }, 'Verify');
   const voidBtn   = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Invalid');
   verifyBtn.addEventListener('click', async () => {
-    verifyBtn.disabled = true; voidBtn.disabled = true;
-    try { if (await verifyContribAction(c, evt, user)) onDone(); } catch (e) { toast((e && e.message) || 'Verify failed', 'err'); }
-    finally { verifyBtn.disabled = false; voidBtn.disabled = false; }
+    voidBtn.disabled = true;
+    try {
+      const ok = await withSavingRing(verifyBtn, () => verifyContribAction(c, evt, user), { savingLabel: 'Verifying…', busyLabel: 'Verifying contribution…' });
+      if (ok) onDone();
+    } catch (e) { toast((e && e.message) || 'Verify failed', 'err'); }
+    finally { voidBtn.disabled = false; }
   });
   voidBtn.addEventListener('click', async () => {
-    verifyBtn.disabled = true; voidBtn.disabled = true;
-    try { if (await voidContribAction(c, evt, user)) onDone(); } catch (e) { toast((e && e.message) || 'Void failed', 'err'); }
-    finally { verifyBtn.disabled = false; voidBtn.disabled = false; }
+    verifyBtn.disabled = true;
+    try {
+      const ok = await withSavingRing(voidBtn, () => voidContribAction(c, evt, user), { savingLabel: 'Voiding…', busyLabel: 'Voiding contribution…' });
+      if (ok) onDone();
+    } catch (e) { toast((e && e.message) || 'Void failed', 'err'); }
+    finally { verifyBtn.disabled = false; }
   });
   return el('tr', {},
     el('td', { text: fmtDateTime(c.created_at) }),
@@ -152,9 +167,10 @@ function renderExpenseRow(x, evt, user, canVerifyExpense, onDone) {
   );
   const verifyBtn = el('button', { class: 'btn btn-sm', type: 'button' }, 'Verify');
   verifyBtn.addEventListener('click', async () => {
-    verifyBtn.disabled = true;
-    try { if (await verifyExpenseAction(x, evt, user)) onDone(); } catch (e) { toast((e && e.message) || 'Verify failed', 'err'); }
-    finally { verifyBtn.disabled = false; }
+    try {
+      const ok = await withSavingRing(verifyBtn, () => verifyExpenseAction(x, evt, user), { savingLabel: 'Verifying…', busyLabel: 'Verifying expense…' });
+      if (ok) onDone();
+    } catch (e) { toast((e && e.message) || 'Verify failed', 'err'); }
   });
   return el('tr', {},
     el('td', { text: fmtDateTime(x.created_at) }),
