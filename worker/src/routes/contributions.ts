@@ -120,6 +120,55 @@ export async function verifyContribution(ctx: Ctx, params: Record<string, string
 }
 
 /**
+ * PUT /contributions/:year/:month/:id
+ * Committee+ only (mgmt / secretary / admin in practice; frontend
+ * gates via the `contributions.edit` permission). Body:
+ * { contribution: Partial<Contribution> }. Merges over the stored
+ * record, preserving server-controlled fields (id/status/created_*
+ * verified_*/receipt_id) so a caller cannot forge attribution.
+ */
+export async function putContribution(ctx: Ctx, params: Record<string, string>): Promise<Response> {
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
+  if (!atLeast(ctx.role, 'committee')) return err(ctx.env, ctx.req, 'Committee or above required', 403);
+  const year = params['year'];
+  const month = params['month'];
+  const id = params['id'];
+  if (!year || !month || !id) return err(ctx.env, ctx.req, 'year, month and id are required', 400);
+  const path = `contributions/${year}/${month}/${id}.json`;
+  const doc = await readJson<Contribution>(ctx.env, path);
+  if (!doc) return err(ctx.env, ctx.req, 'Contribution not found', 404);
+  let body: { contribution?: Partial<Contribution> };
+  try { body = await ctx.req.json(); } catch (_e) { return err(ctx.env, ctx.req, 'Invalid JSON body', 400); }
+  const patch = body.contribution;
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return err(ctx.env, ctx.req, '`contribution` must be an object', 400);
+  }
+  const nowIso = new Date().toISOString();
+  const updated: Contribution = {
+    ...doc.data,
+    ...patch,
+    id: doc.data.id,
+    event: doc.data.event,
+    status: doc.data.status,
+    created_at: doc.data.created_at,
+    created_by: doc.data.created_by,
+    verified_at: doc.data.verified_at,
+    verified_by: doc.data.verified_by,
+    receipt_id: doc.data.receipt_id,
+    updated_at: nowIso,
+    updated_by: ctx.identity?.email ?? 'unknown',
+  } as Contribution;
+  const message = `contribution: updated ${id} by ${ctx.identity?.email ?? 'unknown'}`;
+  try {
+    const result = await writeJson(ctx.env, path, updated, message, doc.sha);
+    return ok(ctx.env, ctx.req, { contribution: updated, sha: result.sha, commitSha: result.commitSha });
+  } catch (e) {
+    if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
+    throw e;
+  }
+}
+
+/**
  * POST /contributions/:year/:month/:id/void
  * Committee+ only. Body: { reason?: string }. Marks status='void'
  * without deleting the file, preserving the audit trail.
