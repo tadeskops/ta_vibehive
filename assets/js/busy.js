@@ -73,3 +73,45 @@ export function installFetchWrapper() {
   wrapped.__tvhBusy = true;
   window.fetch = wrapped;
 }
+
+/** Wrap an async save action with a rotating ring inside a button.
+ *
+ *  While `fn()` is inflight, the button is disabled, its label is
+ *  replaced with a `.tvh-saving-ring` + optional `savingLabel`, and
+ *  the global busy counter is incremented so the header shine also
+ *  runs. On resolve/reject the original label + enabled state are
+ *  restored. Re-entrant calls are ignored (`data-tvh-saving="1"`).
+ *
+ *  Returns whatever `fn()` returned (or re-throws its error) so
+ *  callers can chain toasts / refreshes off the same promise. */
+export async function withSavingRing(btn, fn, { savingLabel = 'Saving…', busyLabel = 'Saving…' } = {}) {
+  if (!btn || typeof fn !== 'function') return await fn();
+  if (btn.dataset.tvhSaving === '1') return;
+  btn.dataset.tvhSaving = '1';
+  const wasDisabled = btn.disabled;
+  const originalChildren = Array.from(btn.childNodes);
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  for (const c of originalChildren) btn.removeChild(c);
+  const ring = document.createElement('span');
+  ring.className = 'tvh-saving-ring';
+  ring.setAttribute('aria-hidden', 'true');
+  btn.appendChild(ring);
+  if (savingLabel) {
+    const label = document.createElement('span');
+    label.style.marginLeft = '8px';
+    label.textContent = savingLabel;
+    btn.appendChild(label);
+  }
+  const endBusy = busy.start(busyLabel);
+  try {
+    return await fn();
+  } finally {
+    endBusy();
+    while (btn.firstChild) btn.removeChild(btn.firstChild);
+    for (const c of originalChildren) btn.appendChild(c);
+    btn.disabled = wasDisabled;
+    btn.removeAttribute('aria-busy');
+    delete btn.dataset.tvhSaving;
+  }
+}

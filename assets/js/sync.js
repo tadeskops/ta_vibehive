@@ -122,6 +122,21 @@ export async function syncFromWorker() {
       const settings = await readSettings();
       if (settings && settings.overrides && typeof settings.overrides === 'object') {
         state.saveSocietyOverrides(settings.overrides);
+        /* Admin-published feature toggles ride inside the same doc under
+         * `feature_overrides`. Hydrate them into the local feature-
+         * overrides cache so `isSystemOn()` reflects the shared state
+         * on every device, not just the browser that flipped the switch. */
+        const fo = settings.overrides.feature_overrides;
+        if (fo && typeof fo === 'object' && !Array.isArray(fo)) {
+          state.saveFeatureOverrides(fo);
+        }
+        /* Receipt templates likewise ride inside society-overrides under
+         * `receipts.templates`. Hydrate so a template created on device A
+         * is immediately renderable on device B. */
+        const tpl = settings.overrides.receipts && settings.overrides.receipts.templates;
+        if (Array.isArray(tpl)) {
+          state.saveReceiptTemplates(tpl);
+        }
       }
     } catch (_e) { /* anonymous / offline — keep local cache */ }
 
