@@ -26,7 +26,7 @@
     { "id": "contribution.custom",   "cluster": "contribution",   "label": "Custom amount entry",             "scope": "event",     "default": true },
     { "id": "contribution.fixed",    "cluster": "contribution",   "label": "Fixed per-flat contribution",     "scope": "event",     "default": false },
     { "id": "contribution.per_head", "cluster": "contribution",   "label": "Per-participant contribution",    "scope": "event",     "default": false, "depends_on": ["registration.count"] },
-    { "id": "privacy.anonymous",     "cluster": "privacy",        "label": "Allow anonymous public display",  "scope": "event",     "default": true },
+    { "id": "privacy.anonymous",     "cluster": "privacy",        "label": "Allow anonymous public display",  "scope": "event",     "default": false },
     { "id": "privacy.public_board",  "cluster": "privacy",        "label": "Public contributor board",        "scope": "event",     "default": true },
     { "id": "privacy.amount_hidden", "cluster": "privacy",        "label": "Hide amount on public board",     "scope": "event",     "default": false },
     { "id": "privacy.mask_amounts_resident", "cluster": "privacy", "label": "Mask contribution amounts from residents (own row still visible)", "scope": "event", "default": false },
