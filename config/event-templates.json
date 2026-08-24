@@ -9,7 +9,7 @@
       "examples": ["Ganesh Chaturthi", "Diwali", "Holi", "Navratri", "Christmas", "New Year"],
       "features_on": [
         "contribution.voluntary","contribution.suggested","contribution.custom",
-        "privacy.anonymous","privacy.public_board",
+        "privacy.public_board",
         "reporting.progress","reporting.public_total",
         "receipt.generate"
       ],
@@ -64,7 +64,7 @@
       "examples": ["Charity drive", "Community welfare", "Medical support"],
       "features_on": [
         "contribution.voluntary","contribution.suggested","contribution.custom",
-        "privacy.anonymous","privacy.public_board","privacy.amount_hidden",
+        "privacy.public_board","privacy.amount_hidden",
         "reporting.progress","receipt.generate"
       ],
       "defaults": { "goal_default": 100000 }
