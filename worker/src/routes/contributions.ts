@@ -120,6 +120,45 @@ export async function verifyContribution(ctx: Ctx, params: Record<string, string
 }
 
 /**
+ * POST /contributions/:year/:month/:id/void
+ * Committee+ only. Body: { reason?: string }. Marks status='void'
+ * without deleting the file, preserving the audit trail.
+ */
+export async function voidContribution(ctx: Ctx, params: Record<string, string>): Promise<Response> {
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
+  if (!atLeast(ctx.role, 'committee')) return err(ctx.env, ctx.req, 'Committee or above required', 403);
+  const year = params['year'];
+  const month = params['month'];
+  const id = params['id'];
+  if (!year || !month || !id) return err(ctx.env, ctx.req, 'year, month and id are required', 400);
+  const path = `contributions/${year}/${month}/${id}.json`;
+  const doc = await readJson<Contribution>(ctx.env, path);
+  if (!doc) return err(ctx.env, ctx.req, 'Contribution not found', 404);
+  if (doc.data.status === 'void') return ok(ctx.env, ctx.req, { contribution: doc.data, sha: doc.sha, already: true });
+  let reason: string | undefined;
+  try {
+    const body = await ctx.req.json() as { reason?: string };
+    if (body && typeof body.reason === 'string') reason = body.reason.trim() || undefined;
+  } catch (_e) { /* no body is fine */ }
+  const nowIso = new Date().toISOString();
+  const updated: Contribution = {
+    ...doc.data,
+    status: 'void',
+    void_at: nowIso,
+    void_by: ctx.identity?.email ?? 'unknown',
+    void_reason: reason,
+  };
+  const message = `contribution: voided ${id} by ${ctx.identity?.email ?? 'unknown'}`;
+  try {
+    const result = await writeJson(ctx.env, path, updated, message, doc.sha);
+    return ok(ctx.env, ctx.req, { contribution: updated, sha: result.sha, commitSha: result.commitSha });
+  } catch (e) {
+    if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
+    throw e;
+  }
+}
+
+/**
  * GET /contributions?event=<slug>
  * Committee+ sees full data for every contribution. Residents see
  * their OWN records in full and every OTHER record with sensitive

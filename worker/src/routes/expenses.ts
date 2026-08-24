@@ -22,7 +22,7 @@
  */
 import type { Ctx } from '../lib/ctx.ts';
 import { ok, err } from '../lib/envelope.ts';
-import { readJson, writeJson, listDir } from '../github/client.ts';
+import { readJson, writeJson, listDir, deleteFile } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -119,6 +119,64 @@ export async function verifyExpense(ctx: Ctx, params: Record<string, string>): P
   try {
     const result = await writeJson(ctx.env, path, updated, message, doc.sha);
     return ok(ctx.env, ctx.req, { expense: updated, sha: result.sha, commitSha: result.commitSha });
+  } catch (e) {
+    if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
+    throw e;
+  }
+}
+
+export async function putExpense(ctx: Ctx, params: Record<string, string>): Promise<Response> {
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
+  if (!atLeast(ctx.role, 'committee')) return err(ctx.env, ctx.req, 'Committee or above required', 403);
+  const year = params['year'];
+  const month = params['month'];
+  const id = params['id'];
+  if (!year || !month || !id) return err(ctx.env, ctx.req, 'year, month and id are required', 400);
+  const path = `expenses/${year}/${month}/${id}.json`;
+  const doc = await readJson<Expense>(ctx.env, path);
+  if (!doc) return err(ctx.env, ctx.req, 'Expense not found', 404);
+  let body: { expense?: Partial<Expense> };
+  try { body = await ctx.req.json(); } catch (_e) { return err(ctx.env, ctx.req, 'Invalid JSON body', 400); }
+  const patch = body.expense;
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return err(ctx.env, ctx.req, '`expense` must be an object', 400);
+  }
+  const nowIso = new Date().toISOString();
+  const updated: Expense = {
+    ...doc.data,
+    ...patch,
+    id: doc.data.id,
+    event_id: doc.data.event_id,
+    status: doc.data.status,
+    created_at: doc.data.created_at,
+    created_by: doc.data.created_by,
+    verified_at: doc.data.verified_at,
+    verified_by: doc.data.verified_by,
+    updated_at: nowIso,
+    updated_by: ctx.identity?.email ?? 'unknown',
+  } as Expense;
+  const message = `expense: updated ${id} by ${ctx.identity?.email ?? 'unknown'}`;
+  try {
+    const result = await writeJson(ctx.env, path, updated, message, doc.sha);
+    return ok(ctx.env, ctx.req, { expense: updated, sha: result.sha, commitSha: result.commitSha });
+  } catch (e) {
+    if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
+    throw e;
+  }
+}
+
+export async function deleteExpense(ctx: Ctx, params: Record<string, string>): Promise<Response> {
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
+  if (!atLeast(ctx.role, 'committee')) return err(ctx.env, ctx.req, 'Committee or above required', 403);
+  const year = params['year'];
+  const month = params['month'];
+  const id = params['id'];
+  if (!year || !month || !id) return err(ctx.env, ctx.req, 'year, month and id are required', 400);
+  const path = `expenses/${year}/${month}/${id}.json`;
+  const message = `expense: deleted ${id} by ${ctx.identity?.email ?? 'unknown'}`;
+  try {
+    const result = await deleteFile(ctx.env, path, message);
+    return ok(ctx.env, ctx.req, { deleted: !!result, path });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
     throw e;
