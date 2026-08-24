@@ -88,6 +88,60 @@ function upiIntentUrl({ vpa, name, amount, note }) {
   return 'upi://pay?' + p.toString();
 }
 
+/* App-specific UPI deep links — used as an EXPLICIT PICKER below the
+ * generic upi:// button because iOS Safari does not reliably route
+ * `upi://pay?...` to the installed UPI app (Android does via the
+ * OS Intent chooser, but Apple provides no such fallback). Query
+ * string is the same NPCI payload for every app so the resident sees
+ * the correct amount + note regardless of which app they pick. App
+ * store link is exposed as a small "Install" fallback so a resident
+ * without the app can grab it in one tap. */
+const UPI_APPS = [
+  {
+    id: 'gpay', label: 'Google Pay', glyph: 'G',
+    scheme: 'tez://upi/pay?',
+    ios: 'https://apps.apple.com/in/app/google-pay/id575490605',
+    android: 'https://play.google.com/store/apps/details?id=com.google.android.apps.nbu.paisa.user',
+  },
+  {
+    id: 'phonepe', label: 'PhonePe', glyph: 'P',
+    scheme: 'phonepe://pay?',
+    ios: 'https://apps.apple.com/in/app/phonepe/id1170055821',
+    android: 'https://play.google.com/store/apps/details?id=com.phonepe.app',
+  },
+  {
+    id: 'paytm', label: 'Paytm', glyph: 'p',
+    scheme: 'paytmmp://pay?',
+    ios: 'https://apps.apple.com/in/app/paytm/id473941634',
+    android: 'https://play.google.com/store/apps/details?id=net.one97.paytm',
+  },
+  {
+    id: 'bhim', label: 'BHIM', glyph: '🇮🇳',
+    scheme: 'bhim://pay?',
+    ios: 'https://apps.apple.com/in/app/bhim/id1200315258',
+    android: 'https://play.google.com/store/apps/details?id=in.org.npci.upiapp',
+  },
+];
+
+function upiAppDeepLink(schemePrefix, { vpa, name, amount, note }) {
+  if (!vpa) return '';
+  const p = new URLSearchParams();
+  p.set('pa', vpa);
+  if (name)   p.set('pn', name);
+  if (amount) p.set('am', String(amount));
+  p.set('cu', 'INR');
+  if (note)   p.set('tn', note);
+  return schemePrefix + p.toString();
+}
+
+function detectMobileOS() {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  return {
+    isIOS: /iPhone|iPad|iPod/i.test(ua),
+    isAndroid: /Android/i.test(ua),
+  };
+}
+
 function appreciationText(template, amount) {
   const t = String(template || '').trim();
   if (!t) return '';
@@ -407,13 +461,37 @@ export async function render(root, { match }) {
             el('span', { class: 'tvh-upi-cta-caret', 'aria-hidden': 'true', text: '›' })
           ) : null,
           effVpa ? el('div', { class: 'row tvh-upi-actions', style: 'gap:8px;flex-wrap:wrap;margin-top:8px' }, copyBtn) : null,
-          /* Compatibility strip: reassures residents that the single
-           * "Pay via UPI" button will work with whichever app they
-           * prefer. Purely informational — no app-specific hooks. */
-          el('div', { class: 'tvh-upi-apps' },
-            el('span', { class: 'tvh-upi-apps-lbl', text: 'Opens any installed UPI app:' }),
-            el('span', { class: 'tvh-upi-apps-list', text: 'GPay · PhonePe · Paytm · BHIM · Amazon Pay · WhatsApp Pay · CRED · bank UPI apps' })
-          ),
+          /* Explicit per-app picker. On Android the generic upi://
+           * button already opens the OS chooser; on iOS Safari it
+           * frequently does nothing, so a fallback picker with
+           * app-specific schemes + App Store fallback is essential. */
+          effVpa ? el('div', { class: 'tvh-upi-picker', style: 'margin-top:10px' },
+            el('small', { class: 'sub', style: 'display:block;margin-bottom:6px', text: 'Or pick a UPI app directly:' }),
+            el('div', { class: 'tvh-upi-apps-grid', style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px' },
+              ...UPI_APPS.map((app) => {
+                const link = upiAppDeepLink(app.scheme, { vpa: effVpa, name: effVpaName, amount: st.amount, note: `Contribution: ${evt.title}` });
+                const os = detectMobileOS();
+                const store = os.isIOS ? app.ios : app.android;
+                return el('div', { class: 'tvh-upi-app-cell', style: 'display:flex;flex-direction:column;gap:4px;align-items:stretch' },
+                  el('a', {
+                    class: 'btn btn-sm', href: link,
+                    rel: 'noopener noreferrer',
+                    'aria-label': `Pay ${fmtINR(st.amount)} via ${app.label}`,
+                    style: 'display:flex;align-items:center;justify-content:center;gap:6px;text-align:center',
+                  },
+                    el('span', { 'aria-hidden': 'true', text: app.glyph }),
+                    el('span', { text: app.label }),
+                  ),
+                  el('a', {
+                    class: 'sub', href: store, target: '_blank', rel: 'noopener noreferrer',
+                    style: 'font-size:11px;text-align:center;color:var(--muted);text-decoration:none',
+                    text: os.isIOS ? 'App Store' : (os.isAndroid ? 'Play Store' : 'Install app'),
+                  })
+                );
+              })
+            ),
+            el('small', { class: 'sub', style: 'display:block;margin-top:6px', text: 'If a button does nothing, install the app first, or scroll down for the QR code / bank transfer.' })
+          ) : null,
           evtQr ? el('div', { class: 'tvh-upi-qr' },
             el('small', { class: 'sub', text: 'Or scan the QR code below with any UPI app:' }),
             /* QR data URL is validated at event-save time (PNG/JPEG/WebP
