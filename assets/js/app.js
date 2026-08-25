@@ -120,6 +120,7 @@ const views = {
   login:      () => import('./views/login.js'),
   me:         () => import('./views/me.js'),
   manage:     () => import('./views/manage.js'),
+  stories:    () => import('./views/stories.js'),
 };
 
 async function mountView(loader, ctx) {
@@ -160,6 +161,8 @@ router.register('/verify/:id',                (ctx) => mountView(views.verify, c
 router.register('/login',                     (ctx) => mountView(views.login, ctx));
 router.register('/me',                        (ctx) => mountView(views.me, ctx));
 router.register('/manage',                    (ctx) => mountView(views.manage, ctx));
+router.register('/stories',                   (ctx) => mountView(views.stories, ctx));
+router.register('/stories/new',               (ctx) => mountView(views.stories, ctx));
 // Unknown hash routes get a proper "Not found" panel instead of a
 // silent redirect to Home — makes typos and stale bookmarks visible.
 router.fallback(                              (ctx) => mountView(async () => ({

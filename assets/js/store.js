@@ -113,6 +113,8 @@ export const state = {
    * treasury integration lands. */
   expenses() { return local.get('expenses', []); },
   saveExpenses(list) { local.set('expenses', Array.isArray(list) ? list : []); },
+  stories() { return local.get('stories', []); },
+  saveStories(list) { local.set('stories', Array.isArray(list) ? list : []); },
   /* Receipt templates — society may keep multiple presets (e.g. one
    * for festival donations, one for maintenance dues) and pick which
    * one is active from settings. Only the active_id (stored in

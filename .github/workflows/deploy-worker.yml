@@ -88,5 +88,6 @@ jobs:
           check /          200 'health root'
           check /events    200 'anon events list'
           check /whoami    401 'anon whoami (expected 401)'
+          check /stories   401 'anon stories (expected 401)'
           check /doesnotexist 404 'unknown route'
           exit $fail

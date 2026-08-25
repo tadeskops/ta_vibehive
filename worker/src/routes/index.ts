@@ -5,6 +5,7 @@ import { listEvents, getEvent, putEvent, deleteEvent } from './events.ts';
 import { createContribution, verifyContribution, voidContribution, putContribution, listContributions } from './contributions.ts';
 import { createExpense, verifyExpense, putExpense, deleteExpense, listExpenses } from './expenses.ts';
 import { getVisitCount, incrementVisitCount } from './metrics.ts';
+import { listStories, readStory, createStory, archiveStory, deleteStory } from './stories.ts';
 
 export function buildRouter(): Router {
   const r = new Router();
@@ -40,6 +41,13 @@ export function buildRouter(): Router {
   // Metrics — anonymous visit counter (feature-flag gated on the client)
   r.get('/metrics/visit', getVisitCount);
   r.post('/metrics/visit', incrementVisitCount);
+
+  // Stories — dashboard announcements (committee+ authors, all signed-in view)
+  r.get('/stories', listStories);
+  r.get('/stories/:year/:month/:id', readStory);
+  r.post('/stories', createStory);
+  r.post('/stories/:year/:month/:id/archive', archiveStory);
+  r.del('/stories/:year/:month/:id', deleteStory);
 
   return r;
 }

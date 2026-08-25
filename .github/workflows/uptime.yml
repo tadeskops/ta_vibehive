@@ -45,6 +45,7 @@ jobs:
             probe "$WORKER/"        200 'worker-root'
             probe "$WORKER/events"  200 'worker-events'
             probe "$WORKER/whoami"  401 'worker-whoami'
+            probe "$WORKER/stories" 401 'worker-stories'
             probe "$PAGES/"         200 'pages-index'
             probe "$PAGES/BUILD.txt" 200 'pages-build'
           } | tee results.tsv
