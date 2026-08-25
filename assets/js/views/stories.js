@@ -138,7 +138,7 @@ function renderComposer(user) {
   const titleInput = el('input', {
     type: 'text',
     maxLength: 60,
-    placeholder: 'e.g. Ganesh Utsav · Crew Call',
+    placeholder: 'Short announcement title',
     on: { input: (e) => { draft.title = e.target.value; refreshPreview(); } },
   });
   const ctaKindSel = el('select', {
@@ -150,19 +150,19 @@ function renderComposer(user) {
   );
   const ctaValueInput = el('input', {
     type: 'text',
-    placeholder: '+91 99219 89173',
+    placeholder: 'Phone number or URL',
     on: { input: (e) => { draft.ctaValue = e.target.value; } },
   });
   const ctaLabelInput = el('input', {
     type: 'text',
     maxLength: 40,
-    placeholder: 'Nominate on WhatsApp',
+    placeholder: 'Button label (e.g. Sign up)',
     on: { input: (e) => { draft.ctaLabel = e.target.value; } },
   });
   const ctaPrefillInput = el('textarea', {
     rows: 2,
     maxLength: 300,
-    placeholder: 'Hi Siddharth, I want to volunteer as ...',
+    placeholder: 'Optional message pre-filled in WhatsApp',
     on: { input: (e) => { draft.ctaPrefill = e.target.value; } },
   });
   const expiryDaysInput = el('input', {

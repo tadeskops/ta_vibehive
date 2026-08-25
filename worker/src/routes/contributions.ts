@@ -106,12 +106,12 @@ async function archiveProofBinary(ctx: Ctx, record: Contribution): Promise<strin
  *  (event, contributor_email) only within DEDUP_WINDOW_MS of created_at
  *  (event, flat)              only within DEDUP_WINDOW_MS of created_at
  * The short window on flat/email lets a resident who realises they
- * forgot proof genuinely re-submit hours later (Vikas Bhat C-301 case
- * seen 2026-08-24), while still catching fast-click / double-tap races
- * that bypass the client's `withSavingRing` + local-cache guard
- * (Garry Virdi A-701 case seen 2026-08-24: two POSTs 499 ms apart with
- * an identical UPI ref both persisted). Ref matches are always
- * rejected because a repeat UPI ref is always a software glitch.
+ * forgot proof genuinely re-submit hours later, while still catching
+ * the fast-click / double-tap race that bypasses the client's
+ * `withSavingRing` + local-cache guard (two POSTs 499 ms apart with an
+ * identical UPI ref both persisted in the incident that motivated
+ * this dedup layer). Ref matches are always rejected because a repeat
+ * UPI ref is always a software glitch.
  */
 const DEDUP_WINDOW_MS = 5 * 60_000;
 async function findDuplicate(
