@@ -13,6 +13,7 @@ import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
 import { receiptWhatsAppIconBtn } from '../receipt-download-menu.js';
 import { runDailyReportsBackfill } from '../daily-reports.js';
 import { openExpenseDialog } from './event.js';
+import { activeStories } from '../stories.js';
 
 /* Community Warmth · v0.1 -- privacy.public_mask
  *
@@ -171,7 +172,9 @@ export async function render(root) {
   const visitCardWrap = el('div', { class: 'tvh-visit-card-wrap', style: 'margin-top:12px' });
   renderVisitCard(visitCardWrap).catch(() => { /* silent */ });
 
-  mount(root, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, spotlight, latest, pendingExpenses, visitCardWrap);
+  const storiesRow = user ? await renderStoriesStrip(user) : null;
+
+  mount(root, storiesRow, hero, emergCard, stats, el('div', { style: 'height:8px' }), cards, spotlight, latest, pendingExpenses, visitCardWrap);
 
   // Fire-and-forget: once per session, generate a per-event JSON
   // snapshot for the private archive when >20 h have passed or the
@@ -659,4 +662,45 @@ export function eventCard(evt, opts) {
       )
     )
   );
+}
+
+
+async function renderStoriesStrip(user) {
+  // Only render when the feature is enabled AND there is at least one
+  // active story OR the caller can create one (so moderators can find
+  // the composer quickly). Anything else stays completely hidden so
+  // the home view is unchanged for the vast majority of days when no
+  // story is pinned.
+  let enabled = false;
+  try { enabled = await isSystemOn('stories.enabled'); } catch (_e) { enabled = false; }
+  const raw = state.stories() || [];
+  const list = activeStories(raw);
+  const canCreate = await can(user, 'stories.create');
+  if (!enabled && !canCreate) return null;
+  if (!list.length && !canCreate) return null;
+  const wrap = el('section', { class: 'tvh-story-strip', 'aria-label': 'Community stories' });
+  const inner = el('div', { class: 'tvh-story-strip-inner' });
+  list.forEach((s, i) => {
+    const ring = el('div', { class: 'tvh-story-ring',
+      role: 'button', tabindex: '0',
+      on: { click: () => openStoriesAt(list, i), keydown: (e) => { if (e.key === 'Enter' || e.key === ' ') openStoriesAt(list, i); } } },
+      s.thumb_data_url ? el('img', { src: s.thumb_data_url, alt: s.title || 'story', loading: 'lazy' }) : null,
+    );
+    const label = el('div', { class: 'tvh-story-label', text: s.title || '' });
+    inner.append(el('div', { class: 'tvh-story-cell' }, ring, label));
+  });
+  if (canCreate) {
+    const plus = el('div', { class: 'tvh-story-ring placeholder',
+      role: 'button', tabindex: '0',
+      on: { click: () => navigate('/stories/new'), keydown: (e) => { if (e.key === 'Enter' || e.key === ' ') navigate('/stories/new'); } } },
+      '＋');
+    inner.append(el('div', { class: 'tvh-story-cell' }, plus, el('div', { class: 'tvh-story-label', text: 'New story' })));
+  }
+  wrap.append(inner);
+  return wrap;
+}
+
+async function openStoriesAt(list, index) {
+  const { openStoryViewer } = await import('../story-viewer.js');
+  openStoryViewer(list, index);
 }

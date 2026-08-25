@@ -42,6 +42,10 @@
     "events.history.view":       ["admin", "secretary", "mgmt"],
     "events.history.configure":  ["admin", "secretary", "mgmt"],
     "contribute":                ["admin", "mgmt", "committee", "manager", "resident"],
-    "events.register":           ["admin", "mgmt", "committee", "manager", "resident"]
+    "events.register":           ["admin", "mgmt", "committee", "manager", "resident"],
+    "stories.view":              ["admin", "secretary", "mgmt", "committee", "manager", "resident"],
+    "stories.create":            ["admin", "secretary", "mgmt", "committee"],
+    "stories.archive":           ["admin", "secretary", "mgmt", "committee"],
+    "stories.delete":            ["admin", "secretary", "mgmt"]
   }
 }

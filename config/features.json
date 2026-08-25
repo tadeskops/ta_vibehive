@@ -58,6 +58,7 @@
     { "id": "notify.receipt_ready",  "cluster": "notification",   "label": "Receipt-ready email",             "scope": "system",    "default": true },
     { "id": "admin.feature_toggle",  "cluster": "administration", "label": "Feature toggle console",          "scope": "system",    "default": true,  "requires_role": "admin" },
     { "id": "admin.template_editor", "cluster": "administration", "label": "Event template editor",           "scope": "system",    "default": true,  "requires_role": "admin" },
-    { "id": "admin.users",           "cluster": "administration", "label": "User & role management",          "scope": "system",    "default": true,  "requires_role": "admin" }
+    { "id": "admin.users",           "cluster": "administration", "label": "User & role management",          "scope": "system",    "default": true,  "requires_role": "admin" },
+    { "id": "stories.enabled",       "cluster": "notification",   "label": "Dashboard stories (moderator announcements)", "scope": "system", "default": false, "requires_role": "admin" }
   ]
 }

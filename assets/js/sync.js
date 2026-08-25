@@ -17,7 +17,7 @@
  * viewing work.
  */
 'use strict';
-import { listEvents, listContributions, listExpenses, whoami, readSettings } from './api.js';
+import { listEvents, listContributions, listExpenses, listStories, whoami, readSettings } from './api.js';
 import { state } from './store.js';
 import { applyRecoveryOverridesToState } from './events.js';
 
@@ -188,6 +188,14 @@ export async function syncFromWorker() {
         }
         state.saveExpenses(Array.from(byId.values()));
       }
+    } catch (_e) { /* auth / network — fall back to local cache */ }
+
+    /* Hydrate dashboard stories cache — thumbnails-only list so the
+     * boot-sync stays cheap. Fullscreen viewer fetches full image on
+     * tap. Anonymous callers get 401 and we keep the local cache. */
+    try {
+      const remote = await listStories();
+      if (Array.isArray(remote)) state.saveStories(remote);
     } catch (_e) { /* auth / network — fall back to local cache */ }
 
     // Apply shared recovery overrides (admin-authored) so migrations

@@ -260,3 +260,33 @@ export async function readVisitCount() {
 export async function bumpVisitCount() {
   return request('POST', '/metrics/visit');
 }
+
+/* ---------- Stories ---------- */
+
+/** List active, non-expired dashboard stories (thumbnails only). */
+export async function listStories() {
+  const data = await request('GET', '/stories');
+  return (data && data.stories) || [];
+}
+
+/** Fetch a single story's full record (heavy `image_data_url` included). */
+export async function readStory(year, month, id) {
+  const data = await request('GET', `/stories/${year}/${month}/${encodeURIComponent(id)}`);
+  return (data && data.story) || null;
+}
+
+/** Create a story. Committee+. */
+export async function createStory(story) {
+  const data = await request('POST', '/stories', { story });
+  return data && data.story;
+}
+
+/** Archive a story (soft delete — status='archived'). Committee+. */
+export async function archiveStoryRemote(year, month, id) {
+  return request('POST', `/stories/${year}/${month}/${encodeURIComponent(id)}/archive`);
+}
+
+/** Hard-delete a story (mgmt+). */
+export async function deleteStoryRemote(year, month, id) {
+  return request('DELETE', `/stories/${year}/${month}/${encodeURIComponent(id)}`);
+}
