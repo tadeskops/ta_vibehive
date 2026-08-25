@@ -99,7 +99,47 @@ async function archiveProofBinary(ctx: Ctx, record: Contribution): Promise<strin
  * Any signed-in user (or anonymous when publicly configured — not
  * enabled by default). Server stamps id, created_at, created_by,
  * status='pending'.
+ *
+ * Dedup: rejects a second submission that matches an existing non-void
+ * record on any of these fingerprints —
+ *  (event, ref)               ALWAYS — a real UPI/bank ref never repeats
+ *  (event, contributor_email) only within DEDUP_WINDOW_MS of created_at
+ *  (event, flat)              only within DEDUP_WINDOW_MS of created_at
+ * The short window on flat/email lets a resident who realises they
+ * forgot proof genuinely re-submit hours later (Vikas Bhat C-301 case
+ * seen 2026-08-24), while still catching fast-click / double-tap races
+ * that bypass the client's `withSavingRing` + local-cache guard
+ * (Garry Virdi A-701 case seen 2026-08-24: two POSTs 499 ms apart with
+ * an identical UPI ref both persisted). Ref matches are always
+ * rejected because a repeat UPI ref is always a software glitch.
  */
+const DEDUP_WINDOW_MS = 5 * 60_000;
+async function findDuplicate(
+  env: Ctx['env'],
+  draft: Partial<Contribution> & Record<string, unknown>,
+): Promise<Contribution | null> {
+  const eventId = String(draft.event || '');
+  if (!eventId) return null;
+  const ref = String(draft['ref'] || '').trim().toLowerCase();
+  const email = String(draft['contributor_email'] || '').trim().toLowerCase();
+  const flat = String(draft['flat'] || '').trim().toLowerCase();
+  const nowT = Date.now();
+  const all = await loadAllContributions(env);
+  for (const c of all) {
+    if (c.event !== eventId) continue;
+    if (c.status === 'void') continue;
+    const cRef = String((c as Record<string, unknown>)['ref'] || '').trim().toLowerCase();
+    if (ref && cRef && ref === cRef) return c;
+    const createdT = Date.parse(String(c.created_at || '')) || 0;
+    if (!createdT || nowT - createdT > DEDUP_WINDOW_MS) continue;
+    const cEmail = String(c.contributor_email || '').trim().toLowerCase();
+    const cFlat = String((c as Record<string, unknown>)['flat'] || '').trim().toLowerCase();
+    if (email && cEmail && email === cEmail) return c;
+    if (flat && cFlat && flat === cFlat) return c;
+  }
+  return null;
+}
+
 export async function createContribution(ctx: Ctx): Promise<Response> {
   if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
   let body: { contribution?: Partial<Contribution> };
@@ -110,6 +150,15 @@ export async function createContribution(ctx: Ctx): Promise<Response> {
   }
   if (!draft.event || typeof draft.event !== 'string') return err(ctx.env, ctx.req, 'event is required', 400);
   if (typeof draft.amount !== 'number' || !(draft.amount > 0)) return err(ctx.env, ctx.req, 'amount must be positive', 400);
+  const dup = await findDuplicate(ctx.env, draft);
+  if (dup) {
+    return err(
+      ctx.env,
+      ctx.req,
+      'Looks like this contribution was already recorded (matching UPI ref or a submission from your flat in the last few minutes). Refresh the page to confirm — if it still looks missing, ask the committee.',
+      409,
+    );
+  }
   const nowIso = new Date().toISOString();
   const stamped: Contribution = {
     ...(draft as Contribution),
@@ -124,6 +173,7 @@ export async function createContribution(ctx: Ctx): Promise<Response> {
     const archivePath = await archiveProofBinary(ctx, stamped);
     if (archivePath) (stamped as Record<string, unknown>)['proof_archive_path'] = archivePath;
     const result = await writeJson(ctx.env, path, stamped, message);
+    invalidateContribCache();
     return ok(ctx.env, ctx.req, { contribution: stamped, path, sha: result.sha });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
@@ -162,6 +212,7 @@ export async function verifyContribution(ctx: Ctx, params: Record<string, string
   const message = `contribution: verified ${id} by ${ctx.identity?.email ?? 'unknown'}`;
   try {
     const result = await writeJson(ctx.env, path, updated, message, doc.sha);
+    invalidateContribCache();
     return ok(ctx.env, ctx.req, { contribution: updated, sha: result.sha, commitSha: result.commitSha });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
@@ -218,6 +269,7 @@ export async function putContribution(ctx: Ctx, params: Record<string, string>):
       if (archivePath) (updated as Record<string, unknown>)['proof_archive_path'] = archivePath;
     }
     const result = await writeJson(ctx.env, path, updated, message, doc.sha);
+    invalidateContribCache();
     return ok(ctx.env, ctx.req, { contribution: updated, sha: result.sha, commitSha: result.commitSha });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
@@ -257,6 +309,7 @@ export async function voidContribution(ctx: Ctx, params: Record<string, string>)
   const message = `contribution: voided ${id} by ${ctx.identity?.email ?? 'unknown'}`;
   try {
     const result = await writeJson(ctx.env, path, updated, message, doc.sha);
+    invalidateContribCache();
     return ok(ctx.env, ctx.req, { contribution: updated, sha: result.sha, commitSha: result.commitSha });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
@@ -294,33 +347,75 @@ function stripPrivateFields(c: Contribution): Contribution {
   return out;
 }
 
-export async function listContributions(ctx: Ctx): Promise<Response> {
-  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
-  const eventFilter = ctx.url.searchParams.get('event') || '';
+/**
+ * Isolate-local cache for the full contributions list. Same shape +
+ * TTL as the `/events` cache added on 2026-08-24 — protects against
+ * the free-plan GitHub REST subrequest ceiling when 200 residents
+ * open the app during Ganpati week. A cold isolate still pays the
+ * fan-out cost once, then every subsequent request in that isolate
+ * for TTL_MS returns instantly.
+ *
+ * The window is capped at LIST_MONTHS (3) instead of the previous 12
+ * because the dashboard only surfaces the current event cycle; older
+ * receipts are still individually addressable by path when needed.
+ */
+const CONTRIB_CACHE_TTL_MS = 30_000;
+const LIST_MONTHS = 3;
+let _contribCache: { at: number; contribs: Contribution[] } | null = null;
+
+async function loadAllContributions(env: Ctx['env']): Promise<Contribution[]> {
+  const nowT = Date.now();
+  if (_contribCache && nowT - _contribCache.at < CONTRIB_CACHE_TTL_MS) {
+    return _contribCache.contribs;
+  }
   const now = new Date();
   const months: Array<{ y: number; m: string }> = [];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < LIST_MONTHS; i++) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     months.push({ y: d.getUTCFullYear(), m: String(d.getUTCMonth() + 1).padStart(2, '0') });
   }
+  try {
+    const dirSettled = await Promise.allSettled(
+      months.map(({ y, m }) => listDir(env, `contributions/${y}/${m}`)),
+    );
+    const files: string[] = [];
+    for (const r of dirSettled) {
+      if (r.status !== 'fulfilled') continue;
+      for (const e of r.value) {
+        if (e.type === 'file' && e.name.endsWith('.json')) files.push(e.path);
+      }
+    }
+    const fileSettled = await Promise.allSettled(files.map((p) => readJson<Contribution>(env, p)));
+    const out: Contribution[] = [];
+    for (const r of fileSettled) {
+      if (r.status === 'fulfilled' && r.value && r.value.data) out.push(r.value.data);
+    }
+    _contribCache = { at: nowT, contribs: out };
+    return out;
+  } catch (_e) {
+    if (_contribCache) return _contribCache.contribs;
+    return [];
+  }
+}
+
+/** Callers that mutate the archive (create / verify / edit) invalidate
+ *  the isolate cache so the next list read reflects the write. */
+function invalidateContribCache(): void {
+  _contribCache = null;
+}
+
+export async function listContributions(ctx: Ctx): Promise<Response> {
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
+  const eventFilter = ctx.url.searchParams.get('event') || '';
   const callerEmail = String(ctx.identity?.email || '').toLowerCase();
   const canSeeAll = atLeast(ctx.role, 'committee');
+  const all = await loadAllContributions(ctx.env);
   const out: Contribution[] = [];
-  for (const { y, m } of months) {
-    const entries = await listDir(ctx.env, `contributions/${y}/${m}`);
-    for (const e of entries) {
-      if (e.type !== 'file' || !e.name.endsWith('.json')) continue;
-      const doc = await readJson<Contribution>(ctx.env, e.path);
-      if (!doc || !doc.data) continue;
-      const c = doc.data;
-      if (eventFilter && c.event !== eventFilter) continue;
-      if (canSeeAll) {
-        out.push(c);
-        continue;
-      }
-      const mine = String(c.contributor_email || c.created_by || '').toLowerCase() === callerEmail;
-      out.push(mine ? c : stripPrivateFields(c));
-    }
+  for (const c of all) {
+    if (eventFilter && c.event !== eventFilter) continue;
+    if (canSeeAll) { out.push(c); continue; }
+    const mine = String(c.contributor_email || c.created_by || '').toLowerCase() === callerEmail;
+    out.push(mine ? c : stripPrivateFields(c));
   }
   return ok(ctx.env, ctx.req, { contributions: out });
 }
