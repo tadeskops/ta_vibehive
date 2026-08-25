@@ -184,19 +184,23 @@ function renderComposer(user) {
   const publish = el('button', { class: 'btn btn-block', on: { click: async (ev) => {
     if (!draft.title.trim()) return toast('Title is required', 'err');
     if (!draft.thumbDataUrl) return toast('Pick an image first', 'err');
-    if (!draft.ctaValue.trim()) return toast('Contact value is required (phone or URL)', 'err');
     const expiresAt = new Date(Date.now() + draft.expiryDays * 86400_000).toISOString();
+    const ctaValue = draft.ctaValue.trim();
     const payload = {
       title: draft.title.trim(),
       thumb_data_url: draft.thumbDataUrl,
       image_data_url: draft.fullDataUrl,
-      cta_kind: draft.ctaKind,
-      cta_label: draft.ctaLabel.trim(),
-      cta_value: draft.ctaValue.trim(),
-      cta_prefill: draft.ctaPrefill.trim(),
       expires_at: expiresAt,
       duration_ms: draft.durationMs,
     };
+    if (ctaValue) {
+      payload.cta_kind = draft.ctaKind;
+      payload.cta_value = ctaValue;
+      const label = draft.ctaLabel.trim();
+      const prefill = draft.ctaPrefill.trim();
+      if (label) payload.cta_label = label;
+      if (prefill) payload.cta_prefill = prefill;
+    }
     try {
       await withSavingRing(ev && ev.currentTarget, () => createStory(payload), { savingLabel: 'Publishing…', busyLabel: 'Publishing story…' });
     } catch (e) {
@@ -218,7 +222,8 @@ function renderComposer(user) {
           field('Expires in (days)', expiryDaysInput),
           field('Frame duration (seconds)', durationInput, 'How long the story lingers before advancing.'),
         ),
-        el('h4', { style: 'margin:16px 0 8px', text: 'Contact CTA' }),
+        el('h4', { style: 'margin:16px 0 4px', text: 'Contact CTA (optional)' }),
+        el('p', { class: 'sub', style: 'margin:0 0 8px', text: 'Leave the value blank to publish a pure announcement with no button.' }),
         el('div', { class: 'grid grid-2', style: 'gap:12px' },
           field('Kind', ctaKindSel),
           field('Value', ctaValueInput, 'Phone with country code, or a full URL.'),
