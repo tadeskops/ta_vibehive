@@ -11,7 +11,7 @@ on:
         default: 'false'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: reports-cron
@@ -36,15 +36,19 @@ jobs:
         run: |
           node scripts/generate-reports.mjs
 
-      - name: Commit generated reports
+      # Branch protection on main now requires 3 status checks, so a bot
+      # `git push` is rejected with GH013. Persist snapshots as artifacts
+      # + step summary instead (same fix pattern as feature-audit-save.yml,
+      # commit 29b6719). Nothing in the app consumes docs/ops/live-reports/.
+      - name: Publish latest snapshot to step summary
+        if: hashFiles('docs/ops/live-reports/latest.md') != ''
         run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if [ -n "$(git status --porcelain docs/ops/live-reports)" ]; then
-            git add docs/ops/live-reports
-            git commit -m "chore(reports): export live contribution snapshot"
-            git push
-          else
-            echo "No report changes to commit."
-          fi
+          cat docs/ops/live-reports/latest.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload snapshot artifact
+        if: hashFiles('docs/ops/live-reports/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-reports-${{ github.run_number }}
+          path: docs/ops/live-reports/
+          retention-days: 90
