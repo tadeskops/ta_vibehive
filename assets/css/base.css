@@ -1090,3 +1090,67 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 }
 .tvh-story-cta:hover, .tvh-story-cta:focus-visible { filter: brightness(1.08); outline: none; }
 .tvh-story-cta-spacer { height: 40px; }
+/* Story surface -- responsive tweaks. Desktop keeps 60px rings + full
+   composer grid; mobile shrinks the strip so 4 rings still fit on a
+   narrow screen, stacks the composer preview below the form, and
+   reserves space above the mobile tab-bar so the CTA button never
+   overlaps it. */
+@media (min-width: 900px) {
+  .tvh-story-strip-inner { gap: 16px; padding: 10px 4px 8px; }
+  .tvh-story-cell { width: 84px; }
+  .tvh-story-label { max-width: 84px; font-size: 12px; }
+  .tvh-story-ring { width: 72px; height: 72px; padding: 3px; }
+  .tvh-story-ring.lg { width: 132px; height: 132px; padding: 4px; }
+}
+@media (max-width: 640px) {
+  .tvh-story-strip { margin: -2px -8px 6px; }
+  .tvh-story-strip-inner {
+    padding: 6px 12px 4px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    gap: 10px;
+  }
+  .tvh-story-cell { width: 62px; gap: 3px; }
+  .tvh-story-label { max-width: 62px; font-size: 10px; }
+  .tvh-story-ring { width: 56px; height: 56px; padding: 2px; }
+  .tvh-story-ring.md { width: 64px; height: 64px; }
+  .tvh-story-ring.lg { width: 96px; height: 96px; padding: 3px; }
+  .tvh-story-ring.placeholder { font-size: 22px; }
+
+  /* Composer: stack the poster preview below the form on narrow
+     screens and give the file input a taller tap target. */
+  .tvh-story-preview { align-items: flex-start; margin-top: 12px; }
+  .tvh-story-card { padding: 10px; }
+
+  /* Fullscreen viewer safe-area insets so the close button clears the
+     notch and the CTA clears the mobile home-indicator strip. */
+  .tvh-story-head {
+    padding-top: max(6px, env(safe-area-inset-top));
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+  .tvh-story-bars {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+  .tvh-story-cta {
+    margin-bottom: max(20px, env(safe-area-inset-bottom));
+    min-width: min(280px, calc(100vw - 40px));
+    padding: 12px 16px;
+  }
+  .tvh-story-cta-spacer { height: 32px; }
+}
+
+/* Composer form: 2-column (form + preview) on wide screens, single
+   column on mobile so the poster preview drops below the fields. */
+.tvh-story-composer-grid { grid-template-columns: 1fr 160px; }
+@media (max-width: 640px) {
+  .tvh-story-composer-grid { grid-template-columns: 1fr; }
+  .tvh-story-composer .tvh-story-preview { align-items: flex-start; }
+  .tvh-story-composer input[type="file"] { padding: 10px 0; font-size: 14px; }
+  .tvh-story-composer input[type="text"],
+  .tvh-story-composer input[type="number"],
+  .tvh-story-composer textarea,
+  .tvh-story-composer select { font-size: 16px; }
+}

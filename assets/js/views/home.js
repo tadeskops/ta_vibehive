@@ -666,17 +666,16 @@ export function eventCard(evt, opts) {
 
 
 async function renderStoriesStrip(user) {
-  // Only render when the feature is enabled AND there is at least one
-  // active story OR the caller can create one (so moderators can find
-  // the composer quickly). Anything else stays completely hidden so
-  // the home view is unchanged for the vast majority of days when no
-  // story is pinned.
+  // Feature flag is authoritative. When admin turns `stories.enabled`
+  // OFF everyone -- including moderators -- sees nothing on home. The
+  // composer route also gates on the same flag so a moderator can't
+  // publish while the surface is disabled site-wide.
   let enabled = false;
   try { enabled = await isSystemOn('stories.enabled'); } catch (_e) { enabled = false; }
+  if (!enabled) return null;
   const raw = state.stories() || [];
   const list = activeStories(raw);
   const canCreate = await can(user, 'stories.create');
-  if (!enabled && !canCreate) return null;
   if (!list.length && !canCreate) return null;
   const wrap = el('section', { class: 'tvh-story-strip', 'aria-label': 'Community stories' });
   const inner = el('div', { class: 'tvh-story-strip-inner' });

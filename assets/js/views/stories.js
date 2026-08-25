@@ -20,6 +20,7 @@ import { navigate } from '../router.js';
 import { can } from '../rbac.js';
 import { state } from '../store.js';
 import { withSavingRing } from '../busy.js';
+import { isSystemOn } from '../features.js';
 import { activeStories, isExpired, resizeStoryImage, storyPathParts } from '../stories.js';
 import { createStory, archiveStoryRemote, deleteStoryRemote, listStories } from '../api.js';
 
@@ -35,9 +36,19 @@ async function refreshLocalStories() {
 export async function render(root) {
   const user = session();
   if (!user) { navigate('/login'); return; }
+  let enabled = false;
+  try { enabled = await isSystemOn('stories.enabled'); } catch (_e) { enabled = false; }
   const canCreate = await can(user, 'stories.create');
   const canArchive = await can(user, 'stories.archive');
   const canDelete = await can(user, 'stories.delete');
+  if (!enabled) {
+    mount(root, el('section', { class: 'card card-pad' },
+      el('h2', { text: 'Dashboard stories' }),
+      el('p', { class: 'sub', text: 'Stories are currently turned off. Ask an admin to enable "Dashboard stories" from the Feature registry to publish or manage announcements.' }),
+      el('a', { class: 'btn btn-ghost', href: '#/', style: 'margin-top:12px' }, 'Back to home'),
+    ));
+    return;
+  }
   if (!canCreate && !canArchive) {
     mount(root, el('section', { class: 'card card-pad' },
       el('h2', { text: 'Stories' }),
@@ -99,7 +110,10 @@ function renderComposer(user) {
 
   const fileInput = el('input', {
     type: 'file',
-    accept: 'image/png,image/jpeg,image/webp',
+    // `image/*` (not a narrow allow-list) lets iOS Safari and Android
+    // Chrome offer "Photo Library / Take Photo / Choose File" -- narrowing
+    // to specific MIMEs suppresses the camera option on some builds.
+    accept: 'image/*',
     style: 'display:block;margin-top:6px',
     on: {
       change: async (ev) => {
@@ -193,12 +207,12 @@ function renderComposer(user) {
     navigate('/');
   } } }, 'Publish story');
 
-  return el('section', { class: 'card card-pad', style: 'margin-top:12px' },
+  return el('section', { class: 'card card-pad tvh-story-composer', style: 'margin-top:12px' },
     el('h3', { text: 'New story' }),
     el('p', { class: 'sub', text: 'Best fit: a portrait poster (9:16). We resize to 1080×1920 automatically.' }),
-    el('div', { class: 'grid', style: 'grid-template-columns:1fr 140px;gap:16px;align-items:flex-start' },
+    el('div', { class: 'grid tvh-story-composer-grid', style: 'gap:16px;align-items:flex-start' },
       el('div', {},
-        field('Poster image *', fileInput, 'PNG / JPEG / WebP up to 8 MB.'),
+        field('Poster image *', fileInput, 'PNG / JPEG / WebP up to 8 MB. Camera capture supported on mobile.'),
         field('Title *', titleInput),
         el('div', { class: 'grid grid-2', style: 'gap:12px' },
           field('Expires in (days)', expiryDaysInput),
