@@ -362,7 +362,21 @@ export function totalFor(eventId) {
     .reduce((s, c) => s + Number(c.amount || 0), 0);
 }
 export function verifiedCount(eventId) {
-  const set = new Set(contribsFor(eventId).filter(c => c.status === 'verified').map(c => c.contributor));
+  /* Count unique verified beneficiaries, keyed on flat (canonical for
+   * this app — see #/me ownership rule). Falls back to contributor id
+   * or contributor_email when flat is missing so a flat-less legacy
+   * row still counts as one. Before this fix the key was raw
+   * `c.contributor`, which collapsed every on-behalf submission (they
+   * all carry `contributor: ''`) into a single "contributor". */
+  const set = new Set();
+  for (const c of contribsFor(eventId)) {
+    if (c.status !== 'verified') continue;
+    const flat = String(c.flat || '').trim().toLowerCase();
+    const email = String(c.contributor_email || '').trim().toLowerCase();
+    const cid = String(c.contributor || '').trim().toLowerCase();
+    const key = flat || email || cid;
+    if (key) set.add(key);
+  }
   return set.size;
 }
 
