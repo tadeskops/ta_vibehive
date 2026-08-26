@@ -65,8 +65,22 @@ async function request(method, path, body) {
     });
   };
 
+  /* Wrap a fetch() invocation so a raw TypeError (offline / CORS
+   * preflight rejected / worker cold-start timeout / DNS blip) is
+   * converted into a friendly ApiError with status 0. The browser
+   * reports these as "Failed to fetch" which is meaningless to
+   * residents. Callers already handle ApiError uniformly. */
+  const safeFetch = async (token) => {
+    try {
+      return await doFetch(token);
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
+      throw new ApiError(0, 'Can’t reach the server right now — check your internet and try again in a moment.');
+    }
+  };
+
   let token = currentToken();
-  let res = await doFetch(token);
+  let res = await safeFetch(token);
   if (res.status === 401) {
     /* Either no token in memory, or we sent a stale one Google
      * already invalidated. Trigger a silent GIS re-auth, then retry
@@ -76,8 +90,18 @@ async function request(method, path, body) {
     const fresh = await ensureFreshToken();
     if (fresh && fresh !== token) {
       token = fresh;
-      res = await doFetch(token);
+      res = await safeFetch(token);
     }
+  }
+  /* One transparent retry for classic transient failures (502 / 503
+   * / 504 from a CF worker cold start, 429 rate-limit blip). Only
+   * applies to idempotent-shaped ops or POSTs that already carry a
+   * server-side dedup guard (contributions do — see findDuplicate in
+   * worker/src/routes/contributions.ts). Small back-off + single
+   * attempt so we don't stack retries into a thundering herd. */
+  if ([502, 503, 504, 429].includes(res.status)) {
+    await new Promise((r) => setTimeout(r, 400));
+    res = await safeFetch(token);
   }
 
   let payload = null;
