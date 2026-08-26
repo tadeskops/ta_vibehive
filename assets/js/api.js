@@ -69,18 +69,40 @@ async function request(method, path, body) {
    * preflight rejected / worker cold-start timeout / DNS blip) is
    * converted into a friendly ApiError with status 0. The browser
    * reports these as "Failed to fetch" which is meaningless to
-   * residents. Callers already handle ApiError uniformly. */
+   * residents. `navigator.onLine` distinguishes "no network at all"
+   * from "network is up but something (ad blocker / VPN / privacy
+   * extension / corporate proxy) killed this specific request".
+   * The latter is the common cause on live deploys because a bare
+   * curl to the same URL succeeds — see worker health check log. */
+  const netMsg = () => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return 'You appear to be offline. Reconnect and try again.';
+    }
+    return 'Can’t reach the server. If this keeps failing, disable any ad blocker / privacy extension for this site (or try an incognito window / different network) and retry.';
+  };
   const safeFetch = async (token) => {
     try {
       return await doFetch(token);
     } catch (e) {
       if (e instanceof ApiError) throw e;
-      throw new ApiError(0, 'Can’t reach the server right now — check your internet and try again in a moment.');
+      throw new ApiError(0, netMsg());
     }
   };
 
   let token = currentToken();
-  let res = await safeFetch(token);
+  /* One silent retry on network TypeError — CF worker cold starts
+   * sometimes drop the very first packet without a status code. */
+  let res;
+  try {
+    res = await safeFetch(token);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 0) {
+      await new Promise((r) => setTimeout(r, 500));
+      res = await safeFetch(token);
+    } else {
+      throw e;
+    }
+  }
   if (res.status === 401) {
     /* Either no token in memory, or we sent a stale one Google
      * already invalidated. Trigger a silent GIS re-auth, then retry
