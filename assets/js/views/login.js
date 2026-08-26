@@ -95,14 +95,6 @@ export async function render(root, { params }) {
   const clientId = (typeof window !== 'undefined' && window.TVH_GOOGLE_CLIENT_ID) || '';
   const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   const gisReady = !!(clientId && window.Auth && typeof window.Auth.signIn === 'function');
-  /* Detect mobile UAs so we can render the real Google-managed
-   * sign-in button visibly. iOS Safari (and to a lesser extent
-   * Android Chrome) blocks synthetic clicks on a hidden button that
-   * the desktop path uses as a fallback, so residents end up stuck
-   * on "Continue with Google". Rendering the native button gives us
-   * a genuine user gesture straight into the Google popup / redirect. */
-  const isMobile = typeof navigator !== 'undefined'
-    && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   /* Persist `next` to sessionStorage so it survives a mobile redirect
    * flow (some GIS paths bounce to accounts.google.com and back). */
   try {
@@ -131,58 +123,50 @@ export async function render(root, { params }) {
   }
 
   if (gisReady) {
-    /* Native Google-managed sign-in button. Rendered visibly on
-     * mobile (iOS Safari + Android Chrome) where the synthetic-click
-     * fallback is unreliable. On desktop we keep the styled
-     * "Continue with Google" button below for brand consistency. */
+    /* Native Google-managed sign-in button = primary CTA on ALL viewports.
+     * Rationale: the previous styled "Continue with Google" fallback drove
+     * a synthetic click on a fixed off-screen rendered button, which
+     * Chrome / Safari popup blockers routinely kill (real gesture is
+     * required for a popup). Result: users saw a red "Sign-in was
+     * cancelled" toast for a flow they never really triggered.
+     * The native Google button is a real anchor with a real gesture,
+     * never blocked, and Google styles it consistently across browsers. */
     const nativeBtnHost = el('div', {
       class: 'tvh-gis-native',
-      style: 'display:flex;justify-content:center;margin-top:12px'
+      style: 'display:flex;justify-content:center;margin-top:14px;min-height:44px'
     });
     parts.push(nativeBtnHost);
-    /* Try to render the real Google button immediately. If the GIS
-     * script hasn't finished loading yet (rare on mobile with slow
-     * networks), retry a few times. */
+    /* Fallback shown only if the native button fails to render after
+     * retries (GIS script blocked by an ad/privacy extension). */
+    const fallbackHost = el('div', {
+      class: 'callout muted',
+      style: 'margin-top:12px;display:none'
+    },
+      el('div', { style: 'flex:1' },
+        el('div', { class: 'lbl', text: 'Can’t see the Google button?' }),
+        el('small', { class: 'sub', text: 'A privacy extension or ad blocker may be blocking Google’s sign-in script. Disable it for this site and reload.' })
+      )
+    );
+    parts.push(fallbackHost);
+    /* Retry until GIS script has loaded + the button rendered.
+     * ~4 seconds total budget (25 × 160 ms). If we still can't render,
+     * surface the fallback message instead of leaving a blank card. */
     (function tryRender(attempt) {
       if (window.Auth && typeof window.Auth.renderVisibleButton === 'function') {
         const ok = window.Auth.renderVisibleButton(nativeBtnHost);
         if (ok) return;
       }
-      if (attempt > 20) return;
-      setTimeout(() => tryRender(attempt + 1), 150);
+      if (attempt > 25) {
+        fallbackHost.style.display = '';
+        return;
+      }
+      setTimeout(() => tryRender(attempt + 1), 160);
     })(0);
 
-    if (!isMobile) {
-      parts.push(el('div', { class: 'stack', style: 'margin-top:12px' },
-        el('button', {
-          class: 'btn btn-block',
-          on: { click: async () => {
-            try {
-              const ok = await window.Auth.signIn();
-              if (!ok) { toast('Sign-in was cancelled', 'err'); return; }
-              // window.Auth.onChange (bound in app.js via bindGis) upserts + sets currentUser.
-              // Give the listener a tick, then bounce.
-              setTimeout(() => {
-                const cur = session();
-                if (cur) {
-                  toast('Signed in as ' + (cur.name || cur.email), 'ok');
-                  const target = resolveNext(next);
-                  location.hash = target;
-                } else {
-                  toast('Signed in but session not restored — refresh?', 'err');
-                }
-              }, 60);
-            } catch (e) { toast(e && e.message || 'Sign-in failed', 'err'); }
-          } }
-        }, iconSpan(ICON_SIGNIN), el('span', { text: 'Continue with Google' }))
-      ));
-    }
-
-    /* Auto-bounce on mobile too: subscribe to the auth onChange event so
-     * the moment the Google credential arrives (whether via One Tap,
-     * the visible button, or a redirect return) we route to `next`.
-     * Guards prevent double-bouncing when the desktop button handler
-     * has already routed. */
+    /* Auto-bounce: subscribe to the auth onChange event so the moment
+     * the Google credential arrives (via One Tap, the visible button,
+     * or a redirect return) we route to `next`. `bounced` guards against
+     * a second router hop if onChange re-fires. */
     if (window.Auth && typeof window.Auth.onChange === 'function') {
       let bounced = false;
       const off = window.Auth.onChange((s) => {
