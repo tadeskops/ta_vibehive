@@ -22,13 +22,19 @@ function ownsContribution(c, user) {
   if (!c || !user) return false;
   const email = normEmail(user.email);
   const id    = normEmail(user.id);
+  const flat  = String(user.flat || '').trim().toLowerCase();
+  const cFlat = String(c.flat || '').trim().toLowerCase();
+  /* A contribution belongs to the BENEFICIARY, never the filler.
+   * When `on_behalf` is true the payer's identity lives on
+   * `filled_by_*` + `created_by` — those must NOT count as ownership,
+   * otherwise the on-behalf record shows up on both ledgers. Match
+   * only on the beneficiary keys the form actually writes: the
+   * beneficiary flat, the beneficiary email, and (for non-on-behalf
+   * rows) the beneficiary account id in `contributor`. */
   return (
+    (flat && cFlat === flat) ||
     (email && normEmail(c.contributor_email) === email) ||
-    (email && normEmail(c.contributor) === email) ||
-    (email && normEmail(c.created_by) === email) ||
-    (email && normEmail(c.filled_by_email) === email) ||
-    (id && normEmail(c.contributor) === id) ||
-    (id && normEmail(c.created_by) === id)
+    (id && normEmail(c.contributor) === id)
   );
 }
 
@@ -75,7 +81,7 @@ export async function render(root) {
 
   const hero = el('section', { class: 'card card-pad' },
     el('h1', { text: 'Your activity' }),
-    el('p', { class: 'sub', text: `Signed in as ${user.name || user.email}. Records linked to ${user.email || user.id}.` }),
+    el('p', { class: 'sub', text: `Signed in as ${user.name || user.email}. Contributions filed on behalf of someone else stay on their ledger — records are linked to the beneficiary's flat${user.flat ? ` (${user.flat})` : ''}, not the person filling the form.` }),
     el('div', { class: 'grid grid-3', style: 'margin-top:10px' },
       stat('Contributed (verified)', fmtINR(contribTotal), `${contribs.filter(c => c.status === 'verified').length} of ${contribs.length}`),
       stat('Expenses verified', fmtINR(expenseVerified), `${expenses.filter(x => x.status === 'verified').length} entries`),
