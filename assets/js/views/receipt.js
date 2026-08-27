@@ -66,6 +66,34 @@ function receiptCopyForEvent(evt) {
   return COPY[key] || COPY.festival;
 }
 
+/* Committee identity resolution — receipts are issued in the name of
+ * the organising committee, not the society itself. Per-event override
+ * `evt.receipt_committee_name` wins, else society-wide default from
+ * `config/society.json#receipts.committee_name`, else falls back to
+ * society short_name so older installs never regress to blank.
+ *
+ * Also returns a purpose line used in the "Event" meta row so a
+ * Ganesh Utsav receipt reads e.g. "Contribution for Ganesh Utsav from
+ * the residents of The Address society". */
+function committeeIdentity(evt, soc) {
+  const rc = (soc && soc.receipts) || {};
+  const committee_name =
+    (evt && evt.receipt_committee_name) ||
+    rc.committee_name ||
+    soc.short_name || '';
+  const committee_subtitle =
+    (evt && evt.receipt_committee_subtitle) ||
+    rc.committee_subtitle || '';
+  const eventTitle = (evt && evt.title) || '';
+  const societyShort = soc.short_name || '';
+  const purposeLine = eventTitle && societyShort
+    ? `Contribution for ${eventTitle} from the residents of ${societyShort} society`
+    : (eventTitle || '—');
+  const useSocietySeal = rc.use_society_seal === true;
+  const showSocietyHeader = rc.show_society_header === true;
+  return { committee_name, committee_subtitle, purposeLine, useSocietySeal, showSocietyHeader };
+}
+
 /* Build a receipt PDF. Delegates to a per-theme renderer based on
  * `opts.theme` (or `soc.receipts.default_theme`). All renderers share
  * a small set of primitives: helvetica type (small file size, no
@@ -173,13 +201,20 @@ function buildReceiptArticle(r, rec, evt, soc, tpl) {
     : 'Received with thanks. This receipt is issued for records only. No goods or services have been supplied in exchange.';
   const footerNote    = tpl && tpl.footer_note ? String(tpl.footer_note) : '';
   const sealGlyph     = tpl && tpl.seal_glyph ? String(tpl.seal_glyph) : '';
-  return el('article', { class: 'receipt' },
-    showWatermark ? textmark(soc.short_name, r.id, r.verify_hash) : null,
+  const ident = committeeIdentity(evt, soc);
+  const useSocietySeal = ident.useSocietySeal;
+  const showSocietyHeader = ident.showSocietyHeader;
+  return el('article', { class: useSocietySeal ? 'receipt' : 'receipt receipt-no-society-seal' },
+    showWatermark ? textmark(ident.committee_name || soc.short_name, r.id, r.verify_hash) : null,
     el('header', { class: 'receipt-head' },
       el('img', { src: 'assets/images/TaLogo.png', alt: '' }),
       el('div', {},
-        el('h2', { text: soc.english_name }),
-        el('small', { text: `${soc.legal_name} · Reg ${soc.reg_no} · ${soc.location}` })
+        el('h2', { text: ident.committee_name || soc.english_name }),
+        ident.committee_subtitle
+          ? el('small', { text: ident.committee_subtitle })
+          : (showSocietyHeader
+              ? el('small', { text: `${soc.legal_name} · Reg ${soc.reg_no} · ${soc.location}` })
+              : null)
       )
     ),
     headerNote ? el('p', { style: 'text-align:center;margin:6px 0 0;font-weight:600;color:var(--terra)', text: headerNote }) : null,
@@ -187,10 +222,10 @@ function buildReceiptArticle(r, rec, evt, soc, tpl) {
     el('div', { class: 'receipt-meta' },
       metaRow('Receipt no.', r.id),
       metaRow('Issued on', fmtDate(r.issued_at)),
-      metaRow('Event', (evt ? evt.title : '—')),
+      metaRow('Event', ident.purposeLine),
       metaRow('Purpose', (evt ? (evt.purpose || evt.template) : '—')),
       metaRow('Contributor', rec.anonymous ? 'Anonymous (record maintained)' : rec.contributor_name),
-      flatMetaRow(rec.anonymous ? '—' : (rec.flat || '—')),
+      flatMetaRow(rec.anonymous ? '—' : (rec.flat || '—'), useSocietySeal),
       metaRow('Payment method', rec.method || '—'),
       metaRow('Payment reference', rec.ref || '—')
     ),
@@ -200,11 +235,14 @@ function buildReceiptArticle(r, rec, evt, soc, tpl) {
     el('p', { style: 'font-size:12px;color:var(--muted)', text: thankYouLine }),
     el('div', { class: 'receipt-stamp' },
       el('div', {},
-        el('small', { text: 'For ' + soc.short_name }),
+        el('small', { text: 'For ' + (ident.committee_name || soc.short_name) }),
+        ident.committee_subtitle ? el('small', { style: 'display:block;color:var(--muted)', text: ident.committee_subtitle }) : null,
         el('div', { style: 'font-weight:800;margin-top:20px', text: rec.verified_by || 'Authorised signatory' })
       ),
       showGrid ? hashGrid(r.verify_hash) : el('div', {}),
-      el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
+      useSocietySeal
+        ? el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
+        : committeeSeal(ident.committee_name, ident.committee_subtitle)
     ),
     showQr ? el('div', { class: 'receipt-verify' },
       el('div', {}, el('b', { text: 'Verify hash: ' }), el('span', { text: r.verify_hash })),
@@ -589,22 +627,30 @@ export async function shareReceiptDirect(contribId) {
 
 function buildExpenseArticle(x, evt, soc) {
   const receiptNo = expenseReceiptId(x);
-  return el('article', { class: 'receipt' },
+  const ident = committeeIdentity(evt, soc);
+  const useSocietySeal = ident.useSocietySeal;
+  const showSocietyHeader = ident.showSocietyHeader;
+  return el('article', { class: useSocietySeal ? 'receipt' : 'receipt receipt-no-society-seal' },
     el('header', { class: 'receipt-head' },
       el('img', { src: 'assets/images/TaLogo.png', alt: '' }),
       el('div', {},
-        el('h2', { text: soc.english_name }),
-        el('small', { text: `${soc.legal_name} · Reg ${soc.reg_no} · ${soc.location}` })
+        el('h2', { text: ident.committee_name || soc.english_name }),
+        ident.committee_subtitle
+          ? el('small', { text: ident.committee_subtitle })
+          : (showSocietyHeader
+              ? el('small', { text: `${soc.legal_name} · Reg ${soc.reg_no} · ${soc.location}` })
+              : null)
       )
     ),
     el('h3', { style: 'text-align:center;margin:0 0 8px', text: 'Expense Voucher' }),
     el('div', { class: 'receipt-meta' },
       metaRow('Voucher no.', receiptNo),
       metaRow('Issued on', fmtDate(x.verified_at || x.updated_at || x.created_at)),
-      metaRow('Event', (evt ? evt.title : '—')),
+      metaRow('Event', ident.purposeLine),
       metaRow('Category', x.category || '—'),
       metaRow('Description', x.description || '—'),
-      metaRow('Logged by', x.created_by || '—'),
+      metaRow('Logged by', x.submitter_name || x.created_by || '—'),
+      metaRow('Flat / Unit', x.submitter_flat || x.flat || '—'),
       metaRow('Verified by', x.verified_by || '—'),
       metaRow('Payment reference', x.txn_ref || x.ref || '—')
     ),
@@ -615,11 +661,14 @@ function buildExpenseArticle(x, evt, soc) {
       'This voucher acknowledges an expense paid out of society funds. Retain for audit.' }),
     el('div', { class: 'receipt-stamp' },
       el('div', {},
-        el('small', { text: 'For ' + soc.short_name }),
+        el('small', { text: 'For ' + (ident.committee_name || soc.short_name) }),
+        ident.committee_subtitle ? el('small', { style: 'display:block;color:var(--muted)', text: ident.committee_subtitle }) : null,
         el('div', { style: 'font-weight:800;margin-top:20px', text: x.verified_by || 'Authorised signatory' })
       ),
       el('div', {}),
-      el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
+      useSocietySeal
+        ? el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
+        : committeeSeal(ident.committee_name, ident.committee_subtitle)
     ),
     x.verified_comment ? el('p', { style: 'font-size:11px;color:var(--muted);margin-top:6px', text: 'Verifier note · ' + x.verified_comment }) : null
   );
@@ -1074,11 +1123,14 @@ function microtextLine(id, hash) {
   return chunk.repeat(6);
 }
 function metaRow(k, v) { return el('div', {}, el('small', { text: k }), el('div', {}, el('b', { text: v }))); }
-/* Special flat/unit cell that stamps the society seal *over* the
- * flat number so a tampering hand cannot alter the digit without
- * disturbing the stamp texture. Follows the same wet-stamp overlay
- * pattern already used on the amount block. */
-function flatMetaRow(flat) {
+/* Flat/Unit cell. When `withSocietyStamp` is true (older receipts
+ * that opted into the society seal), stamps the society seal *over*
+ * the flat number so a tampering hand cannot alter the digit without
+ * disturbing the stamp texture. Defaults to false — the committee-
+ * seal receipt design uses only the committee seal in the sign-off
+ * area, keeping the meta grid clean. */
+function flatMetaRow(flat, withSocietyStamp) {
+  if (!withSocietyStamp) return metaRow('Flat / Unit', flat);
   return el('div', { class: 'receipt-meta-flat', style: 'position:relative' },
     el('small', { text: 'Flat / Unit' }),
     el('div', { style: 'position:relative;display:inline-block' },
@@ -1091,6 +1143,48 @@ function flatMetaRow(flat) {
       })
     )
   );
+}
+
+/* SVG committee seal — replaces the society PNG stamp on receipts.
+ * Rendered inline so html2canvas snapshots it faithfully into the
+ * PDF/PNG download. Deep-blue ring with curved committee name on
+ * top and subtitle on bottom, warm gold monogram in the centre. */
+function committeeSeal(name, subtitle) {
+  const size = 120;
+  const cx = size / 2, cy = size / 2;
+  const s = svg('svg', {
+    class: 'receipt-committee-seal',
+    viewBox: `0 0 ${size} ${size}`,
+    width: size, height: size,
+    'aria-label': 'committee seal',
+    role: 'img'
+  });
+  s.appendChild(svg('defs', null,
+    svg('path', { id: 'seal-top-arc', d: `M ${cx - 46} ${cy} A 46 46 0 0 1 ${cx + 46} ${cy}` }),
+    svg('path', { id: 'seal-bot-arc', d: `M ${cx - 44} ${cy + 4} A 44 44 0 0 0 ${cx + 44} ${cy + 4}` })
+  ));
+  s.appendChild(svg('circle', { cx, cy, r: 56, fill: 'none', stroke: '#3E5A9E', 'stroke-width': 2 }));
+  s.appendChild(svg('circle', { cx, cy, r: 50, fill: 'none', stroke: '#3E5A9E', 'stroke-width': 1 }));
+  s.appendChild(svg('circle', { cx, cy, r: 30, fill: 'none', stroke: '#C9A349', 'stroke-width': 1.5 }));
+  // Curved committee name along the top arc.
+  const top = svg('text', { fill: '#3E5A9E', 'font-size': 8, 'font-weight': 800, 'letter-spacing': 1.5 });
+  const topPath = svg('textPath', { href: '#seal-top-arc', startOffset: '50%', 'text-anchor': 'middle' }, String(name || '').toUpperCase());
+  top.appendChild(topPath);
+  s.appendChild(top);
+  // Subtitle along the bottom arc (below centre, mirrored via the arc direction).
+  if (subtitle) {
+    const bot = svg('text', { fill: '#3E5A9E', 'font-size': 6, 'font-weight': 700, 'letter-spacing': 1 });
+    const botPath = svg('textPath', { href: '#seal-bot-arc', startOffset: '50%', 'text-anchor': 'middle' }, String(subtitle).toUpperCase());
+    bot.appendChild(botPath);
+    s.appendChild(bot);
+  }
+  // Star separators at the horizontal tips.
+  s.appendChild(svg('text', { x: 8, y: cy + 3, fill: '#C9A349', 'font-size': 9, 'font-weight': 900 }, '★'));
+  s.appendChild(svg('text', { x: size - 14, y: cy + 3, fill: '#C9A349', 'font-size': 9, 'font-weight': 900 }, '★'));
+  // Central monogram — stylised "GU" for Ganesh Utsav / committee shorthand.
+  const initials = String(name || '').split(/\s+/).map(w => w[0] || '').join('').slice(0, 3).toUpperCase() || 'GU';
+  s.appendChild(svg('text', { x: cx, y: cy + 6, fill: '#3E5A9E', 'font-size': 20, 'font-weight': 900, 'text-anchor': 'middle', 'letter-spacing': 1 }, initials));
+  return s;
 }
 function verifyUrl(id) {
   const base = location.origin + location.pathname.replace(/index\.html$/, '');

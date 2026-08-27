@@ -42,8 +42,17 @@ function ownsExpense(x, user) {
   if (!x || !user) return false;
   const email = normEmail(user.email);
   const id    = normEmail(user.id);
+  const flat  = String(user.flat || '').trim().toLowerCase();
   const cb    = normEmail(x.created_by);
-  return (email && cb === email) || (id && cb === id);
+  const xFlat = String(x.submitter_flat || x.flat || '').trim().toLowerCase();
+  /* An expense belongs to the beneficiary (flat) OR the person who
+   * filed it. Matching on flat is the "database pivot" that surfaces
+   * all rows for a household even when a spouse / relative pays. */
+  return (
+    (flat && xFlat === flat) ||
+    (email && cb === email) ||
+    (id && cb === id)
+  );
 }
 
 function statusPillCls(status) {
@@ -134,10 +143,13 @@ export async function render(root) {
       )),
       el('tbody', {}, ...(expenses.length ? expenses.map(x => {
         const evt = eventsById.get(x.event_id);
-        const proofCell = (x.receipt_url || x.proof_data_url)
+        const proofCount = Array.isArray(x.proofs)
+          ? x.proofs.filter(p => p && p.data_url).length
+          : (x.proof_data_url ? 1 : 0);
+        const proofCell = (x.receipt_url || proofCount)
           ? el('div', { style: 'display:flex;flex-direction:column;gap:4px;align-items:flex-start' },
               x.receipt_url ? el('a', { class: 'btn btn-sm btn-ghost', href: x.receipt_url, target: '_blank', rel: 'noopener' }, '🔗 URL') : null,
-              x.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openMyProof(x) } }, '🖼 View proof') : null
+              proofCount ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openMyProof(x) } }, `🖼 View proof${proofCount > 1 ? 's (' + proofCount + ')' : ''}`) : null
             )
           : el('span', { class: 'sub', text: '—' });
         return el('tr', {},
@@ -158,23 +170,34 @@ export async function render(root) {
 
 /* Local proof-viewer used by the "Your submitted expenses" table.
  * Kept inline because we don't share the event-page's modal helper
- * across views by design (each view owns its own dialog copy). */
+ * across views by design (each view owns its own dialog copy).
+ * Handles both new-style `x.proofs` array and legacy single proof. */
 function openMyProof(x) {
   const back = el('div', { class: 'modal-back' });
   const close = () => back.remove();
-  const isImg = /^data:image\//.test(x.proof_data_url);
+  const all = Array.isArray(x.proofs) && x.proofs.length
+    ? x.proofs.filter(p => p && p.data_url)
+    : (x.proof_data_url ? [{ data_url: x.proof_data_url, name: x.proof_name || '', size: x.proof_size || 0 }] : []);
+  const grid = el('div', { class: 'row', style: 'flex-wrap:wrap;gap:12px' });
+  all.forEach((p, i) => {
+    const isImg = /^data:image\//.test(p.data_url);
+    const tile = el('div', { style: 'border:1px solid var(--line);border-radius:6px;padding:8px;background:#fff;max-width:260px' });
+    tile.appendChild(el('small', { class: 'sub', style: 'display:block;margin-bottom:6px', text: (p.name || 'proof ' + (i + 1)) + (p.size ? ` · ~${Math.round(p.size / 1024)} KB` : '') }));
+    if (isImg) {
+      tile.appendChild(el('img', { src: p.data_url, alt: 'expense proof ' + (i + 1), style: 'max-width:100%;max-height:40vh;border-radius:4px;display:block' }));
+    } else {
+      tile.appendChild(el('a', { class: 'btn btn-sm', href: p.data_url, target: '_blank', rel: 'noopener' }, 'Open PDF in new tab'));
+    }
+    grid.appendChild(tile);
+  });
   const box = el('div', { class: 'modal' },
     el('div', { class: 'modal-head' },
       el('h3', { text: 'Expense proof · ' + (x.category || 'expense') }),
       el('button', { class: 'x-close', 'aria-label': 'Close', on: { click: close } }, '×')
     ),
     el('div', { class: 'modal-body' },
-      el('div', { class: 'sub', style: 'margin-bottom:8px' },
-        (x.proof_name ? x.proof_name + ' · ' : '') + (x.proof_size ? '~' + Math.round(x.proof_size / 1024) + ' KB' : '')
-      ),
-      isImg
-        ? el('img', { src: x.proof_data_url, alt: 'expense proof', style: 'max-width:100%;max-height:60vh;border:1px solid var(--line);border-radius:6px' })
-        : el('a', { class: 'btn', href: x.proof_data_url, target: '_blank', rel: 'noopener' }, 'Open attachment in new tab')
+      el('div', { class: 'sub', style: 'margin-bottom:8px', text: `${all.length} attachment${all.length === 1 ? '' : 's'}` }),
+      grid
     ),
     el('div', { class: 'modal-foot' },
       el('button', { class: 'btn btn-ghost', on: { click: close } }, 'Close')

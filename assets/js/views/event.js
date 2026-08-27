@@ -13,6 +13,7 @@ import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
 import { withSavingRing } from '../busy.js';
 import { receiptWhatsAppIconBtn } from '../receipt-download-menu.js';
 import { expenseDownloadIconBtn, expenseWhatsAppIconBtn } from '../receipt-download-menu.js';
+import { parseFlat, validateMobile, flatRuleText } from '../validators.js';
 
 /* ---------- payment-input validation helpers ----------
  * Both used ONLY inside the event editor (renderEdit). Kept module-
@@ -965,14 +966,17 @@ function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
   });
   const pillCls = status === 'verified' ? 'pill pill-sage' : status === 'void' ? 'pill pill-muted' : 'pill';
   const pillText = status === 'void' ? 'invalid' : status;
+  const proofCount = Array.isArray(r.proofs)
+    ? r.proofs.filter(p => p && p.data_url).length
+    : (r.proof_data_url ? 1 : 0);
   return el('tr', {},
     el('td', { text: fmtDate(r.created_at) }),
     el('td', { text: r.category || '—' }),
-    el('td', { style: 'max-width:280px;white-space:normal', text: (r.description || '') + (r.created_by && !canVerify ? '' : (r.created_by ? ` · by ${r.created_by}` : '')) }),
-    el('td', {}, r.receipt_url || r.proof_data_url
+    el('td', { style: 'max-width:280px;white-space:normal', text: (r.description || '') + (r.created_by && !canVerify ? '' : (r.created_by ? ` · by ${r.created_by}` : '')) + (r.submitter_flat || r.flat ? ` · Flat ${r.submitter_flat || r.flat}` : '') + (r.on_behalf ? ' · on behalf' : '') }),
+    el('td', {}, r.receipt_url || proofCount
       ? el('div', { style: 'display:flex;flex-direction:column;gap:4px;align-items:flex-start' },
           r.receipt_url ? el('a', { class: 'btn btn-sm btn-ghost', href: r.receipt_url, target: '_blank', rel: 'noopener' }, '🔗 URL') : null,
-          r.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openExpenseProof(r) } }, '🖼 View proof') : null
+          proofCount ? el('button', { class: 'btn btn-sm btn-ghost', on: { click: () => openExpenseProof(r) } }, `🖼 View proof${proofCount > 1 ? 's (' + proofCount + ')' : ''}`) : null
         )
       : el('span', { class: 'sub', text: '—' })
     ),
@@ -1062,70 +1066,110 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
   ) : null;
   const cbVisible = el('input', { type: 'checkbox' });
   cbVisible.checked = existing ? !!existing.visible_to_residents : !!defaultVisible;
-  /* Proof upload — the submitter can attach an image / PDF of the
-   * paid receipt. Stored inline as a data URL so the moderator can
-   * review it before verifying (same pattern used for contribution
-   * proof screenshots). Accepted MIME whitelist matches the guard
-   * in `readExpenseProof()` below. */
-  const PROOF_MAX_BYTES = 900 * 1024; /* ~700 KB raw pre base64-encode */
-  const proofState = {
-    data_url: existing && existing.proof_data_url ? String(existing.proof_data_url) : '',
-    name:     existing && existing.proof_name     ? String(existing.proof_name)     : '',
-    size:     existing && existing.proof_size     ? Number(existing.proof_size)     : 0,
-  };
-  const inpProof = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,application/pdf' });
-  const proofStatus = el('small', { class: 'sub', style: 'display:block;margin-top:6px',
-    text: proofState.data_url
-      ? `Attached: ${proofState.name || 'receipt'} · ${(proofState.size ? Math.round(proofState.size / 1024) + ' KB' : '?')}`
-      : 'Optional. Image (PNG/JPEG/WebP/HEIC) or PDF up to ~700 KB.'
-  });
-  const proofPreview = el('img', {
-    src: proofState.data_url && /^data:image\//.test(proofState.data_url) ? proofState.data_url : '',
-    alt: 'expense proof preview',
-    style: 'display:' + (proofState.data_url && /^data:image\//.test(proofState.data_url) ? 'block' : 'none') + ';max-width:220px;max-height:180px;margin-top:6px;border:1px solid var(--line);border-radius:6px'
-  });
-  const proofRemoveBtn = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', style: 'margin-top:6px' }, 'Remove attached proof');
-  proofRemoveBtn.hidden = !proofState.data_url;
-  proofRemoveBtn.style.display = proofState.data_url ? '' : 'none';
-  proofRemoveBtn.addEventListener('click', () => {
-    proofState.data_url = ''; proofState.name = ''; proofState.size = 0;
-    inpProof.value = '';
-    proofPreview.src = ''; proofPreview.style.display = 'none';
-    proofRemoveBtn.hidden = true; proofRemoveBtn.style.display = 'none';
-    proofStatus.textContent = 'Attached proof removed.';
-  });
-  inpProof.addEventListener('change', async () => {
-    const f = inpProof.files && inpProof.files[0];
-    if (!f) return;
-    try {
-      if (f.size > PROOF_MAX_BYTES) throw new Error('File is too large (>' + Math.round(PROOF_MAX_BYTES / 1024) + ' KB). Try a smaller image or PDF.');
-      if (!/^(image\/(png|jpeg|webp|gif|heic|heif)|application\/pdf)$/i.test(f.type)) throw new Error('Only image or PDF files are accepted.');
-      const dataUrl = await new Promise((ok, ko) => {
-        const r = new FileReader();
-        r.onload = () => ok(String(r.result || ''));
-        r.onerror = () => ko(new Error('Could not read the file.'));
-        r.readAsDataURL(f);
-      });
-      proofState.data_url = dataUrl;
-      proofState.name = f.name;
-      proofState.size = f.size;
-      proofStatus.textContent = `Attached: ${f.name} · ${Math.round(f.size / 1024)} KB`;
-      if (/^data:image\//.test(dataUrl)) {
-        proofPreview.src = dataUrl;
-        proofPreview.style.display = 'block';
-      } else {
-        proofPreview.src = '';
-        proofPreview.style.display = 'none';
-      }
-      proofRemoveBtn.hidden = false;
-      proofRemoveBtn.style.display = '';
-    } catch (e) {
-      inpProof.value = '';
-      proofStatus.textContent = (e && e.message) || 'Could not attach that file.';
-      toast(proofStatus.textContent, 'err');
+
+  /* Submitter identity — flat is the DB pivot key for every expense
+   * lookup on this event. Name is required (so the treasurer can
+   * reconcile without a directory lookup). Phone is optional but
+   * useful when the committee needs to call the payer back for
+   * clarification. When "on behalf" is ON, these fields describe the
+   * beneficiary (person the payment was made FOR); the signed-in
+   * user is captured as `filled_by_*`. */
+  const behalfChk = el('input', { type: 'checkbox' });
+  behalfChk.checked = !!(existing && existing.on_behalf);
+  const inpSubmitterName = el('input', { type: 'text', maxlength: '80', required: true,
+    autocomplete: 'name',
+    value: existing ? (existing.submitter_name || existing.beneficiary_name || '') : (user && user.name || '') });
+  const inpSubmitterFlat = el('input', { type: 'text', maxlength: '10', required: true,
+    autocomplete: 'address-line2', inputmode: 'text',
+    placeholder: 'e.g. A-101 or B-1305',
+    value: existing ? (existing.submitter_flat || existing.flat || '') : (user && user.flat || '') });
+  const inpSubmitterPhone = el('input', { type: 'tel', maxlength: '15',
+    autocomplete: 'tel', inputmode: 'numeric',
+    placeholder: '10-digit mobile (optional)',
+    value: existing ? (existing.submitter_phone || '') : '' });
+  inpSubmitterFlat.addEventListener('blur', () => {
+    const parsed = parseFlat(inpSubmitterFlat.value);
+    if (parsed.valid && parsed.canonical !== inpSubmitterFlat.value) {
+      inpSubmitterFlat.value = parsed.canonical;
     }
   });
-  const proofField = el('div', {}, inpProof, proofStatus, proofPreview, proofRemoveBtn);
+
+  /* Multi-image proof upload — up to 5 images/PDFs, each capped at
+   * ~700 KB pre-base64. Stored as an array of { data_url, name, size }
+   * on the expense record. Backward compatibility: reads a legacy
+   * single `proof_data_url` field on load and lifts it into the
+   * proofs array so old rows keep displaying. */
+  const PROOF_MAX_BYTES = 900 * 1024;
+  const PROOF_MAX_COUNT = 5;
+  const proofs = [];
+  if (existing && Array.isArray(existing.proofs) && existing.proofs.length) {
+    for (const p of existing.proofs) {
+      if (p && p.data_url) proofs.push({ data_url: String(p.data_url), name: String(p.name || 'proof'), size: Number(p.size || 0) });
+    }
+  } else if (existing && existing.proof_data_url) {
+    proofs.push({ data_url: String(existing.proof_data_url), name: String(existing.proof_name || 'proof'), size: Number(existing.proof_size || 0) });
+  }
+  const inpProofs = el('input', {
+    type: 'file', multiple: '',
+    accept: 'image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,application/pdf'
+  });
+  const proofGallery = el('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px;margin-top:8px' });
+  const proofStatus = el('small', { class: 'sub', style: 'display:block;margin-top:6px' });
+  const refreshProofStatus = () => {
+    const remaining = PROOF_MAX_COUNT - proofs.length;
+    if (!proofs.length) {
+      proofStatus.textContent = `Optional. Up to ${PROOF_MAX_COUNT} images / PDFs, each up to ~700 KB.`;
+    } else if (remaining > 0) {
+      proofStatus.textContent = `${proofs.length} attached · ${remaining} slot(s) remaining. Each up to ~700 KB.`;
+    } else {
+      proofStatus.textContent = `${proofs.length}/${PROOF_MAX_COUNT} attached (max). Remove one to add another.`;
+    }
+  };
+  const rebuildGallery = () => {
+    while (proofGallery.firstChild) proofGallery.removeChild(proofGallery.firstChild);
+    proofs.forEach((p, i) => {
+      const tile = el('div', { style: 'position:relative;border:1px solid var(--line);border-radius:6px;padding:4px;background:#fff;width:96px' });
+      const isImg = /^data:image\//.test(p.data_url);
+      if (isImg) {
+        tile.appendChild(el('img', { src: p.data_url, alt: 'proof ' + (i + 1), style: 'width:88px;height:88px;object-fit:cover;border-radius:4px;display:block' }));
+      } else {
+        tile.appendChild(el('div', { style: 'width:88px;height:88px;display:flex;align-items:center;justify-content:center;background:var(--soft);border-radius:4px;font-size:22px' }, '📄'));
+      }
+      tile.appendChild(el('small', { class: 'sub', style: 'display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px', title: p.name, text: p.name || 'proof ' + (i + 1) }));
+      const removeBtn = el('button', { type: 'button', class: 'btn btn-sm btn-ghost', style: 'position:absolute;top:2px;right:2px;padding:0 6px;background:#fff;border:1px solid var(--line);border-radius:4px', 'aria-label': 'Remove proof', title: 'Remove' }, '✕');
+      removeBtn.addEventListener('click', () => {
+        proofs.splice(i, 1);
+        rebuildGallery(); refreshProofStatus();
+      });
+      tile.appendChild(removeBtn);
+      proofGallery.appendChild(tile);
+    });
+  };
+  rebuildGallery(); refreshProofStatus();
+  inpProofs.addEventListener('change', async () => {
+    const files = Array.from(inpProofs.files || []);
+    if (!files.length) return;
+    let added = 0, skipped = 0, lastErr = '';
+    for (const f of files) {
+      if (proofs.length >= PROOF_MAX_COUNT) { skipped++; lastErr = `Max ${PROOF_MAX_COUNT} attachments — extras skipped.`; break; }
+      if (f.size > PROOF_MAX_BYTES) { skipped++; lastErr = `"${f.name}" is too large (>~700 KB) — skipped.`; continue; }
+      if (!/^(image\/(png|jpeg|webp|gif|heic|heif)|application\/pdf)$/i.test(f.type)) { skipped++; lastErr = `"${f.name}" type not supported — skipped.`; continue; }
+      try {
+        const dataUrl = await new Promise((ok, ko) => {
+          const r = new FileReader();
+          r.onload = () => ok(String(r.result || ''));
+          r.onerror = () => ko(new Error('read failed'));
+          r.readAsDataURL(f);
+        });
+        proofs.push({ data_url: dataUrl, name: f.name, size: f.size });
+        added++;
+      } catch (_e) { skipped++; lastErr = `Could not read "${f.name}".`; }
+    }
+    inpProofs.value = '';
+    rebuildGallery(); refreshProofStatus();
+    if (skipped && lastErr) toast(lastErr, added ? 'warn' : 'err');
+  });
+  const proofField = el('div', {}, inpProofs, proofStatus, proofGallery);
 
   // Field builder: shows a red asterisk on required fields; optional
   // fields carry an "info" affordance whose title reveals detail on
@@ -1134,7 +1178,7 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
     const required = !!(opts && opts.required);
     const info = opts && opts.info;
     const labelEl = el('label', { class: 'lbl' },
-      el('span', { text: label }),
+      el('span', { class: 'field-label-text', text: label }),
       required ? el('span', { class: 'req-star', 'aria-label': 'required', text: '*' }) : null,
       !required ? el('span', { class: 'opt-tag', title: info || 'Optional', 'aria-label': info || 'Optional', text: 'optional' }) : null
     );
@@ -1178,16 +1222,53 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
     if (showOther) setTimeout(() => inpCategoryOther.focus(), 30);
   });
 
+  const filledByChip = el('div', { class: 'callout', style: 'margin-top:6px' },
+    el('small', { text: 'Filed on behalf of another resident by ' }),
+    el('strong', { text: (user && user.name) || (user && user.email) || 'you' }),
+    el('small', { text: (user && user.flat) ? ' · Flat ' + user.flat : '' })
+  );
+  const nameField  = field('Name', 'Whose payment is this?', inpSubmitterName, { required: true });
+  const flatField  = field('Flat number', flatRuleText(), inpSubmitterFlat, { required: true });
+  const phoneField = field('Phone number', 'Optional — 10-digit mobile the committee can call back if there is a question.', inpSubmitterPhone, { info: 'Optional — leave blank if you prefer not to share.' });
+  const refreshBehalfLabels = () => {
+    const on = !!behalfChk.checked;
+    const nameLbl = nameField.querySelector('.field-label-text');
+    const flatLbl = flatField.querySelector('.field-label-text');
+    const phoneLbl = phoneField.querySelector('.field-label-text');
+    if (nameLbl)  nameLbl.textContent  = on ? 'Beneficiary name'  : 'Your name';
+    if (flatLbl)  flatLbl.textContent  = on ? 'Beneficiary flat'  : 'Your flat number';
+    if (phoneLbl) phoneLbl.textContent = on ? 'Beneficiary phone' : 'Your phone number';
+    filledByChip.style.display = on ? '' : 'none';
+    if (on) {
+      if (inpSubmitterName.value === (user && user.name || '')) { inpSubmitterName.value = ''; }
+      if (inpSubmitterFlat.value === (user && user.flat || '')) { inpSubmitterFlat.value = ''; }
+    } else {
+      if (!inpSubmitterName.value) inpSubmitterName.value = (user && user.name) || '';
+      if (!inpSubmitterFlat.value) inpSubmitterFlat.value = (user && user.flat) || '';
+    }
+  };
+  behalfChk.addEventListener('change', refreshBehalfLabels);
+
   const body = el('div', {},
     eventCtxLine,
     canPickEvent
       ? field('Event', 'Pick a live, closed or archived event to attach this expense to.', selEvent, { required: true })
       : null,
     willBePending ? el('p', { class: 'sub', style: 'margin:0 0 6px', text: '📝 Your submission goes to the committee for verification. Once verified it counts on the event dashboard.' }) : null,
+    /* Submitter identity — flat is the pivot key. */
+    el('label', { class: 'row', style: 'gap:8px;margin-top:10px;cursor:pointer' }, behalfChk,
+      el('span', {}, el('div', { class: 'name', text: 'Submitting on behalf of another resident' }),
+        el('small', { class: 'sub', text: 'Toggle ON if you paid on behalf of someone else. Fill in their flat, name and (optional) phone. Your identity is captured separately.' })
+      )
+    ),
+    filledByChip,
+    nameField,
+    flatField,
+    phoneField,
     field('Amount (₹)', 'Whole rupees. This event will be debited by this amount for treasury reporting.', inpAmount, { required: true }),
     field('Category', 'Pick a preset or choose Other to type a custom category. Admins can edit the list in Settings.', el('div', {}, selCategory, inpCategoryOther), { required: true }),
     field('Description', 'A short note the treasurer will see later while auditing.', inpDescription, { info: 'Optional — you can leave this blank; useful for context.' }),
-    field('Attach proof (image / PDF)', 'Committee reviews the attachment before verifying.', proofField, { info: 'Optional — image (PNG/JPEG/WebP/HEIC) or PDF up to ~700 KB.' }),
+    field('Attach proof (images / PDFs — up to 5)', 'Committee reviews the attachments before verifying. Multiple photos of the same receipt are welcome.', proofField, { info: 'Optional — image (PNG/JPEG/WebP/HEIC) or PDF up to ~700 KB each, max 5.' }),
     field('Receipt / invoice URL', 'Link to the vendor invoice or paid receipt.', inpReceiptUrl, { info: 'Optional — must start with http(s):// if provided.' }),
     el('label', { class: 'row', style: 'gap:8px;margin-top:12px;cursor:pointer' }, cbVisible,
       el('span', {}, el('div', { class: 'name', text: 'Visible to residents' }),
@@ -1195,6 +1276,8 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
       )
     )
   );
+  // Set initial on-behalf labels after body is built so querySelector finds them.
+  refreshBehalfLabels();
   modal({
     title: isEdit ? 'Edit expense' : (willBePending ? 'Submit expense for verification' : 'Add expense'),
     body,
@@ -1212,12 +1295,30 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
         const description = String(inpDescription.value || '').trim();
         const receipt_url = String(inpReceiptUrl.value || '').trim();
         if (receipt_url && !/^https?:\/\//i.test(receipt_url)) { toast('Receipt URL must start with http(s)://', 'err'); return; }
+        const submitter_name = String(inpSubmitterName.value || '').trim();
+        if (!submitter_name) { toast(behalfChk.checked ? 'Beneficiary name is required.' : 'Your name is required.', 'err'); return; }
+        const flatParsed = parseFlat(inpSubmitterFlat.value);
+        if (!flatParsed.valid) { toast(flatParsed.reason || 'Flat number is required.', 'err'); return; }
+        const submitter_flat = flatParsed.canonical;
+        inpSubmitterFlat.value = submitter_flat;
+        let submitter_phone = '';
+        const rawPhone = String(inpSubmitterPhone.value || '').trim();
+        if (rawPhone) {
+          const phCheck = validateMobile(rawPhone);
+          if (!phCheck.valid) { toast(phCheck.reason || 'Phone number looks invalid.', 'err'); return; }
+          submitter_phone = phCheck.digits;
+        }
         let eventId = evt && evt.id;
         if (canPickEvent) {
           eventId = selEvent && selEvent.value;
           if (!eventId) { toast('Pick a live event to attach this expense to.', 'err'); return; }
         }
         if (!eventId) { toast('No event context — cannot submit expense.', 'err'); return; }
+        const on_behalf = !!behalfChk.checked;
+        // Snapshot proofs into an immutable array + expose legacy
+        // fields for older readers that still look for proof_data_url.
+        const proofsCopy = proofs.map(p => ({ data_url: p.data_url, name: p.name, size: p.size }));
+        const legacyProof = proofsCopy[0] || { data_url: '', name: '', size: 0 };
         const list = state.expenses();
         const nowIso = new Date().toISOString();
         if (isEdit) {
@@ -1227,9 +1328,17 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
             rec.category = category;
             rec.description = description;
             rec.receipt_url = receipt_url || '';
-            rec.proof_data_url = proofState.data_url || '';
-            rec.proof_name = proofState.name || '';
-            rec.proof_size = proofState.size || 0;
+            rec.submitter_name = submitter_name;
+            rec.submitter_flat = submitter_flat;
+            rec.submitter_phone = submitter_phone;
+            rec.flat = submitter_flat; // pivot key mirrored for query
+            rec.on_behalf = on_behalf;
+            rec.filled_by_email = on_behalf ? (user && user.email || null) : null;
+            rec.filled_by_name  = on_behalf ? (user && user.name  || null) : null;
+            rec.proofs = proofsCopy;
+            rec.proof_data_url = legacyProof.data_url;
+            rec.proof_name = legacyProof.name;
+            rec.proof_size = legacyProof.size;
             rec.visible_to_residents = !!cbVisible.checked;
             rec.updated_at = nowIso;
             state.saveExpenses(list);
@@ -1241,6 +1350,14 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
                 category,
                 description,
                 receipt_url: receipt_url || '',
+                submitter_name,
+                submitter_flat,
+                submitter_phone,
+                flat: submitter_flat,
+                on_behalf,
+                filled_by_email: rec.filled_by_email,
+                filled_by_name: rec.filled_by_name,
+                proofs: proofsCopy,
                 visible_to_residents: !!cbVisible.checked,
               }).catch((e) => {
                 console.warn('[expense edit] server PUT failed; row will re-sync', e);
@@ -1256,9 +1373,17 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
             category,
             description,
             receipt_url: receipt_url || '',
-            proof_data_url: proofState.data_url || '',
-            proof_name: proofState.name || '',
-            proof_size: proofState.size || 0,
+            submitter_name,
+            submitter_flat,
+            submitter_phone,
+            flat: submitter_flat,
+            on_behalf,
+            filled_by_email: on_behalf ? (user && user.email || null) : null,
+            filled_by_name:  on_behalf ? (user && user.name  || null) : null,
+            proofs: proofsCopy,
+            proof_data_url: legacyProof.data_url,
+            proof_name: legacyProof.name,
+            proof_size: legacyProof.size,
             visible_to_residents: !!cbVisible.checked,
             status: initialStatus,
             created_at: nowIso,
@@ -1271,15 +1396,24 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
           state.saveExpenses(list);
           state.audit({ actor: user && user.email || null, action: initialStatus === 'verified' ? 'expense.create' : 'expense.submit', expense: optimistic.id, event: eventId, amount });
           toast(initialStatus === 'verified' ? 'Expense recorded.' : 'Expense submitted for verification.', 'ok');
-          // Fire-and-forget POST — server-side row is what any other
-          // moderator device will see. Proof blobs stay local because
-          // the server never touches raw attachments.
+          // Fire-and-forget POST — server row is the source of truth
+          // so moderators on any device see the same expense with all
+          // attachments. Proofs travel too (max 5 × 700 KB) so verify
+          // works end-to-end from a different device.
           createExpense({
             event_id: eventId,
             amount,
             category,
             description,
             receipt_url: receipt_url || '',
+            submitter_name,
+            submitter_flat,
+            submitter_phone,
+            flat: submitter_flat,
+            on_behalf,
+            filled_by_email: optimistic.filled_by_email,
+            filled_by_name:  optimistic.filled_by_name,
+            proofs: proofsCopy,
             visible_to_residents: !!cbVisible.checked,
             status: initialStatus,
           }).then((res) => {
@@ -1291,7 +1425,9 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
               ...list2[idx],
               ...res.expense,
               _path: res.path,
-              // Preserve the local proof blob that never crossed the wire.
+              // Keep locally-decoded proof array — server may not echo
+              // it back verbatim (older worker builds).
+              proofs: optimistic.proofs,
               proof_data_url: optimistic.proof_data_url,
               proof_name: optimistic.proof_name,
               proof_size: optimistic.proof_size,
@@ -1485,20 +1621,34 @@ function openProof(c) {
   });
 }
 
-/* Modal viewer for an expense proof (image or PDF), mirroring
- * `openProof` for contributions. Committee uses this to review the
- * attachment before verifying the expense. */
+/* Modal viewer for expense proof attachments (images or PDFs).
+ * Handles new-style `r.proofs` array (up to 5) and legacy single
+ * `proof_data_url`. Images render inline; PDFs open in a new tab
+ * (data-URL PDF iframes are blocked by default in most browsers). */
 function openExpenseProof(x) {
-  const isImg = /^data:image\//.test(x.proof_data_url);
+  const all = Array.isArray(x.proofs) && x.proofs.length
+    ? x.proofs.filter(p => p && p.data_url)
+    : (x.proof_data_url ? [{ data_url: x.proof_data_url, name: x.proof_name || '', size: x.proof_size || 0 }] : []);
   const body = el('div', {},
     el('div', { class: 'sub', style: 'margin-bottom:8px' },
-      x.proof_name ? x.proof_name + ' · ' : '',
-      x.proof_size ? '~' + Math.round(x.proof_size / 1024) + ' KB' : ''
-    ),
-    isImg
-      ? el('img', { src: x.proof_data_url, alt: 'expense proof', style: 'max-width:100%;max-height:60vh;border:1px solid var(--line);border-radius:6px' })
-      : el('a', { class: 'btn', href: x.proof_data_url, target: '_blank', rel: 'noopener' }, 'Open attachment in new tab')
+      el('span', { text: `${all.length} attachment${all.length === 1 ? '' : 's'}` }),
+      x.submitter_flat || x.flat ? el('span', { text: ` · Flat ${x.submitter_flat || x.flat}` }) : null,
+      x.submitter_name ? el('span', { text: ` · ${x.submitter_name}` }) : null
+    )
   );
+  const grid = el('div', { class: 'row', style: 'flex-wrap:wrap;gap:12px' });
+  all.forEach((p, i) => {
+    const isImg = /^data:image\//.test(p.data_url);
+    const tile = el('div', { style: 'border:1px solid var(--line);border-radius:6px;padding:8px;background:#fff;max-width:260px' });
+    tile.appendChild(el('small', { class: 'sub', style: 'display:block;margin-bottom:6px', text: (p.name || 'proof ' + (i + 1)) + (p.size ? ` · ~${Math.round(p.size / 1024)} KB` : '') }));
+    if (isImg) {
+      tile.appendChild(el('img', { src: p.data_url, alt: 'expense proof ' + (i + 1), style: 'max-width:100%;max-height:40vh;border-radius:4px;display:block' }));
+    } else {
+      tile.appendChild(el('a', { class: 'btn btn-sm', href: p.data_url, target: '_blank', rel: 'noopener' }, 'Open PDF in new tab'));
+    }
+    grid.appendChild(tile);
+  });
+  body.appendChild(grid);
   modal({
     title: 'Expense proof · ' + (x.category || 'expense'),
     body,
