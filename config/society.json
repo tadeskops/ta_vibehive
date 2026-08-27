@@ -20,6 +20,10 @@
     "archive_repo": "tadeskops/tvh_record",
     "watermark_asset": "assets/images/TaStampBlueOverlay.png",
     "stamp_asset": "assets/images/TaStampBlue.png",
+    "use_society_seal": false,
+    "committee_name": "Ganesh Utsav Cultural Committee",
+    "committee_subtitle": "The Address Society Residents",
+    "show_society_header": false,
     "archive": {
       "enabled": true,
       "perReceiptPath": "{eventCodeLower}/{yearMonth}/{flat}_{receiptId}_receipt.json",

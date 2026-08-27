@@ -837,6 +837,11 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
 /* Microtext strip: repeats ID + hash at 5.5px along the footer.
  * Reproducing this on a photocopied fake without smudging is very hard. */
 .receipt-microtext{margin-top:10px;font:600 5.5px "SFMono-Regular",Consolas,"Liberation Mono",monospace;color:#7d6858;line-height:1.05;letter-spacing:.02em;word-break:break-all;text-align:center;overflow:hidden;opacity:.85}
+/* Committee-seal mode (default) — suppresses the society PNG watermark
+ * that would otherwise render behind the receipt. The forensic SVG
+ * textmark still runs and the inline committee seal handles authenticity. */
+.receipt-no-society-seal::before{display:none}
+.receipt-committee-seal{width:120px;height:120px;flex:0 0 120px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 
 /* Admin panels */
 .panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px}

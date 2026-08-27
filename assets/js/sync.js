@@ -163,8 +163,10 @@ export async function syncFromWorker() {
 
     /* Hydrate expenses cache — mirror of the contributions merge so
      * a committee member on device B sees pending expenses that
-     * resident A submitted on device A. Locally-cached proofs
-     * (data URLs) are preserved because the server never sees them. */
+     * resident A submitted on device A. Local proof blobs (data URLs
+     * in `proofs[]` or legacy `proof_data_url`) are preserved as a
+     * safety net for older worker builds that strip them; new writes
+     * include the full array so cross-device verification works. */
     try {
       const remote = await listExpenses();
       if (Array.isArray(remote)) {
@@ -173,12 +175,17 @@ export async function syncFromWorker() {
         for (const r of remote) if (r && r.id) byId.set(r.id, { ...r });
         for (const l of local) if (l && l.id) {
           const prior = byId.get(l.id) || {};
-          // Preserve locally-attached blobs + optimistic-only rows.
-          const preserved = {
-            proof_data_url: l.proof_data_url,
-            proof_name: l.proof_name,
-            proof_size: l.proof_size,
-          };
+          const remoteHasProofs = Array.isArray(prior.proofs) && prior.proofs.length;
+          const remoteHasLegacy = !!prior.proof_data_url;
+          // Only fall back to the local proof blobs when the server
+          // didn't echo them — never overwrite a newer server copy.
+          const preserved = {};
+          if (!remoteHasProofs && Array.isArray(l.proofs) && l.proofs.length) preserved.proofs = l.proofs;
+          if (!remoteHasLegacy) {
+            preserved.proof_data_url = l.proof_data_url;
+            preserved.proof_name = l.proof_name;
+            preserved.proof_size = l.proof_size;
+          }
           if (!byId.has(l.id) && !l._path) {
             // Optimistic local-only row; POST may still be in-flight.
             byId.set(l.id, l);
