@@ -242,7 +242,7 @@ function buildReceiptArticle(r, rec, evt, soc, tpl) {
       showGrid ? hashGrid(r.verify_hash) : el('div', {}),
       useSocietySeal
         ? el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
-        : committeeSeal(ident.committee_name, ident.committee_subtitle)
+        : el('img', { src: 'assets/images/culturalCommitteeSeal.svg', alt: 'committee seal', class: 'receipt-committee-seal' })
     ),
     showQr ? el('div', { class: 'receipt-verify' },
       el('div', {}, el('b', { text: 'Verify hash: ' }), el('span', { text: r.verify_hash })),
@@ -668,7 +668,7 @@ function buildExpenseArticle(x, evt, soc) {
       el('div', {}),
       useSocietySeal
         ? el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
-        : committeeSeal(ident.committee_name, ident.committee_subtitle)
+        : el('img', { src: 'assets/images/culturalCommitteeSeal.svg', alt: 'committee seal', class: 'receipt-committee-seal' })
     ),
     x.verified_comment ? el('p', { style: 'font-size:11px;color:var(--muted);margin-top:6px', text: 'Verifier note · ' + x.verified_comment }) : null
   );
@@ -1145,47 +1145,6 @@ function flatMetaRow(flat, withSocietyStamp) {
   );
 }
 
-/* SVG committee seal — replaces the society PNG stamp on receipts.
- * Rendered inline so html2canvas snapshots it faithfully into the
- * PDF/PNG download. Deep-blue ring with curved committee name on
- * top and subtitle on bottom, warm gold monogram in the centre. */
-function committeeSeal(name, subtitle) {
-  const size = 120;
-  const cx = size / 2, cy = size / 2;
-  const s = svg('svg', {
-    class: 'receipt-committee-seal',
-    viewBox: `0 0 ${size} ${size}`,
-    width: size, height: size,
-    'aria-label': 'committee seal',
-    role: 'img'
-  });
-  s.appendChild(svg('defs', null,
-    svg('path', { id: 'seal-top-arc', d: `M ${cx - 46} ${cy} A 46 46 0 0 1 ${cx + 46} ${cy}` }),
-    svg('path', { id: 'seal-bot-arc', d: `M ${cx - 44} ${cy + 4} A 44 44 0 0 0 ${cx + 44} ${cy + 4}` })
-  ));
-  s.appendChild(svg('circle', { cx, cy, r: 56, fill: 'none', stroke: '#3E5A9E', 'stroke-width': 2 }));
-  s.appendChild(svg('circle', { cx, cy, r: 50, fill: 'none', stroke: '#3E5A9E', 'stroke-width': 1 }));
-  s.appendChild(svg('circle', { cx, cy, r: 30, fill: 'none', stroke: '#C9A349', 'stroke-width': 1.5 }));
-  // Curved committee name along the top arc.
-  const top = svg('text', { fill: '#3E5A9E', 'font-size': 8, 'font-weight': 800, 'letter-spacing': 1.5 });
-  const topPath = svg('textPath', { href: '#seal-top-arc', startOffset: '50%', 'text-anchor': 'middle' }, String(name || '').toUpperCase());
-  top.appendChild(topPath);
-  s.appendChild(top);
-  // Subtitle along the bottom arc (below centre, mirrored via the arc direction).
-  if (subtitle) {
-    const bot = svg('text', { fill: '#3E5A9E', 'font-size': 6, 'font-weight': 700, 'letter-spacing': 1 });
-    const botPath = svg('textPath', { href: '#seal-bot-arc', startOffset: '50%', 'text-anchor': 'middle' }, String(subtitle).toUpperCase());
-    bot.appendChild(botPath);
-    s.appendChild(bot);
-  }
-  // Star separators at the horizontal tips.
-  s.appendChild(svg('text', { x: 8, y: cy + 3, fill: '#C9A349', 'font-size': 9, 'font-weight': 900 }, '★'));
-  s.appendChild(svg('text', { x: size - 14, y: cy + 3, fill: '#C9A349', 'font-size': 9, 'font-weight': 900 }, '★'));
-  // Central monogram — stylised "GU" for Ganesh Utsav / committee shorthand.
-  const initials = String(name || '').split(/\s+/).map(w => w[0] || '').join('').slice(0, 3).toUpperCase() || 'GU';
-  s.appendChild(svg('text', { x: cx, y: cy + 6, fill: '#3E5A9E', 'font-size': 20, 'font-weight': 900, 'text-anchor': 'middle', 'letter-spacing': 1 }, initials));
-  return s;
-}
 function verifyUrl(id) {
   const base = location.origin + location.pathname.replace(/index\.html$/, '');
   return base + '#/verify/' + encodeURIComponent(id);
