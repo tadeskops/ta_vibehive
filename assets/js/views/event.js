@@ -1110,7 +1110,7 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
     proofs.push({ data_url: String(existing.proof_data_url), name: String(existing.proof_name || 'proof'), size: Number(existing.proof_size || 0) });
   }
   const inpProofs = el('input', {
-    type: 'file', multiple: '',
+    type: 'file', multiple: true,
     accept: 'image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,application/pdf'
   });
   const proofGallery = el('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px;margin-top:8px' });
