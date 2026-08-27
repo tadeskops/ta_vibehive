@@ -841,7 +841,7 @@ input[type=checkbox],input[type=radio]{width:auto;transform:scale(1.15);margin-r
  * that would otherwise render behind the receipt. The forensic SVG
  * textmark still runs and the inline committee seal handles authenticity. */
 .receipt-no-society-seal::before{display:none}
-.receipt-committee-seal{width:120px;height:120px;flex:0 0 120px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.receipt-committee-seal{width:130px;height:130px;flex:0 0 130px;object-fit:contain;opacity:.95;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 
 /* Admin panels */
 .panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px}
