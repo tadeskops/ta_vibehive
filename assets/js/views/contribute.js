@@ -854,9 +854,12 @@ export async function render(root, { match }) {
     try {
       rec = await withSavingRing(ev && ev.currentTarget, () => addContribution(payload, user), { savingLabel: 'Submitting…', busyLabel: 'Submitting contribution…' });
     } catch (e) {
-      /* addContribution enforces the one-per-flat rule at storage
-       * time. Surface its message as a friendly toast rather than a
-       * console crash. */
+      const existing = e && e.details && e.details.contribution;
+      if (e && e.code === 'DUPLICATE_CONTRIBUTION' && existing) {
+        const status = String(existing.status || 'unknown');
+        const receipt = existing.receipt_id ? ` Receipt ${existing.receipt_id}.` : '';
+        return toast(`Already recorded: ${existing.contributor_name || 'contribution'} · ₹${Number(existing.amount || 0).toLocaleString('en-IN')} · ${status}.${receipt}`, 'ok');
+      }
       return toast(e.message || 'Could not submit contribution', 'err');
     }
     /* Notify both parties when on_behalf; otherwise notify just the

@@ -155,8 +155,20 @@ export async function createContribution(ctx: Ctx): Promise<Response> {
     return err(
       ctx.env,
       ctx.req,
-      'Looks like this contribution was already recorded (matching UPI ref or a submission from your flat in the last few minutes). Refresh the page to confirm — if it still looks missing, ask the committee.',
+      'This contribution is already recorded.',
       409,
+      {
+        code: 'DUPLICATE_CONTRIBUTION',
+        contribution: {
+          id: dup.id,
+          event: dup.event,
+          contributor_name: dup['contributor_name'] || '',
+          amount: dup.amount,
+          status: dup.status,
+          created_at: dup.created_at || null,
+          receipt_id: dup.receipt_id || null,
+        },
+      },
     );
   }
   const nowIso = new Date().toISOString();
