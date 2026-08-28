@@ -440,7 +440,9 @@ export async function addContribution(payload, actor) {
     serverRec = res && res.contribution;
   } catch (err) {
     const wrapped = new Error(err && err.message ? err.message : 'Could not submit contribution to server.');
-    wrapped.code = 'WORKER_WRITE_FAILED';
+    wrapped.code = (err && err.details && err.details.code) || 'WORKER_WRITE_FAILED';
+    wrapped.details = err && err.details ? err.details : null;
+    wrapped.status = err && err.status ? err.status : 0;
     throw wrapped;
   }
   const nowIso = new Date().toISOString();

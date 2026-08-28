@@ -53,8 +53,8 @@ export function ok(env: Env, req: Request, body: unknown, status = 200): Respons
   });
 }
 
-export function err(env: Env, req: Request, message: string, status = 400): Response {
-  return new Response(JSON.stringify({ ok: false, error: { message } }), {
+export function err(env: Env, req: Request, message: string, status = 400, details?: unknown): Response {
+  return new Response(JSON.stringify({ ok: false, error: { message, ...(details === undefined ? {} : { details }) } }), {
     status,
     headers: corsHeaders(env, req),
   });

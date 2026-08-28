@@ -28,9 +28,10 @@ function currentToken() {
 }
 
 export class ApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, details = null) {
     super(message || `HTTP ${status}`);
     this.status = status;
+    this.details = details;
     this.name = 'ApiError';
   }
 }
@@ -136,7 +137,7 @@ async function request(method, path, body) {
     if (res.status === 401) {
       throw new ApiError(401, 'Your session expired. Please sign in again and retry.');
     }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, payload && payload.error ? payload.error.details : null);
   }
   return payload.data;
 }
