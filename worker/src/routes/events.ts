@@ -113,8 +113,24 @@ async function loadAllEvents(env: Ctx['env']): Promise<EventDoc[]> {
     const settled = await Promise.allSettled(
       dirs.map((dir) => readJson<EventDoc>(env, `${dir.path}/event.json`)),
     );
-    for (const r of settled) {
+    const missing: string[] = [];
+    for (let i = 0; i < settled.length; i++) {
+      const r = settled[i];
       if (r.status === 'fulfilled' && r.value && r.value.data) events.push(r.value.data);
+      else missing.push(`${dirs[i].path}/event.json`);
+    }
+    /* `listDir` just confirmed every one of these paths exists, so a
+     * null read here is always a transient blip (GitHub's Contents
+     * API CDN can briefly 404 a path right after a burst of commits)
+     * — never a legitimate missing file. One short-delay retry
+     * recovers those instead of silently dropping events from the
+     * list. Same fix applied to loadAllContributions. */
+    if (missing.length) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const retrySettled = await Promise.allSettled(missing.map((p) => readJson<EventDoc>(env, p)));
+      for (const r of retrySettled) {
+        if (r.status === 'fulfilled' && r.value && r.value.data) events.push(r.value.data);
+      }
     }
     _listCache = { at: now, events };
   } catch (_e) {
