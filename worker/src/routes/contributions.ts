@@ -102,38 +102,52 @@ async function archiveProofBinary(ctx: Ctx, record: Contribution): Promise<strin
  *
  * Dedup: rejects a second submission that matches an existing non-void
  * record on any of these fingerprints —
- *  (event, ref)               ALWAYS — a real UPI/bank ref never repeats
- *  (event, contributor_email) only within DEDUP_WINDOW_MS of created_at
- *  (event, flat)              only within DEDUP_WINDOW_MS of created_at
- * The short window on flat/email lets a resident who realises they
- * forgot proof genuinely re-submit hours later, while still catching
- * the fast-click / double-tap race that bypasses the client's
- * `withSavingRing` + local-cache guard (two POSTs 499 ms apart with an
- * identical UPI ref both persisted in the incident that motivated
- * this dedup layer). Ref matches are always rejected because a repeat
- * UPI ref is always a software glitch.
+ *  (event, ref)                                  ALWAYS — a real UPI/bank ref never repeats
+ *  (event, flat|email, same-person, within 5m)   fast-tap / forgot-proof re-submit
+ * "Same person" = same contributor id, or same normalised
+ * contributor_email / contributor_mobile / contributor_name. Without
+ * this guard, two distinct flatmates (or an on-behalf submission for
+ * a different resident in the same flat) get wrongly collapsed into
+ * a single "duplicate" — that's the bug this branch fixes.
+ * Ref matches are always rejected because a repeat UPI ref is always
+ * a software glitch.
  */
 const DEDUP_WINDOW_MS = 5 * 60_000;
+function normDigits(v: unknown): string { return String(v || '').replace(/\D+/g, ''); }
+function normText(v: unknown): string { return String(v || '').trim().toLowerCase(); }
 async function findDuplicate(
   env: Ctx['env'],
   draft: Partial<Contribution> & Record<string, unknown>,
 ): Promise<Contribution | null> {
   const eventId = String(draft.event || '');
   if (!eventId) return null;
-  const ref = String(draft['ref'] || '').trim().toLowerCase();
-  const email = String(draft['contributor_email'] || '').trim().toLowerCase();
-  const flat = String(draft['flat'] || '').trim().toLowerCase();
+  const ref = normText(draft['ref']);
+  const email = normText(draft['contributor_email']);
+  const mobile = normDigits(draft['contributor_mobile']);
+  const name = normText(draft['contributor_name']);
+  const contributor = normText(draft['contributor']);
+  const flat = normText(draft['flat']);
   const nowT = Date.now();
   const all = await loadAllContributions(env);
   for (const c of all) {
     if (c.event !== eventId) continue;
     if (c.status === 'void') continue;
-    const cRef = String((c as Record<string, unknown>)['ref'] || '').trim().toLowerCase();
+    const cRef = normText((c as Record<string, unknown>)['ref']);
     if (ref && cRef && ref === cRef) return c;
     const createdT = Date.parse(String(c.created_at || '')) || 0;
     if (!createdT || nowT - createdT > DEDUP_WINDOW_MS) continue;
-    const cEmail = String(c.contributor_email || '').trim().toLowerCase();
-    const cFlat = String((c as Record<string, unknown>)['flat'] || '').trim().toLowerCase();
+    const cEmail = normText(c.contributor_email);
+    const cMobile = normDigits((c as Record<string, unknown>)['contributor_mobile']);
+    const cName = normText((c as Record<string, unknown>)['contributor_name']);
+    const cContributor = normText((c as Record<string, unknown>)['contributor']);
+    const cFlat = normText((c as Record<string, unknown>)['flat']);
+    const samePerson = (
+      (contributor && cContributor && contributor === cContributor) ||
+      (email && cEmail && email === cEmail) ||
+      (mobile && cMobile && mobile === cMobile) ||
+      (name && cName && name === cName)
+    );
+    if (!samePerson) continue;
     if (email && cEmail && email === cEmail) return c;
     if (flat && cFlat && flat === cFlat) return c;
   }
