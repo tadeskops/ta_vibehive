@@ -2,7 +2,7 @@ import { Router } from '../lib/router.ts';
 import { whoami } from './whoami.ts';
 import { getSettings, putSettings } from './settings.ts';
 import { listEvents, getEvent, putEvent, deleteEvent } from './events.ts';
-import { createContribution, verifyContribution, voidContribution, putContribution, listContributions } from './contributions.ts';
+import { createContribution, verifyContribution, voidContribution, putContribution, listContributions, getContributionProof } from './contributions.ts';
 import { createExpense, verifyExpense, putExpense, deleteExpense, listExpenses } from './expenses.ts';
 import { getVisitCount, incrementVisitCount } from './metrics.ts';
 import { listStories, readStory, createStory, archiveStory, deleteStory } from './stories.ts';
@@ -27,6 +27,7 @@ export function buildRouter(): Router {
   r.get('/contributions', listContributions);
   r.post('/contributions', createContribution);
   r.put('/contributions/:year/:month/:id', putContribution);
+  r.get('/contributions/:year/:month/:id/proof', getContributionProof);
   r.post('/contributions/:year/:month/:id/verify', verifyContribution);
   r.post('/contributions/:year/:month/:id/void', voidContribution);
 

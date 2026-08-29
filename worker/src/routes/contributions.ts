@@ -1,6 +1,6 @@
 import type { Ctx } from '../lib/ctx.ts';
 import { ok, err } from '../lib/envelope.ts';
-import { readJson, writeJson, writeBinary, listDir } from '../github/client.ts';
+import { readJson, writeJson, writeBinary, readBinaryBase64, listDir } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -59,6 +59,18 @@ function extForMime(mime: string): string {
   if (m === 'image/gif') return 'gif';
   if (m === 'application/pdf') return 'pdf';
   return 'bin';
+}
+
+/** Reverse of `extForMime` — used to reconstruct the data-URL mime
+ *  type when serving an archived proof binary back to the client. */
+function mimeForExt(ext: string): string {
+  const e = String(ext || '').toLowerCase();
+  if (e === 'png') return 'image/png';
+  if (e === 'jpg' || e === 'jpeg') return 'image/jpeg';
+  if (e === 'webp') return 'image/webp';
+  if (e === 'gif') return 'image/gif';
+  if (e === 'pdf') return 'application/pdf';
+  return 'application/octet-stream';
 }
 
 /**
@@ -207,13 +219,54 @@ export async function createContribution(ctx: Ctx): Promise<Response> {
   try {
     const archivePath = await archiveProofBinary(ctx, stamped);
     if (archivePath) (stamped as Record<string, unknown>)['proof_archive_path'] = archivePath;
-    const result = await writeJson(ctx.env, path, stamped, message);
+    /* Persist the lean record only. The proof binary already lives at
+     * proof_archive_path — storing the same ~100-700KB base64 blob
+     * again inline here would force every dedup/list scan to decode
+     * + JSON.parse it on every request, which is what caused the
+     * CF-1102 CPU-limit outages under festival-week traffic. The
+     * caller's own immediate response still carries `stamped` (with
+     * the blob) so their screen shows the image right away. */
+    const toStore: Contribution = { ...stamped };
+    if (archivePath) delete (toStore as Record<string, unknown>)['proof_data_url'];
+    const result = await writeJson(ctx.env, path, toStore, message);
     invalidateContribCache();
     return ok(ctx.env, ctx.req, { contribution: stamped, path, sha: result.sha });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
     throw e;
   }
+}
+
+/**
+ * GET /contributions/:year/:month/:id/proof
+ * Returns the payment-proof image/PDF as a data URL, read from the
+ * dedicated binary path (proof_archive_path) rather than the JSON
+ * record — bulk list/dedup reads never have to decode it this way.
+ * Visibility matches the record itself: committee+ always; a
+ * resident only for their own contribution.
+ */
+export async function getContributionProof(ctx: Ctx, params: Record<string, string>): Promise<Response> {
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
+  const year = params['year'];
+  const month = params['month'];
+  const id = params['id'];
+  if (!year || !month || !id) return err(ctx.env, ctx.req, 'year, month and id are required', 400);
+  const path = `contributions/${year}/${month}/${id}.json`;
+  const doc = await readJson<Contribution>(ctx.env, path);
+  if (!doc) return err(ctx.env, ctx.req, 'Contribution not found', 404);
+  const callerEmail = String(ctx.identity?.email || '').toLowerCase();
+  const isMine = String(doc.data.contributor_email || doc.data.created_by || '').toLowerCase() === callerEmail;
+  if (!atLeast(ctx.role, 'committee') && !isMine) return err(ctx.env, ctx.req, 'Not visible with your role', 403);
+  /* Legacy records written before this fix still carry the blob
+   * inline — serve it straight from the JSON rather than 404ing. */
+  const inline = String((doc.data as Record<string, unknown>)['proof_data_url'] || '');
+  if (inline) return ok(ctx.env, ctx.req, { proof_data_url: inline });
+  const archivePath = String((doc.data as Record<string, unknown>)['proof_archive_path'] || '');
+  if (!archivePath) return err(ctx.env, ctx.req, 'No proof attached', 404);
+  const bin = await readBinaryBase64(ctx.env, archivePath);
+  if (!bin) return err(ctx.env, ctx.req, 'Proof file not found', 404);
+  const ext = archivePath.split('.').pop() || '';
+  return ok(ctx.env, ctx.req, { proof_data_url: `data:${mimeForExt(ext)};base64,${bin.base64}` });
 }
 
 /**
@@ -299,11 +352,16 @@ export async function putContribution(ctx: Ctx, params: Record<string, string>):
   try {
     const patchHasProof = typeof (patch as Record<string, unknown>)['proof_data_url'] === 'string'
       && String((patch as Record<string, unknown>)['proof_data_url'] || '').length > 0;
+    let archivePath = '';
     if (patchHasProof) {
-      const archivePath = await archiveProofBinary(ctx, updated);
+      archivePath = await archiveProofBinary(ctx, updated) || '';
       if (archivePath) (updated as Record<string, unknown>)['proof_archive_path'] = archivePath;
     }
-    const result = await writeJson(ctx.env, path, updated, message, doc.sha);
+    /* Same lean-storage rule as create: don't persist the inline blob
+     * once it's archived separately (see comment in createContribution). */
+    const toStore: Contribution = { ...updated };
+    if (archivePath) delete (toStore as Record<string, unknown>)['proof_data_url'];
+    const result = await writeJson(ctx.env, path, toStore, message, doc.sha);
     invalidateContribCache();
     return ok(ctx.env, ctx.req, { contribution: updated, sha: result.sha, commitSha: result.commitSha });
   } catch (e) {
