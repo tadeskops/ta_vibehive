@@ -34,6 +34,7 @@ import { getSociety, state } from '../store.js';
 import { emit as notifyEmit } from '../notify.js';
 import { parseFlat, validateMobile, flatRuleText } from '../validators.js';
 import { withSavingRing } from '../busy.js';
+import { getEventQr } from '../api.js';
 
 /* Client-side image compression so payment screenshots don't blow the
  * ~5 MB localStorage quota. Non-images (PDFs) are passed through as
@@ -386,7 +387,13 @@ export async function render(root, { match }) {
    * fall back to society-level if the event fields are blank. */
   const evtVpa = (evt.payment_upi_vpa || '').trim();
   const evtVpaName = (evt.payment_upi_name || '').trim();
-  const evtQr = (evt.payment_qr_data_url || '').trim();
+  /* The event record no longer carries the QR blob inline once
+   * archived (see worker putEvent) — lazy-fetch it for just this one
+   * event so bulk /events list reads stay cheap. */
+  let evtQr = (evt.payment_qr_data_url || '').trim();
+  if (!evtQr && evt.payment_qr_archive_path) {
+    try { evtQr = (await getEventQr(evt.slug || evt.id)) || ''; } catch (_e) { /* fall through to society default */ }
+  }
   const effVpa  = evtVpa  || pay.upi_vpa || '';
   const effVpaName = evtVpaName || pay.upi_name || soc.short_name;
   /* QR fallback chain: per-event data-URL (evt.payment_qr_data_url) →
