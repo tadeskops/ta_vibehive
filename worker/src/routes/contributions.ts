@@ -102,19 +102,26 @@ async function archiveProofBinary(ctx: Ctx, record: Contribution): Promise<strin
  *
  * Dedup: rejects a second submission that matches an existing non-void
  * record on any of these fingerprints —
- *  (event, ref)                                  ALWAYS — a real UPI/bank ref never repeats
+ *  (event, ref)  when ref looks like a real UPI/bank reference   ALWAYS
+ *  (event, ref)  when ref is a generic/placeholder value          same-person, within 5m
  *  (event, flat|email, same-person, within 5m)   fast-tap / forgot-proof re-submit
  * "Same person" = same contributor id, or same normalised
  * contributor_email / contributor_mobile / contributor_name. Without
  * this guard, two distinct flatmates (or an on-behalf submission for
  * a different resident in the same flat) get wrongly collapsed into
- * a single "duplicate" — that's the bug this branch fixes.
- * Ref matches are always rejected because a repeat UPI ref is always
- * a software glitch.
+ * a single "duplicate".
+ * A "real" ref needs >=6 chars AND at least one digit — genuine UPI
+ * refs (12 digits) and NEFT UTRs (alphanumeric) both satisfy this.
+ * Short/non-numeric values like "UTR", "NA", "test" are common user
+ * typos/placeholders and are NOT globally unique, so they only count
+ * as a duplicate when the same person repeats them (same bug class
+ * as the flat/email false positives above — two different residents
+ * both literally typing "UTR" must not collide).
  */
 const DEDUP_WINDOW_MS = 5 * 60_000;
 function normDigits(v: unknown): string { return String(v || '').replace(/\D+/g, ''); }
 function normText(v: unknown): string { return String(v || '').trim().toLowerCase(); }
+function looksLikeRealRef(v: string): boolean { return v.length >= 6 && /\d/.test(v); }
 async function findDuplicate(
   env: Ctx['env'],
   draft: Partial<Contribution> & Record<string, unknown>,
@@ -122,6 +129,7 @@ async function findDuplicate(
   const eventId = String(draft.event || '');
   if (!eventId) return null;
   const ref = normText(draft['ref']);
+  const refIsReal = looksLikeRealRef(ref);
   const email = normText(draft['contributor_email']);
   const mobile = normDigits(draft['contributor_mobile']);
   const name = normText(draft['contributor_name']);
@@ -133,7 +141,7 @@ async function findDuplicate(
     if (c.event !== eventId) continue;
     if (c.status === 'void') continue;
     const cRef = normText((c as Record<string, unknown>)['ref']);
-    if (ref && cRef && ref === cRef) return c;
+    if (ref && cRef && ref === cRef && refIsReal) return c;
     const createdT = Date.parse(String(c.created_at || '')) || 0;
     if (!createdT || nowT - createdT > DEDUP_WINDOW_MS) continue;
     const cEmail = normText(c.contributor_email);
@@ -148,6 +156,7 @@ async function findDuplicate(
       (name && cName && name === cName)
     );
     if (!samePerson) continue;
+    if (ref && cRef && ref === cRef) return c;
     if (email && cEmail && email === cEmail) return c;
     if (flat && cFlat && flat === cFlat) return c;
   }

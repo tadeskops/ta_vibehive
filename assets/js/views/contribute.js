@@ -815,6 +815,13 @@ export async function render(root, { match }) {
       if (!st.ref && !st.proof_data_url) {
         return toast('Enter the transaction number OR attach a payment screenshot — at least one is required.', 'err');
       }
+      /* A real UPI ref / NEFT UTR always has a digit and is at least
+       * 6 characters. Rejecting placeholder-ish text like "UTR" or
+       * "NA" here (when there's no screenshot to fall back on) stops
+       * it from ever reaching the server's duplicate-ref check. */
+      if (st.ref && !st.proof_data_url && !/\d/.test(st.ref)) {
+        return toast('That doesn\'t look like a transaction number — enter the actual UPI ref / UTR, or attach a payment screenshot instead.', 'err');
+      }
     } else {
       effMethod = 'other';
       if (!st.paid_to_name) return toast('"Paid to (name)" is required for cash contributions.', 'err');
