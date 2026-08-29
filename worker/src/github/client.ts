@@ -65,6 +65,26 @@ function encodeBase64Utf8(s: string): string {
   return btoa(bin);
 }
 
+/**
+ * Read a binary file's raw base64 content from the archive repo,
+ * unmodified — no UTF-8 decode / JSON.parse. Used to serve proof
+ * attachments (payment screenshots) on demand instead of embedding
+ * them in the JSON record, which used to force every bulk list/dedup
+ * scan to decode every attachment (the CF-1102 CPU-limit outages).
+ * Returns null on 404.
+ */
+export async function readBinaryBase64(env: Env, path: string): Promise<{ base64: string; sha: string } | null> {
+  const url = `${repoBase(env)}/contents/${encodeURI(path)}?ref=${encodeURIComponent(env.GH_ARCHIVE_BRANCH)}`;
+  try {
+    const raw = await gh(env, 'GET', url) as { content?: string; sha?: string };
+    if (!raw || typeof raw.content !== 'string' || !raw.sha) return null;
+    return { base64: raw.content.replace(/\s+/g, ''), sha: raw.sha };
+  } catch (e) {
+    if (e instanceof GhErr && e.status === 404) return null;
+    throw e;
+  }
+}
+
 /** Read a JSON file from the archive repo. Returns null on 404. */
 export async function readJson<T = unknown>(env: Env, path: string): Promise<{ data: T; sha: string } | null> {
   const url = `${repoBase(env)}/contents/${encodeURI(path)}?ref=${encodeURIComponent(env.GH_ARCHIVE_BRANCH)}`;

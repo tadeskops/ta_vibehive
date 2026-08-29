@@ -272,7 +272,10 @@ async function renderPublicBoard(evt, hideAmount, user, opts = {}) {
           createdBy: c.created_by || '',
           filledByEmail: c.filled_by_email || '',
           contributor_name: c.contributor_name || '',
+          id: c.id,
+          created_at: c.created_at || '',
           proof_data_url: c.proof_data_url || '',
+          proof_archive_path: c.proof_archive_path || '',
           proof_name: c.proof_name || '',
           proof_size: c.proof_size || 0,
         }))
@@ -309,13 +312,13 @@ async function renderPublicBoard(evt, hideAmount, user, opts = {}) {
     }
     return el('td', { class: 'num', text: fmtINR(r.amount) });
   };
-  const canViewProof = (r) => !!(user && !isResident && r.proof_data_url);
+  const canViewProof = (r) => !!(user && !isResident && (r.proof_data_url || r.proof_archive_path));
   const proofIconBtn = (r) => el('button', {
     class: 'tvh-mini-icon-btn',
     type: 'button',
     title: 'View transaction receipt',
     'aria-label': 'View transaction receipt',
-    on: { click: () => openProof(r) }
+    on: { click: async () => { await openProof(r); } }
   }, '📎');
   const body = el('table', { class: 'table' },
     el('thead', {}, el('tr', {},
@@ -1549,7 +1552,7 @@ function renderHistoryRow(r) {
 function contribRow(c, evt, user, caps) {
   const proofCell = el('td', {},
     c.ref ? el('div', { style: 'font-family:ui-monospace,monospace;font-size:12px', text: c.ref }) : el('span', { class: 'sub', text: '—' }),
-    c.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', style: 'margin-top:4px', on: { click: () => openProof(c) } }, '🖼 View proof') : null
+    (c.proof_data_url || c.proof_archive_path) ? el('button', { class: 'btn btn-sm btn-ghost', style: 'margin-top:4px', on: { click: async () => { await openProof(c); } } }, '🖼 View proof') : null
   );
   const tr = el('tr', {},
     el('td', { text: fmtDate(c.created_at) }),
@@ -1602,17 +1605,33 @@ function contribRow(c, evt, user, caps) {
 
 /* Open a modal with the payment proof. Images render inline; PDFs
  * offer a "Open in new tab" link because embedding data-URL PDFs in
- * an iframe fails on most browsers by default (blocked mime handler). */
-function openProof(c) {
-  const isImg = /^data:image\//.test(c.proof_data_url);
+ * an iframe fails on most browsers by default (blocked mime handler).
+ * The record itself no longer carries the blob once archived (see
+ * worker createContribution) — fetch it lazily on demand and cache
+ * the result back onto `c` so re-opening doesn't refetch. */
+async function openProof(c) {
+  let dataUrl = c.proof_data_url;
+  if (!dataUrl && (c.proof_archive_path || c.id)) {
+    try {
+      const { getContributionProof } = await import('../api.js');
+      const res = await getContributionProof(c);
+      dataUrl = res && res.proof_data_url;
+      if (dataUrl) c.proof_data_url = dataUrl;
+    } catch (e) {
+      toast((e && e.message) || 'Could not load payment proof', 'err');
+      return;
+    }
+  }
+  if (!dataUrl) { toast('No proof attached', 'err'); return; }
+  const isImg = /^data:image\//.test(dataUrl);
   const body = el('div', {},
     el('div', { class: 'sub', style: 'margin-bottom:8px' },
       c.proof_name ? c.proof_name + ' · ' : '',
       c.proof_size ? '~' + Math.round(c.proof_size / 1024) + ' KB' : ''
     ),
     isImg
-      ? el('img', { src: c.proof_data_url, alt: 'payment proof', style: 'max-width:100%;max-height:60vh;border:1px solid var(--line);border-radius:6px' })
-      : el('a', { class: 'btn', href: c.proof_data_url, target: '_blank', rel: 'noopener' }, 'Open PDF in new tab')
+      ? el('img', { src: dataUrl, alt: 'payment proof', style: 'max-width:100%;max-height:60vh;border:1px solid var(--line);border-radius:6px' })
+      : el('a', { class: 'btn', href: dataUrl, target: '_blank', rel: 'noopener' }, 'Open PDF in new tab')
   );
   modal({
     title: 'Payment proof · ' + (c.contributor_name || '—'),

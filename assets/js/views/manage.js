@@ -102,8 +102,8 @@ async function voidContribAction(rec, evt, user) {
 function renderContribRow(c, evt, user, canVerifyContrib, canEditContrib, onDone) {
   const proofCell = el('td', {},
     c.ref ? el('div', { style: 'font-family:ui-monospace,monospace;font-size:12px', text: c.ref }) : el('span', { class: 'sub', text: '—' }),
-    c.proof_data_url ? el('button', { class: 'btn btn-sm btn-ghost', style: 'margin-top:4px', type: 'button', on: { click: async () => {
-      try { const m = await import('./event.js'); m.openProof(c); } catch (_e) { /* silent */ }
+    (c.proof_data_url || c.proof_archive_path) ? el('button', { class: 'btn btn-sm btn-ghost', style: 'margin-top:4px', type: 'button', on: { click: async () => {
+      try { const m = await import('./event.js'); await m.openProof(c); } catch (_e) { /* silent */ }
     } } }, '🖼 View proof') : null
   );
   const contributorCell = el('td', {},
@@ -179,7 +179,15 @@ function openEditContribDialog(c, evt, user, onDone) {
     proof_data_url: c.proof_data_url || '',
     proof_name: c.proof_name || '',
     proof_size: c.proof_size || 0,
+    proof_archive_path: c.proof_archive_path || '',
   };
+  /* Whether a proof already exists is now derived from either the
+   * (legacy) inline blob or the archive path — the persisted record
+   * no longer carries the blob once archived (see worker
+   * createContribution). We don't eagerly fetch it here; the row's
+   * "View proof" button already covers the preview flow. */
+  const hasExistingProof = () => !!(draft.proof_data_url || draft.proof_archive_path);
+  let proofTouched = false;
   const nameInp = el('input', { type: 'text', value: draft.contributor_name, placeholder: 'Contributor name' });
   const flatInp = el('input', { type: 'text', value: draft.flat, placeholder: 'e.g. A-201' });
   const mobInp  = el('input', { type: 'text', value: draft.contributor_mobile, placeholder: '10-digit mobile' });
@@ -194,7 +202,7 @@ function openEditContribDialog(c, evt, user, onDone) {
   const remInp  = el('textarea', { rows: 2 }, draft.remarks);
   const proofInp = el('input', { type: 'file', accept: 'image/*,application/pdf' });
   const proofStatus = el('small', { class: 'sub', style: 'display:block;margin-top:4px' },
-    draft.proof_data_url ? `Attached: ${draft.proof_name || 'proof'} · ~${Math.round((draft.proof_size || 0) / 1024)} KB` : 'No proof attached.'
+    hasExistingProof() ? `Attached: ${draft.proof_name || 'proof'}${draft.proof_size ? ' · ~' + Math.round(draft.proof_size / 1024) + ' KB' : ''}` : 'No proof attached.'
   );
   proofInp.addEventListener('change', async () => {
     const f = proofInp.files && proofInp.files[0];
@@ -205,12 +213,14 @@ function openEditContribDialog(c, evt, user, onDone) {
       draft.proof_data_url = url;
       draft.proof_name = f.name;
       draft.proof_size = f.size;
+      proofTouched = true;
       proofStatus.textContent = `Attached: ${f.name} · ~${Math.round(f.size / 1024)} KB`;
     } catch (e) { toast(e.message || 'Could not read the file.', 'err'); }
   });
   const removeProofBtn = el('button', { class: 'btn btn-sm btn-ghost', type: 'button' }, 'Remove attachment');
   removeProofBtn.addEventListener('click', () => {
-    draft.proof_data_url = ''; draft.proof_name = ''; draft.proof_size = 0;
+    draft.proof_data_url = ''; draft.proof_name = ''; draft.proof_size = 0; draft.proof_archive_path = '';
+    proofTouched = true;
     proofInp.value = '';
     proofStatus.textContent = 'No proof attached.';
   });
@@ -228,7 +238,7 @@ function openEditContribDialog(c, evt, user, onDone) {
     field('Method', methodSel),
     field('Transaction ref', refInp, 'UPI UTR / NEFT ref / cheque no.'),
     field('Remarks (optional)', remInp),
-    field('Transaction receipt / proof', el('div', {}, proofInp, proofStatus, draft.proof_data_url ? removeProofBtn : null),
+    field('Transaction receipt / proof', el('div', {}, proofInp, proofStatus, hasExistingProof() ? removeProofBtn : null),
       'Images or PDFs up to 750 KB. Archived to the record repo under year/event/flat so any moderator can view it later.')
   );
 
@@ -249,18 +259,25 @@ function openEditContribDialog(c, evt, user, onDone) {
           method: methodSel.value,
           ref: (refInp.value || '').trim(),
           remarks: (remInp.value || '').trim(),
-          proof_data_url: draft.proof_data_url || '',
-          proof_name: draft.proof_name || '',
-          proof_size: Number(draft.proof_size || 0),
+          /* Only touch proof fields when the admin actually attached or
+           * removed one — otherwise an empty string here would blank a
+           * legacy inline attachment the admin never intended to change. */
+          ...(proofTouched ? {
+            proof_data_url: draft.proof_data_url || '',
+            proof_name: draft.proof_name || '',
+            proof_size: Number(draft.proof_size || 0),
+          } : {}),
         };
         try {
           const arr = state.contribs();
           const rec = arr.find((x) => x && x.id === c.id);
           if (rec) {
             Object.assign(rec, patch);
-            rec.proof_data_url = draft.proof_data_url;
-            rec.proof_name = draft.proof_name;
-            rec.proof_size = draft.proof_size;
+            if (proofTouched) {
+              rec.proof_data_url = draft.proof_data_url;
+              rec.proof_name = draft.proof_name;
+              rec.proof_size = draft.proof_size;
+            }
             rec.updated_at = nowIso;
             state.saveContribs(arr);
             state.audit({ actor: user && user.email || null, action: 'contribution.edit', contrib: rec.id, event: rec.event, detail: `by ${user && user.email || 'admin'}` });

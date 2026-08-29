@@ -220,6 +220,28 @@ export async function verifyContribution(contribPath) {
   return request('POST', `/contributions/${year}/${month}/${encodeURIComponent(id)}/verify`);
 }
 
+/** Fetch the payment-proof attachment (image/PDF) for a contribution
+ *  as a data URL, read lazily from the archive on demand — the JSON
+ *  record itself no longer carries the blob (see worker createContribution
+ *  comment). Accepts either a contribution record ({id, created_at,
+ *  _archive_path}) or an explicit storage path. */
+export async function getContributionProof(contribOrPath) {
+  let year, month, id;
+  const path = typeof contribOrPath === 'string' ? contribOrPath : contribOrPath && contribOrPath._archive_path;
+  const m = path && String(path).match(/contributions\/(\d{4})\/(\d{2})\/([^/]+)\.json$/);
+  if (m) {
+    [, year, month, id] = m;
+  } else if (contribOrPath && contribOrPath.id) {
+    const created = contribOrPath.created_at ? new Date(contribOrPath.created_at) : new Date();
+    year = created.getUTCFullYear();
+    month = String(created.getUTCMonth() + 1).padStart(2, '0');
+    id = contribOrPath.id;
+  } else {
+    throw new ApiError(400, 'Invalid contribution reference');
+  }
+  return request('GET', `/contributions/${year}/${month}/${encodeURIComponent(id)}/proof`);
+}
+
 /* ---------- Expenses ---------- */
 
 /** List expenses visible to the caller. Optionally filter by event id. */
