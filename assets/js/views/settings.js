@@ -579,11 +579,11 @@ async function renderAttributes(user, canUsersManage) {
   );
 
   /* --- Dashboard sub-panel --- */
-  const recentN = Number((vm.dashboard && vm.dashboard.recent_n) || 5);
+  const recentN = Number((vm.dashboard && vm.dashboard.recent_n != null) ? vm.dashboard.recent_n : 0);
   const selRecent = el('select', {
     on: { change: (e) => stageAttr('dashboard.recent_n', Number(e.target.value)) }
   },
-    ...[5, 10, 20, 50].map(n => el('option', { value: n, text: n + ' rows', selected: n === recentN }))
+    ...[0, 5, 10, 20, 40].map(n => el('option', { value: n, text: n === 0 ? 'All rows' : n + ' rows', selected: n === recentN }))
   );
 
   /* --- Event flow sub-panel — approval toggle --- */

@@ -50,7 +50,9 @@ export async function shouldMaskPublic(user) {
 
 /* Options the dashboard "Latest contributions" widget offers when
  * configuring how many rows to show. Change here to expand. */
-const RECENT_N_CHOICES = [5, 10, 20, 40];
+/* 0 is the "All" sentinel — must stay first so it's the default when
+ * no override is saved yet (see renderLatestContribsCard below). */
+const RECENT_N_CHOICES = [0, 5, 10, 20, 40];
 
 let _festivalVisualsList = null;
 cfg.festivalVisuals().then(v => { _festivalVisualsList = Array.isArray(v && v.visuals) ? v.visuals : []; }).catch(() => { _festivalVisualsList = []; });
@@ -187,17 +189,18 @@ export async function render(root) {
   }
 }
 
-/* Latest contributions widget. Shows the top-N most recent
- * non-void contributions across ALL events. `N` is a society-wide
- * setting (`society.dashboard.recent_n`, default 5) so it stays
- * consistent for every viewer of the dashboard. Any user with the
- * `events.create` capability (admin / mgmt / committee) can flip it
- * between the choices in `RECENT_N_CHOICES`. Anonymous / hide_amount
- * flags are honoured — the widget never leaks a name/amount the
- * contributor asked to keep private. */
+/* Latest contributions widget. Shows the top-N most recent non-void
+ * contributions across ALL events, or every row when N is 0 ("All" —
+ * the default). `N` is a society-wide setting (`society.dashboard.
+ * recent_n`) so it stays consistent for every viewer of the
+ * dashboard. Any user with the `events.create` capability (admin /
+ * mgmt / committee) can flip it between the choices in
+ * `RECENT_N_CHOICES`. Anonymous / hide_amount flags are honoured —
+ * the widget never leaks a name/amount the contributor asked to
+ * keep private. */
 async function renderLatestContribsCard(user, visibleEventIds, masked) {
   const soc = await getSociety();
-  const rawN = Number((soc.dashboard && soc.dashboard.recent_n) || RECENT_N_CHOICES[0]);
+  const rawN = Number((soc.dashboard && soc.dashboard.recent_n != null) ? soc.dashboard.recent_n : RECENT_N_CHOICES[0]);
   const N = RECENT_N_CHOICES.includes(rawN) ? rawN : RECENT_N_CHOICES[0];
   const canConfigure = user ? await can(user, 'events.create') : false;
   const canVerifyContrib = user ? await can(user, 'contributions.verify') : false;
@@ -236,14 +239,15 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
     if (myId && (cId === myId.toLowerCase() || cCB === myId.toLowerCase())) return true;
     return false;
   };
-  const rows = state.contribs()
+  const allRows = state.contribs()
     .filter(c => c.status !== 'void')
     /* Hide orphaned contributions whose event was deduped-out of the
      * dashboard (e.g. two same-slug drafts collided) — otherwise the
      * widget shows near-identical rows and confuses residents. */
     .filter(c => !visibleEventIds || visibleEventIds.has(c.event))
-    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-    .slice(0, N)
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  const rows = allRows
+    .slice(0, N > 0 ? N : allRows.length)
     .map(c => {
       const evt = eventById.get(c.event);
       const nm  = c.anonymous ? 'Anonymous' : (c.contributor_name || '—');
@@ -285,7 +289,7 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
             type: 'button',
             class: 'btn btn-sm' + (n === N ? '' : ' btn-ghost'),
             'aria-pressed': n === N ? 'true' : 'false',
-            text: String(n)
+            text: n === 0 ? 'All' : String(n)
           });
           btn.addEventListener('click', () => {
             const over = state.societyOverrides() || {};
@@ -300,7 +304,7 @@ async function renderLatestContribsCard(user, visibleEventIds, masked) {
           return btn;
         })
       )
-    : el('small', { class: 'sub', text: `Latest ${N}` });
+    : el('small', { class: 'sub', text: N === 0 ? 'Latest (all)' : `Latest ${N}` });
 
   return el('section', { class: 'card card-pad', style: 'margin-top:16px' },
     el('div', { class: 'row row-between', style: 'align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px' },
