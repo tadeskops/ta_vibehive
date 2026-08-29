@@ -87,29 +87,37 @@ export async function syncFromWorker() {
       }
     } catch (_e) { /* swallow — auth errors are handled by GIS layer */ }
 
-    /* Hydrate events cache. */
-    const events = await listEvents();
-    if (Array.isArray(events)) {
-      // Skip events an admin has permanently purged locally so a stale
-      // archive copy can't zombie-back into the UI.
-      const purged = new Set(state.purgedEvents());
-      const withoutPurged = events.filter(e => !(e && purged.has(e.id)));
-      // Preserve events flagged _recovery_pending (writeEvent push failed) so
-      // background sync doesn't overwrite the local status change.
-      const localPending = new Map();
-      for (const e of state.events() || []) {
-        if (e && e._recovery_pending) localPending.set(e.id, e);
+    /* Hydrate events cache. Wrapped in its own try/catch — an /events
+     * failure (e.g. transient CF CPU-limit error) must NOT abort the
+     * rest of this function. Before this fix a bare throw here skipped
+     * every hydration step below (contributions, expenses, settings,
+     * stories), which is why a flaky /events made the Approvals inbox
+     * render as empty even though pending contributions existed on
+     * the server. */
+    try {
+      const events = await listEvents();
+      if (Array.isArray(events)) {
+        // Skip events an admin has permanently purged locally so a stale
+        // archive copy can't zombie-back into the UI.
+        const purged = new Set(state.purgedEvents());
+        const withoutPurged = events.filter(e => !(e && purged.has(e.id)));
+        // Preserve events flagged _recovery_pending (writeEvent push failed) so
+        // background sync doesn't overwrite the local status change.
+        const localPending = new Map();
+        for (const e of state.events() || []) {
+          if (e && e._recovery_pending) localPending.set(e.id, e);
+        }
+        const merged = withoutPurged.map(e => {
+          const local = e && localPending.get(e.id);
+          if (!local) return e;
+          localPending.delete(e.id);
+          return { ...e, status: local.status, updated_at: local.updated_at, _recovery_pending: true };
+        });
+        // Append any pending events that the server hasn't seen yet.
+        for (const e of localPending.values()) merged.push(e);
+        state.saveEvents(merged);
       }
-      const merged = withoutPurged.map(e => {
-        const local = e && localPending.get(e.id);
-        if (!local) return e;
-        localPending.delete(e.id);
-        return { ...e, status: local.status, updated_at: local.updated_at, _recovery_pending: true };
-      });
-      // Append any pending events that the server hasn't seen yet.
-      for (const e of localPending.values()) merged.push(e);
-      state.saveEvents(merged);
-    }
+    } catch (_e) { /* network / CF blip — keep whatever events are already cached */ }
 
     /* Hydrate society-overrides cache — the Worker holds the
      * authoritative role-mapping / attributes doc. Without this,
