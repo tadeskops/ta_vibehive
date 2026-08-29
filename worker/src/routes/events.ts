@@ -1,6 +1,6 @@
 import type { Ctx } from '../lib/ctx.ts';
 import { ok, err } from '../lib/envelope.ts';
-import { readJson, writeJson, listDir, deleteFile } from '../github/client.ts';
+import { readJson, writeJson, writeBinary, readBinaryBase64, listDir, deleteFile } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -37,6 +37,46 @@ function pathFor(slug: string): string {
   const s = sanitizeSlug(slug);
   if (!s) throw new HttpError(400, 'Invalid event slug');
   return `events/${s}/event.json`;
+}
+
+/** Reverse of the mime->ext mapping used when archiving a QR image. */
+function mimeForExt(ext: string): string {
+  const e = String(ext || '').toLowerCase();
+  if (e === 'png') return 'image/png';
+  if (e === 'jpg' || e === 'jpeg') return 'image/jpeg';
+  if (e === 'webp') return 'image/webp';
+  return 'application/octet-stream';
+}
+function extForMime(mime: string): string {
+  const m = String(mime || '').toLowerCase();
+  if (m === 'image/png') return 'png';
+  if (m === 'image/jpeg' || m === 'image/jpg') return 'jpg';
+  if (m === 'image/webp') return 'webp';
+  return 'bin';
+}
+
+/**
+ * Persists the event's payment QR (if any) as a separate binary file
+ * at `events/{slug}/qr.{ext}` instead of inline in event.json. A
+ * ~400KB base64 QR embedded per event was exactly the anti-pattern
+ * that made every /events bulk read (loadAllEvents) decode+parse
+ * hundreds of KB it never needed just to list titles/status — the
+ * same CF-1102 CPU-limit cause fixed for contribution proofs.
+ * Failures are swallowed; the JSON write is the source of truth and
+ * a missing binary parallel-write must never break event save. */
+async function archiveEventQr(env: Ctx['env'], slug: string, dataUrl: string): Promise<string | null> {
+  const m = String(dataUrl || '').match(/^data:([^;,]+)(?:;base64)?,(.*)$/);
+  if (!m) return null;
+  const mime = m[1] || 'image/png';
+  const b64 = m[2] || '';
+  if (!b64) return null;
+  const path = `events/${sanitizeSlug(slug)}/qr.${extForMime(mime)}`;
+  try {
+    await writeBinary(env, path, b64, `event: archive payment QR for ${slug}`);
+    return path;
+  } catch (_e) {
+    return null;
+  }
 }
 
 /**
@@ -114,6 +154,33 @@ export async function getEvent(ctx: Ctx, params: Record<string, string>): Promis
 }
 
 /**
+ * GET /events/:slug/qr
+ * Returns the event's payment QR as a data URL, read from the
+ * dedicated binary path rather than the JSON record — bulk
+ * list reads never have to decode it this way. Same visibility as
+ * the event itself.
+ */
+export async function getEventQr(ctx: Ctx, params: Record<string, string>): Promise<Response> {
+  const path = pathFor(params['slug']);
+  const doc = await readJson<EventDoc>(ctx.env, path);
+  if (!doc) return err(ctx.env, ctx.req, 'Not found', 404);
+  const canSee = atLeast(ctx.role, 'committee')
+    || doc.data.status === 'published'
+    || doc.data.status === 'closed';
+  if (!canSee) return err(ctx.env, ctx.req, 'Not visible with your role', 403);
+  /* Legacy events written before this fix still carry the QR inline —
+   * serve it straight from the JSON rather than 404ing. */
+  const inline = String((doc.data as Record<string, unknown>)['payment_qr_data_url'] || '');
+  if (inline) return ok(ctx.env, ctx.req, { qr_data_url: inline });
+  const archivePath = String((doc.data as Record<string, unknown>)['payment_qr_archive_path'] || '');
+  if (!archivePath) return err(ctx.env, ctx.req, 'No QR attached', 404);
+  const bin = await readBinaryBase64(ctx.env, archivePath);
+  if (!bin) return err(ctx.env, ctx.req, 'QR file not found', 404);
+  const ext = archivePath.split('.').pop() || '';
+  return ok(ctx.env, ctx.req, { qr_data_url: `data:${mimeForExt(ext)};base64,${bin.base64}` });
+}
+
+/**
  * PUT /events/:slug
  * Committee+ only. Body: { event: EventDoc, expectedSha?: string }.
  * On successful write, updates `updated_by` and `updated_at` server-side
@@ -145,7 +212,25 @@ export async function putEvent(ctx: Ctx, params: Record<string, string>): Promis
   };
   const message = `event: ${stamped.slug} ${stamped.status || 'draft'} by ${ctx.identity?.email ?? 'unknown'}`;
   try {
-    const result = await writeJson(ctx.env, path, stamped, message, body.expectedSha);
+    const qrDataUrl = String((stamped as Record<string, unknown>)['payment_qr_data_url'] || '');
+    /* Persist the lean record only. A new/changed QR gets archived to
+     * its own binary file; the inline copy is dropped before writing
+     * so bulk /events reads never have to decode it (see
+     * archiveEventQr comment). An empty qrDataUrl means "no QR" or
+     * "admin removed it" — either way there's nothing to archive and
+     * the field is already absent from `toStore`. */
+    const toStore: EventDoc = { ...stamped };
+    if (qrDataUrl) {
+      const archivePath = await archiveEventQr(ctx.env, stamped.slug, qrDataUrl);
+      if (archivePath) {
+        (stamped as Record<string, unknown>)['payment_qr_archive_path'] = archivePath;
+        (toStore as Record<string, unknown>)['payment_qr_archive_path'] = archivePath;
+        delete (toStore as Record<string, unknown>)['payment_qr_data_url'];
+      }
+    } else {
+      delete (toStore as Record<string, unknown>)['payment_qr_data_url'];
+    }
+    const result = await writeJson(ctx.env, path, toStore, message, body.expectedSha);
     _listCache = null;
     return ok(ctx.env, ctx.req, { event: stamped, sha: result.sha, commitSha: result.commitSha });
   } catch (e) {

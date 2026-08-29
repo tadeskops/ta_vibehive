@@ -8,7 +8,7 @@ import { can } from '../rbac.js';
 import { navigate } from '../router.js';
 import { cfg, getSociety, state } from '../store.js';
 import { promptVerifyComment } from '../verify-prompt.js';
-import { createExpense, verifyExpenseRemote, updateExpense, deleteExpenseRemote, deleteEventRemote } from '../api.js';
+import { createExpense, verifyExpenseRemote, updateExpense, deleteExpenseRemote, deleteEventRemote, getEventQr } from '../api.js';
 import { receiptDownloadIconBtn } from '../receipt-download-menu.js';
 import { withSavingRing } from '../busy.js';
 import { receiptWhatsAppIconBtn } from '../receipt-download-menu.js';
@@ -560,8 +560,14 @@ async function renderEdit(root, evt, user, caps) {
   );
 
   /* QR upload: hold the (sanitized) data-URL in state; render current
-   * preview if already saved. `remove` button clears it. */
+   * preview if already saved. `remove` button clears it. The record
+   * no longer carries the blob inline once archived (see worker
+   * putEvent) — lazy-fetch it here so the edit form still shows a
+   * preview without forcing every /events list read to decode it. */
   let qrDataUrl = evt.payment_qr_data_url || '';
+  if (!qrDataUrl && evt.payment_qr_archive_path) {
+    try { qrDataUrl = await getEventQr(evt.slug || evt.id); } catch (_e) { /* preview stays blank */ }
+  }
   const qrPreview = el('img', {
     src: qrDataUrl, alt: 'Current payment QR',
     style: 'display:' + (qrDataUrl ? 'block' : 'none') + ';max-width:180px;margin:8px 0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px'

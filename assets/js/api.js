@@ -190,6 +190,19 @@ export async function writeEvent(slug, event, expectedSha) {
   return request('PUT', '/events/' + encodeURIComponent(slug), { event, ...(expectedSha ? { expectedSha } : {}) });
 }
 
+/** Fetch an event's payment QR as a data URL, read lazily from the
+ *  archive on demand — the event record itself no longer carries the
+ *  blob (see worker putEvent comment). Returns '' if no QR attached. */
+export async function getEventQr(slug) {
+  try {
+    const data = await request('GET', '/events/' + encodeURIComponent(slug) + '/qr');
+    return (data && data.qr_data_url) || '';
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return '';
+    throw e;
+  }
+}
+
 /* ---------- Contributions ---------- */
 
 /** List contributions visible to the caller. Optionally filter by event slug. */
