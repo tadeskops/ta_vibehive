@@ -480,7 +480,7 @@ async function loadAllContributions(env: Ctx['env']): Promise<Contribution[]> {
     }
     const fileSettled = await Promise.allSettled(files.map((p) => readJson<Contribution>(env, p)));
     const out: Contribution[] = [];
-    const missing: string[] = [];
+    let missing: string[] = [];
     for (let i = 0; i < fileSettled.length; i++) {
       const r = fileSettled[i];
       if (r.status === 'fulfilled' && r.value && r.value.data) out.push(r.value.data);
@@ -489,18 +489,42 @@ async function loadAllContributions(env: Ctx['env']): Promise<Contribution[]> {
     /* `listDir` just confirmed every file in `files` exists, so a null
      * read here is always a transient blip (GitHub's Contents API CDN
      * can briefly 404 a path right after a burst of commits to the
-     * same repo) — never a legitimate missing file. One short-delay
-     * retry recovers those instead of silently dropping the newest
-     * contributions from the list (real bug seen 2026-08-30: 10
-     * just-submitted pending contributions vanished from Approvals). */
-    if (missing.length) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+     * same repo) — never a legitimate missing file. Two escalating
+     * retries recover those instead of silently dropping the newest
+     * contributions from the list (real bug seen 2026-08-30: pending
+     * contributions vanished from Approvals right after a burst of
+     * ~24 migration commits). If files are STILL missing after both
+     * retries, skip the isolate cache so the very next request tries
+     * a fresh read instead of serving a known-incomplete list for
+     * the rest of CONTRIB_CACHE_TTL_MS. */
+    for (const delayMs of missing.length ? [500, 1500, 3000] : []) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       const retrySettled = await Promise.allSettled(missing.map((p) => readJson<Contribution>(env, p)));
-      for (const r of retrySettled) {
+      const stillMissing: string[] = [];
+      for (let i = 0; i < retrySettled.length; i++) {
+        const r = retrySettled[i];
         if (r.status === 'fulfilled' && r.value && r.value.data) out.push(r.value.data);
+        else stillMissing.push(missing[i]);
       }
+      missing = stillMissing;
+      if (!missing.length) break;
     }
-    _contribCache = { at: nowT, contribs: out };
+    if (!missing.length) {
+      _contribCache = { at: nowT, contribs: out };
+      return out;
+    }
+    /* Still missing after both retries: never regress below what a
+     * prior successful read already established. Union in any record
+     * from the last known-good cache that this pass couldn't reach,
+     * instead of returning a list that's transiently thinner than
+     * what committee members already saw a moment ago. The isolate
+     * cache itself is left untouched so the next request tries a
+     * fresh read rather than being pinned to this partial result. */
+    if (_contribCache) {
+      const byId = new Map(out.map((c) => [c.id, c] as const));
+      for (const c of _contribCache.contribs) if (!byId.has(c.id)) byId.set(c.id, c);
+      return Array.from(byId.values());
+    }
     return out;
   } catch (_e) {
     if (_contribCache) return _contribCache.contribs;

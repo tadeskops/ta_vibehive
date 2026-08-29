@@ -113,7 +113,7 @@ async function loadAllEvents(env: Ctx['env']): Promise<EventDoc[]> {
     const settled = await Promise.allSettled(
       dirs.map((dir) => readJson<EventDoc>(env, `${dir.path}/event.json`)),
     );
-    const missing: string[] = [];
+    let missing: string[] = [];
     for (let i = 0; i < settled.length; i++) {
       const r = settled[i];
       if (r.status === 'fulfilled' && r.value && r.value.data) events.push(r.value.data);
@@ -122,22 +122,39 @@ async function loadAllEvents(env: Ctx['env']): Promise<EventDoc[]> {
     /* `listDir` just confirmed every one of these paths exists, so a
      * null read here is always a transient blip (GitHub's Contents
      * API CDN can briefly 404 a path right after a burst of commits)
-     * — never a legitimate missing file. One short-delay retry
-     * recovers those instead of silently dropping events from the
+     * — never a legitimate missing file. Two escalating retries
+     * recover those instead of silently dropping events from the
      * list. Same fix applied to loadAllContributions. */
-    if (missing.length) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+    for (const delayMs of missing.length ? [500, 1500, 3000] : []) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       const retrySettled = await Promise.allSettled(missing.map((p) => readJson<EventDoc>(env, p)));
-      for (const r of retrySettled) {
+      const stillMissing: string[] = [];
+      for (let i = 0; i < retrySettled.length; i++) {
+        const r = retrySettled[i];
         if (r.status === 'fulfilled' && r.value && r.value.data) events.push(r.value.data);
+        else stillMissing.push(missing[i]);
       }
+      missing = stillMissing;
+      if (!missing.length) break;
     }
-    _listCache = { at: now, events };
+    if (!missing.length) {
+      _listCache = { at: now, events };
+      return events;
+    }
+    /* Still missing after both retries: never regress below a prior
+     * successful read. Union in any event from the last known-good
+     * cache instead of returning a transiently thinner list. Isolate
+     * cache is left untouched so the next request tries a fresh read. */
+    if (_listCache) {
+      const byId = new Map(events.map((e) => [e.id, e] as const));
+      for (const e of _listCache.events) if (!byId.has(e.id)) byId.set(e.id, e);
+      return Array.from(byId.values());
+    }
+    return events;
   } catch (_e) {
     if (_listCache) return _listCache.events;
     return [];
   }
-  return events;
 }
 
 export async function listEvents(ctx: Ctx): Promise<Response> {
