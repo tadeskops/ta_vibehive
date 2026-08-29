@@ -27,7 +27,29 @@ class GhErr extends Error {
   }
 }
 
-async function gh(env: Env, method: string, path: string, body?: unknown): Promise<unknown> {
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 502/503/504 are Cloudflare/GitHub transient hiccups; 429 and a 403
+ *  whose body mentions a rate/abuse limit are GitHub's secondary
+ *  rate limiter, which routinely trips under bursty commit traffic
+ *  (every contribution does 1-2 sequential writes). All are worth
+ *  one short retry instead of surfacing a generic "Internal error"
+ *  to the resident, who would otherwise have to notice and resubmit
+ *  by hand. */
+function isRetryableStatus(status: number, body: unknown): boolean {
+  if (status === 502 || status === 503 || status === 504 || status === 429) return true;
+  if (status === 403) {
+    const msg = String(typeof body === 'string' ? body : (body as GhErrorBody)?.message || '').toLowerCase();
+    return msg.includes('rate limit') || msg.includes('abuse');
+  }
+  return false;
+}
+
+const GH_RETRY_DELAYS_MS = [300, 900];
+
+async function gh(env: Env, method: string, path: string, body?: unknown, attempt = 0): Promise<unknown> {
   const res = await fetch(API + path, {
     method,
     headers: {
@@ -42,6 +64,10 @@ async function gh(env: Env, method: string, path: string, body?: unknown): Promi
   if (!res.ok) {
     let payload: unknown;
     try { payload = await res.json(); } catch { payload = await res.text().catch(() => ''); }
+    if (attempt < GH_RETRY_DELAYS_MS.length && isRetryableStatus(res.status, payload)) {
+      await sleep(GH_RETRY_DELAYS_MS[attempt]);
+      return gh(env, method, path, body, attempt + 1);
+    }
     throw new GhErr(res.status, path, payload);
   }
   if (res.status === 204) return null;
