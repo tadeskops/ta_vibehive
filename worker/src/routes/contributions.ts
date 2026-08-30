@@ -1,6 +1,6 @@
 import type { Ctx } from '../lib/ctx.ts';
 import { ok, err } from '../lib/envelope.ts';
-import { readJson, writeJson, writeBinary, readBinaryBase64, listDir } from '../github/client.ts';
+import { readJson, readManyJson, writeJson, writeBinary, readBinaryBase64, listDir } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -441,20 +441,28 @@ function stripPrivateFields(c: Contribution): Contribution {
 }
 
 /**
- * Sequential read of all contributions in the current window.
- * Kept intentionally simple — this is the exact shape `listExpenses`
- * has always used successfully. No isolate cache, no fan-out, no
- * retry/union-fallback logic layered on top: those were added to
- * patch symptoms of an intermittent bug that the sequential pattern
- * doesn't have in the first place. Any performance concern re-opens
- * only once we have real cold-start latency evidence — until then,
- * "simple + always correct" beats "fast + sometimes drops records".
+ * Bulk read of all contributions in the recent window.
+ *
+ * We list each month's directory (1 subrequest per month) to get the
+ * file paths, then batch every file into a SINGLE GitHub GraphQL
+ * request via `readManyJson`. This keeps the whole endpoint under a
+ * handful of outbound subrequests regardless of how many records the
+ * archive contains — critical on the Cloudflare Workers Free plan,
+ * which caps a request at 50 subrequests. Before this change a 70-
+ * file archive silently dropped the tail of the list (records past
+ * the 50th subrequest failed, caught by the per-file try/catch, and
+ * never made it into `out`), which surfaced as "the dashboard shows
+ * 44 contributors when the archive has 62". See the readManyJson
+ * doc for the fallback behaviour.
+ *
+ * LIST_MONTHS is 12 for parity with `listExpenses` — same subrequest
+ * budget now applies whether records span 1 month or 12.
  */
-const LIST_MONTHS = 3;
+const LIST_MONTHS = 12;
 
 async function loadAllContributions(env: Ctx['env']): Promise<Contribution[]> {
   const now = new Date();
-  const out: Contribution[] = [];
+  const paths: string[] = [];
   for (let i = 0; i < LIST_MONTHS; i++) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     const y = d.getUTCFullYear();
@@ -464,11 +472,15 @@ async function loadAllContributions(env: Ctx['env']): Promise<Contribution[]> {
     catch (_e) { continue; }
     for (const e of entries) {
       if (e.type !== 'file' || !e.name.endsWith('.json')) continue;
-      try {
-        const doc = await readJson<Contribution>(env, e.path);
-        if (doc && doc.data) out.push(doc.data);
-      } catch (_e) { /* one bad file must not tank the whole list */ }
+      paths.push(e.path);
     }
+  }
+  if (!paths.length) return [];
+  const blobs = await readManyJson<Contribution>(env, paths);
+  const out: Contribution[] = [];
+  for (const p of paths) {
+    const doc = blobs.get(p);
+    if (doc && doc.data) out.push(doc.data);
   }
   return out;
 }
