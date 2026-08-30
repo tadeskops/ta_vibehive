@@ -3,7 +3,6 @@ import { ok, err } from '../lib/envelope.ts';
 import { readJson, writeJson, writeBinary, readBinaryBase64, listDir, deleteFile } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
-import { mapWithConcurrency } from '../lib/concurrency.ts';
 
 /**
  * Event storage layout in the archive repo:
@@ -86,75 +85,26 @@ async function archiveEventQr(env: Ctx['env'], slug: string, dataUrl: string): P
  *   - anonymous / resident: only `published` and `closed`
  *   - committee+: all statuses
  *
- * Robustness (2026-08-24):
- *   - Isolate-local cache with a short TTL keeps the endpoint under
- *     the free-plan subrequest / CPU limits when the archive grows to
- *     dozens of events. A cold isolate still pays the full fan-out
- *     cost once, but every subsequent request in that isolate for
- *     TTL_MS returns instantly.
- *   - Any GitHub / network failure is caught and swallowed: we degrade
- *     to whatever we already have cached (possibly empty). Anonymous
- *     visitors never see a Cloudflare 1102 / 5xx here — a bad
- *     retrieval is indistinguishable from "no events yet" from the
- *     frontend's perspective, which is the correct fallback for a
- *     public read.
+ * Sequential read pattern (mirrors listExpenses) — no isolate cache,
+ * no fan-out, no retries. Any earlier layers of retry/union-fallback
+ * logic were patching symptoms of an intermittent bug the sequential
+ * pattern doesn't have in the first place. "Simple + always correct"
+ * beats "fast + sometimes drops records".
  */
-const LIST_CACHE_TTL_MS = 30_000;
-/* Max simultaneous GitHub reads for the bulk fan-out — see
- * mapWithConcurrency's doc comment for why this isn't unbounded. */
-const READ_CONCURRENCY = 8;
-let _listCache: { at: number; events: EventDoc[] } | null = null;
 
 async function loadAllEvents(env: Ctx['env']): Promise<EventDoc[]> {
-  const now = Date.now();
-  if (_listCache && now - _listCache.at < LIST_CACHE_TTL_MS) {
-    return _listCache.events;
-  }
   const events: EventDoc[] = [];
-  try {
-    const entries = await listDir(env, 'events');
-    const dirs = entries.filter((e) => e.type === 'dir');
-    /* Bounded concurrency, not full fan-out — see the comment on
-     * loadAllContributions in contributions.ts for why. */
-    const settled = await mapWithConcurrency(dirs, READ_CONCURRENCY, (dir) => readJson<EventDoc>(env, `${dir.path}/event.json`));
-    let missing: string[] = [];
-    for (let i = 0; i < settled.length; i++) {
-      const r = settled[i];
-      if (r.status === 'fulfilled' && r.value && r.value.data) events.push(r.value.data);
-      else missing.push(`${dirs[i].path}/event.json`);
-    }
-    /* Defense in depth: `listDir` just confirmed every one of these
-     * paths exists, so a still-null read here is always transient.
-     * One bounded-concurrency retry mops up any leftover blip. */
-    if (missing.length) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const retrySettled = await mapWithConcurrency(missing, READ_CONCURRENCY, (p) => readJson<EventDoc>(env, p));
-      const stillMissing: string[] = [];
-      for (let i = 0; i < retrySettled.length; i++) {
-        const r = retrySettled[i];
-        if (r.status === 'fulfilled' && r.value && r.value.data) events.push(r.value.data);
-        else stillMissing.push(missing[i]);
-      }
-      missing = stillMissing;
-    }
-    if (!missing.length) {
-      _listCache = { at: now, events };
-      return events;
-    }
-    /* Still missing after the retry: never regress below a prior
-     * successful read. Union in any event from the last known-good
-     * cache instead of returning a transiently thinner list. Isolate
-     * cache is left untouched so the next request tries a fresh read. */
-    if (_listCache) {
-      const byId = new Map(events.map((e) => [e.id, e] as const));
-      for (const e of _listCache.events) if (!byId.has(e.id)) byId.set(e.id, e);
-      return Array.from(byId.values());
-    }
-    return events;
-  } catch (_e) {
-    if (_listCache) return _listCache.events;
-    return [];
+  let entries;
+  try { entries = await listDir(env, 'events'); }
+  catch (_e) { return events; }
+  for (const dir of entries) {
+    if (dir.type !== 'dir') continue;
+    try {
+      const doc = await readJson<EventDoc>(env, `${dir.path}/event.json`);
+      if (doc && doc.data) events.push(doc.data);
+    } catch (_e) { /* one bad file must not tank the whole list */ }
   }
+  return events;
 }
 
 export async function listEvents(ctx: Ctx): Promise<Response> {
@@ -264,7 +214,6 @@ export async function putEvent(ctx: Ctx, params: Record<string, string>): Promis
       delete (toStore as Record<string, unknown>)['payment_qr_data_url'];
     }
     const result = await writeJson(ctx.env, path, toStore, message, body.expectedSha);
-    _listCache = null;
     return ok(ctx.env, ctx.req, { event: stamped, sha: result.sha, commitSha: result.commitSha });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
@@ -285,7 +234,6 @@ export async function deleteEvent(ctx: Ctx, params: Record<string, string>): Pro
   const message = `event: deleted ${sanitizeSlug(params['slug'])} by ${ctx.identity?.email ?? 'unknown'}`;
   try {
     const result = await deleteFile(ctx.env, path, message);
-    _listCache = null;
     return ok(ctx.env, ctx.req, { deleted: !!result, path });
   } catch (e) {
     if (e instanceof HttpError) return err(ctx.env, ctx.req, e.message, e.status);
