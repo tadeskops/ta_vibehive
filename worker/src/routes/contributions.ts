@@ -3,6 +3,7 @@ import { ok, err } from '../lib/envelope.ts';
 import { readJson, writeJson, writeBinary, readBinaryBase64, listDir } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
+import { mapWithConcurrency } from '../lib/concurrency.ts';
 
 /**
  * Contribution storage layout in the archive repo:
@@ -454,6 +455,9 @@ function stripPrivateFields(c: Contribution): Contribution {
  */
 const CONTRIB_CACHE_TTL_MS = 30_000;
 const LIST_MONTHS = 3;
+/* Max simultaneous GitHub reads for the bulk fan-out — see
+ * mapWithConcurrency's doc comment for why this isn't unbounded. */
+const READ_CONCURRENCY = 8;
 let _contribCache: { at: number; contribs: Contribution[] } | null = null;
 
 async function loadAllContributions(env: Ctx['env']): Promise<Contribution[]> {
@@ -478,29 +482,54 @@ async function loadAllContributions(env: Ctx['env']): Promise<Contribution[]> {
         if (e.type === 'file' && e.name.endsWith('.json')) files.push(e.path);
       }
     }
-    const fileSettled = await Promise.allSettled(files.map((p) => readJson<Contribution>(env, p)));
+    /* Bounded concurrency, not full fan-out. This directory can hold
+     * dozens of files; firing a fetch for every single one at once
+     * (the old `Promise.allSettled(files.map(...))`) risks exceeding
+     * Cloudflare Workers' concurrent-subrequest ceiling for a single
+     * invocation, which silently drops some reads with no thrown
+     * error to catch — exactly the "some contributions just vanished
+     * from Approvals" bug (2026-08-30). `listExpenses` never hit this
+     * because it reads files sequentially; this gets the same safety
+     * while keeping most of the parallel speed. */
+    const fileSettled = await mapWithConcurrency(files, READ_CONCURRENCY, (p) => readJson<Contribution>(env, p));
     const out: Contribution[] = [];
-    const missing: string[] = [];
+    let missing: string[] = [];
     for (let i = 0; i < fileSettled.length; i++) {
       const r = fileSettled[i];
       if (r.status === 'fulfilled' && r.value && r.value.data) out.push(r.value.data);
       else missing.push(files[i]);
     }
-    /* `listDir` just confirmed every file in `files` exists, so a null
-     * read here is always a transient blip (GitHub's Contents API CDN
-     * can briefly 404 a path right after a burst of commits to the
-     * same repo) — never a legitimate missing file. One short-delay
-     * retry recovers those instead of silently dropping the newest
-     * contributions from the list (real bug seen 2026-08-30: 10
-     * just-submitted pending contributions vanished from Approvals). */
+    /* Defense in depth: `listDir` just confirmed every file in
+     * `files` exists, so a still-null read here is always transient.
+     * One retry at the same bounded concurrency mops up any leftover
+     * blip without reintroducing the full-fan-out risk. */
     if (missing.length) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      const retrySettled = await Promise.allSettled(missing.map((p) => readJson<Contribution>(env, p)));
-      for (const r of retrySettled) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const retrySettled = await mapWithConcurrency(missing, READ_CONCURRENCY, (p) => readJson<Contribution>(env, p));
+      const stillMissing: string[] = [];
+      for (let i = 0; i < retrySettled.length; i++) {
+        const r = retrySettled[i];
         if (r.status === 'fulfilled' && r.value && r.value.data) out.push(r.value.data);
+        else stillMissing.push(missing[i]);
       }
+      missing = stillMissing;
     }
-    _contribCache = { at: nowT, contribs: out };
+    if (!missing.length) {
+      _contribCache = { at: nowT, contribs: out };
+      return out;
+    }
+    /* Still missing after the retry: never regress below what a
+     * prior successful read already established. Union in any record
+     * from the last known-good cache that this pass couldn't reach,
+     * instead of returning a list that's transiently thinner than
+     * what committee members already saw a moment ago. The isolate
+     * cache itself is left untouched so the next request tries a
+     * fresh read rather than being pinned to this partial result. */
+    if (_contribCache) {
+      const byId = new Map(out.map((c) => [c.id, c] as const));
+      for (const c of _contribCache.contribs) if (!byId.has(c.id)) byId.set(c.id, c);
+      return Array.from(byId.values());
+    }
     return out;
   } catch (_e) {
     if (_contribCache) return _contribCache.contribs;
