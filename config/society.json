@@ -63,7 +63,7 @@
     "show_verify": false
   },
   "dashboard": {
-    "recent_n": 40
+    "recent_n": 0
   },
   "ui": {
     "breadcrumbs": true
