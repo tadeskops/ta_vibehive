@@ -22,7 +22,7 @@
  */
 import type { Ctx } from '../lib/ctx.ts';
 import { ok, err } from '../lib/envelope.ts';
-import { readJson, writeJson, listDir, deleteFile } from '../github/client.ts';
+import { readJson, readManyJson, writeJson, listDir, deleteFile } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -192,12 +192,22 @@ export async function listExpenses(ctx: Ctx): Promise<Response> {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     months.push({ y: d.getUTCFullYear(), m: String(d.getUTCMonth() + 1).padStart(2, '0') });
   }
-  const out: Expense[] = [];
+  const paths: string[] = [];
   for (const { y, m } of months) {
     const entries = await listDir(ctx.env, `expenses/${y}/${m}`);
     for (const e of entries) {
       if (e.type !== 'file' || !e.name.endsWith('.json')) continue;
-      const doc = await readJson<Expense>(ctx.env, e.path);
+      paths.push(e.path);
+    }
+  }
+  const out: Expense[] = [];
+  if (paths.length) {
+    /* Batch every expense JSON into ONE GraphQL request. See
+     * `readManyJson` in ../github/client.ts for why (Cloudflare
+     * Workers Free plan caps a request at 50 outbound subrequests). */
+    const blobs = await readManyJson<Expense>(ctx.env, paths);
+    for (const p of paths) {
+      const doc = blobs.get(p);
       if (!doc || !doc.data) continue;
       const x = doc.data;
       if (eventFilter && x.event_id !== eventFilter) continue;

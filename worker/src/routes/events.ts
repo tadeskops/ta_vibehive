@@ -1,6 +1,6 @@
 import type { Ctx } from '../lib/ctx.ts';
 import { ok, err } from '../lib/envelope.ts';
-import { readJson, writeJson, writeBinary, readBinaryBase64, listDir, deleteFile } from '../github/client.ts';
+import { readJson, readManyJson, writeJson, writeBinary, readBinaryBase64, listDir, deleteFile } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -97,12 +97,19 @@ async function loadAllEvents(env: Ctx['env']): Promise<EventDoc[]> {
   let entries;
   try { entries = await listDir(env, 'events'); }
   catch (_e) { return events; }
+  const paths: string[] = [];
   for (const dir of entries) {
     if (dir.type !== 'dir') continue;
-    try {
-      const doc = await readJson<EventDoc>(env, `${dir.path}/event.json`);
-      if (doc && doc.data) events.push(doc.data);
-    } catch (_e) { /* one bad file must not tank the whole list */ }
+    paths.push(`${dir.path}/event.json`);
+  }
+  if (!paths.length) return events;
+  /* Batch every event JSON into ONE GraphQL request. See
+   * `readManyJson` in ../github/client.ts for why (Cloudflare Workers
+   * Free plan caps a request at 50 outbound subrequests). */
+  const blobs = await readManyJson<EventDoc>(env, paths);
+  for (const p of paths) {
+    const doc = blobs.get(p);
+    if (doc && doc.data) events.push(doc.data);
   }
   return events;
 }

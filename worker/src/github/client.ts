@@ -126,6 +126,111 @@ export async function readJson<T = unknown>(env: Env, path: string): Promise<{ d
 }
 
 /**
+ * Bulk-read multiple JSON files in a SINGLE GitHub GraphQL request.
+ *
+ * Why this exists: Cloudflare Workers Free plan caps a request at 50
+ * outbound subrequests. Each `readJson` = 1 subrequest, so a list
+ * endpoint that scans N files (e.g. 70 contributions) blows the
+ * ceiling and silently drops the last ~20 reads, which is exactly
+ * what surfaces as "the dashboard shows fewer records than the
+ * archive actually has". Batching all reads into one GraphQL POST
+ * turns N subrequests into 1, so the ceiling stops being reached
+ * until the archive has thousands of records — long past when the
+ * project should have moved to Workers Paid or D1 anyway.
+ *
+ * Semantics: returns a Map keyed by the input `paths`. A path
+ * missing from the map (or mapped to null) is a 404 / not-a-Blob.
+ * GraphQL failures fall back to sequential per-file reads so a
+ * transient GraphQL outage or PAT-scope quirk never surfaces as a
+ * blank list — it just costs the extra subrequests we already had
+ * before this optimization.
+ *
+ * Chunk size = 50 aliased blob fetches per query; GitHub GraphQL
+ * enforces a per-query node budget and a query-string length cap,
+ * and 50 stays comfortably under both. For a 200-record archive
+ * that's 4 GraphQL calls = 4 subrequests, still well under 50.
+ */
+export async function readManyJson<T = unknown>(
+  env: Env,
+  paths: string[],
+): Promise<Map<string, { data: T; sha: string } | null>> {
+  const out = new Map<string, { data: T; sha: string } | null>();
+  if (!paths.length) return out;
+
+  const CHUNK = 50;
+  const chunks: string[][] = [];
+  for (let i = 0; i < paths.length; i += CHUNK) chunks.push(paths.slice(i, i + CHUNK));
+
+  for (const chunk of chunks) {
+    let ok = false;
+    try {
+      const owner = String(env.GH_ARCHIVE_OWNER);
+      const repo = String(env.GH_ARCHIVE_REPO);
+      const branch = String(env.GH_ARCHIVE_BRANCH);
+      /* One aliased `object` selection per file. Aliases MUST be
+       * valid GraphQL identifiers so we index-key them (`f0..fN`)
+       * and keep a parallel array to map results back to paths. */
+      const selections = chunk.map((p, i) => {
+        const expr = JSON.stringify(`${branch}:${p}`);
+        return `f${i}: object(expression: ${expr}) { __typename ... on Blob { text oid isBinary } }`;
+      }).join('\n    ');
+      const query = `query BulkBlobs {\n  repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(repo)}) {\n    ${selections}\n  }\n}`;
+      const res = await fetch('https://api.github.com/graphql', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${env.TVH_ARCHIVE_PAT}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': UA,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+      });
+      if (res.ok) {
+        const payload = await res.json() as {
+          data?: { repository?: Record<string, { __typename?: string; text?: string; oid?: string; isBinary?: boolean } | null> };
+          errors?: unknown;
+        };
+        const repoNode = payload?.data?.repository;
+        if (repoNode && !payload.errors) {
+          for (let i = 0; i < chunk.length; i++) {
+            const node = repoNode[`f${i}`];
+            const p = chunk[i];
+            if (!node || node.__typename !== 'Blob' || node.isBinary || typeof node.text !== 'string' || !node.oid) {
+              out.set(p, null);
+              continue;
+            }
+            try {
+              out.set(p, { data: JSON.parse(node.text) as T, sha: node.oid });
+            } catch (_e) {
+              out.set(p, null);
+            }
+          }
+          ok = true;
+        }
+      }
+    } catch (_e) { /* fall through to per-file fallback */ }
+
+    if (!ok) {
+      /* Fallback: per-file reads. Costs one subrequest per file,
+       * which is what the code did before the GraphQL optimization.
+       * A partial GraphQL success up above already populated `out`
+       * for its chunk, so we only fall back for the chunk that just
+       * failed. */
+      for (const p of chunk) {
+        if (out.has(p)) continue;
+        try {
+          const r = await readJson<T>(env, p);
+          out.set(p, r);
+        } catch (_e) {
+          out.set(p, null);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Write a single JSON file with optimistic-lock (`If-Match` via `sha`).
  * If `expectedSha` is provided, GitHub rejects if head has moved (409).
  * If `expectedSha` is omitted and file exists, the current sha is used.
