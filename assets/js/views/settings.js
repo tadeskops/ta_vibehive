@@ -931,6 +931,12 @@ async function renderAttributes(user, canUsersManage) {
       toast('Settings saved in one consolidated write.', 'ok');
     }
     window.dispatchEvent(new HashChangeEvent('hashchange'));
+    } catch (err) {
+      /* Surface the server / archive error so the user knows their
+       * edit reverted and why (before this catch, a silent 403 from
+       * the Worker made settings edits appear to vanish on save). */
+      const msg = (err && err.message) || 'Could not save settings.';
+      toast(msg, 'err');
     } finally {
       setSaving(false);
     }

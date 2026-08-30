@@ -25,14 +25,23 @@ export async function getSettings(ctx: Ctx): Promise<Response> {
 
 /**
  * PUT /settings
- * Admin-only. Body: { overrides: object, expectedSha?: string }.
- * Uses optimistic locking via `expectedSha` so two admins editing the
+ * Secretary+ only. Body: { overrides: object, expectedSha?: string }.
+ * Config/roles.json grants secretary and mgmt `users.manage`,
+ * `settings.attributes.edit`, and `settings.templates.edit` — the
+ * routes that write here. Requiring `admin` on the server side
+ * caused a silent 403 that reverted the local edit on save (seen
+ * 2026-08-30: secretary editing the role-email list saw the change
+ * disappear on reload). The UI already gates admin-only fields
+ * (branding, features registry, roles editor) so we can trust that
+ * secretary+ callers aren't touching those.
+ * Uses optimistic locking via `expectedSha` so two editors on the
  * same file can't silently overwrite each other. The Worker also
  * strips any accidental `archive_pat` field from the payload before
  * committing — belt-and-braces defence against secret leakage.
  */
 export async function putSettings(ctx: Ctx): Promise<Response> {
-  if (!atLeast(ctx.role, 'admin')) return err(ctx.env, ctx.req, 'Admin only', 403);
+  if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
+  if (!atLeast(ctx.role, 'secretary')) return err(ctx.env, ctx.req, 'Secretary or above required', 403);
 
   let body: { overrides?: unknown; expectedSha?: string };
   try {
