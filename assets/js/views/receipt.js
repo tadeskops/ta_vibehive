@@ -7,7 +7,7 @@
 import { el, mount, fmtINR, fmtDate, toast } from '../dom.js';
 import { state, getSociety } from '../store.js';
 import { findEvent } from '../events.js';
-import { attachReceipt } from '../receipts.js';
+import { attachReceipt, computeVerifyHash } from '../receipts.js';
 import { session } from '../auth.js';
 import { can } from '../rbac.js';
 import { archivePdfIfMissing } from '../archive-runtime.js';
@@ -623,14 +623,26 @@ export async function shareReceiptDirect(contribId) {
  * expense-flavored article. Same theme choices (default renders as
  * an on-screen article; PDF/PNG reuse the html2canvas snapshot
  * pipeline). Text/attributes come from the expense record.
+ *
+ * Structural parity with buildReceiptArticle (contribution receipt):
+ * every visible section is present in the same order so the two
+ * documents look like siblings from the same committee. Content is
+ * what varies — labels ("Voucher no." vs "Receipt no.", "Amount
+ * paid" vs "Amount received"), meta rows relevant to an outgoing
+ * expense (Category / Description / Logged by), and the audit
+ * disclaimer wording. Same watermark, same hash grid, same verify
+ * block, same anti-forgery microtext band.
  * ============================================================ */
 
-function buildExpenseArticle(x, evt, soc) {
+async function buildExpenseArticle(x, evt, soc) {
   const receiptNo = expenseReceiptId(x);
+  const issuedAt  = x.verified_at || x.updated_at || x.created_at;
+  const verifyHash = await computeVerifyHash(receiptNo, Number(x.amount || 0), x.created_by || x.id || '');
   const ident = committeeIdentity(evt, soc);
   const useSocietySeal = ident.useSocietySeal;
   const showSocietyHeader = ident.showSocietyHeader;
   return el('article', { class: useSocietySeal ? 'receipt' : 'receipt receipt-no-society-seal' },
+    textmark(ident.committee_name || soc.short_name, receiptNo, verifyHash),
     el('header', { class: 'receipt-head' },
       el('img', { src: 'assets/images/TaLogo.png', alt: '' }),
       el('div', {},
@@ -645,13 +657,12 @@ function buildExpenseArticle(x, evt, soc) {
     el('h3', { style: 'text-align:center;margin:0 0 8px', text: 'Expense Voucher' }),
     el('div', { class: 'receipt-meta' },
       metaRow('Voucher no.', receiptNo),
-      metaRow('Issued on', fmtDate(x.verified_at || x.updated_at || x.created_at)),
+      metaRow('Issued on', fmtDate(issuedAt)),
       metaRow('Event', ident.purposeLine),
       metaRow('Category', x.category || '—'),
       metaRow('Description', x.description || '—'),
       metaRow('Logged by', x.submitter_name || x.created_by || '—'),
-      metaRow('Flat / Unit', x.submitter_flat || x.flat || '—'),
-      metaRow('Verified by', x.verified_by || '—'),
+      flatMetaRow(x.submitter_flat || x.flat || '—', useSocietySeal),
       metaRow('Payment reference', x.txn_ref || x.ref || '—')
     ),
     el('div', { class: 'receipt-amount-wrap' },
@@ -665,12 +676,17 @@ function buildExpenseArticle(x, evt, soc) {
         ident.committee_subtitle ? el('small', { style: 'display:block;color:var(--muted)', text: ident.committee_subtitle }) : null,
         el('div', { style: 'font-weight:800;margin-top:20px', text: x.verified_by || 'Authorised signatory' })
       ),
-      el('div', {}),
+      hashGrid(verifyHash),
       useSocietySeal
         ? el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
         : el('img', { src: 'assets/images/culturalCommitteeSeal.svg', alt: 'committee seal', class: 'receipt-committee-seal' })
     ),
-    x.verified_comment ? el('p', { style: 'font-size:11px;color:var(--muted);margin-top:6px', text: 'Verifier note · ' + x.verified_comment }) : null
+    el('div', { class: 'receipt-verify' },
+      el('div', {}, el('b', { text: 'Verify hash: ' }), el('span', { text: verifyHash })),
+      el('div', {}, el('b', { text: 'Verify online: ' }), el('span', { text: verifyUrl(receiptNo) }))
+    ),
+    x.verified_comment ? el('p', { style: 'font-size:11px;color:var(--muted);margin-top:6px', text: 'Verifier note · ' + x.verified_comment }) : null,
+    el('div', { class: 'receipt-microtext', 'aria-hidden': 'true', text: microtextLine(receiptNo, verifyHash) })
   );
 }
 
@@ -688,7 +704,7 @@ function expensePdfFileName(x) {
 
 async function buildExpensePdf(x, evt, soc) {
   await Promise.all([ensureJsPdf(), ensureHtml2Canvas()]);
-  const article = buildExpenseArticle(x, evt, soc);
+  const article = await buildExpenseArticle(x, evt, soc);
   const stage = document.createElement('div');
   stage.style.cssText = 'position:fixed;left:-20000px;top:0;z-index:-1;pointer-events:none;background:#faf3ea;padding:24px 20px;width:794px;';
   const wrap = document.createElement('div');
@@ -817,7 +833,7 @@ export async function renderExpense(root, { match }) {
         finally { b.disabled = false; b.textContent = lbl; } } }
     }, '⬇ Download PDF')
   );
-  const article = buildExpenseArticle(x, evt, soc);
+  const article = await buildExpenseArticle(x, evt, soc);
   mount(root, actions, article);
 }
 
