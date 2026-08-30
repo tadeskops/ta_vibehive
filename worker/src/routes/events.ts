@@ -3,6 +3,7 @@ import { ok, err } from '../lib/envelope.ts';
 import { readJson, writeJson, writeBinary, readBinaryBase64, listDir, deleteFile } from '../github/client.ts';
 import { atLeast } from '../auth/roles.ts';
 import { HttpError } from '../lib/errors.ts';
+import { mapWithConcurrency } from '../lib/concurrency.ts';
 
 /**
  * Event storage layout in the archive repo:
@@ -99,6 +100,9 @@ async function archiveEventQr(env: Ctx['env'], slug: string, dataUrl: string): P
  *     public read.
  */
 const LIST_CACHE_TTL_MS = 30_000;
+/* Max simultaneous GitHub reads for the bulk fan-out — see
+ * mapWithConcurrency's doc comment for why this isn't unbounded. */
+const READ_CONCURRENCY = 8;
 let _listCache: { at: number; events: EventDoc[] } | null = null;
 
 async function loadAllEvents(env: Ctx['env']): Promise<EventDoc[]> {
@@ -110,24 +114,21 @@ async function loadAllEvents(env: Ctx['env']): Promise<EventDoc[]> {
   try {
     const entries = await listDir(env, 'events');
     const dirs = entries.filter((e) => e.type === 'dir');
-    const settled = await Promise.allSettled(
-      dirs.map((dir) => readJson<EventDoc>(env, `${dir.path}/event.json`)),
-    );
+    /* Bounded concurrency, not full fan-out — see the comment on
+     * loadAllContributions in contributions.ts for why. */
+    const settled = await mapWithConcurrency(dirs, READ_CONCURRENCY, (dir) => readJson<EventDoc>(env, `${dir.path}/event.json`));
     let missing: string[] = [];
     for (let i = 0; i < settled.length; i++) {
       const r = settled[i];
       if (r.status === 'fulfilled' && r.value && r.value.data) events.push(r.value.data);
       else missing.push(`${dirs[i].path}/event.json`);
     }
-    /* `listDir` just confirmed every one of these paths exists, so a
-     * null read here is always a transient blip (GitHub's Contents
-     * API CDN can briefly 404 a path right after a burst of commits)
-     * — never a legitimate missing file. Two escalating retries
-     * recover those instead of silently dropping events from the
-     * list. Same fix applied to loadAllContributions. */
-    for (const delayMs of missing.length ? [500, 1500, 3000] : []) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-      const retrySettled = await Promise.allSettled(missing.map((p) => readJson<EventDoc>(env, p)));
+    /* Defense in depth: `listDir` just confirmed every one of these
+     * paths exists, so a still-null read here is always transient.
+     * One bounded-concurrency retry mops up any leftover blip. */
+    if (missing.length) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const retrySettled = await mapWithConcurrency(missing, READ_CONCURRENCY, (p) => readJson<EventDoc>(env, p));
       const stillMissing: string[] = [];
       for (let i = 0; i < retrySettled.length; i++) {
         const r = retrySettled[i];
@@ -135,13 +136,12 @@ async function loadAllEvents(env: Ctx['env']): Promise<EventDoc[]> {
         else stillMissing.push(missing[i]);
       }
       missing = stillMissing;
-      if (!missing.length) break;
     }
     if (!missing.length) {
       _listCache = { at: now, events };
       return events;
     }
-    /* Still missing after both retries: never regress below a prior
+    /* Still missing after the retry: never regress below a prior
      * successful read. Union in any event from the last known-good
      * cache instead of returning a transiently thinner list. Isolate
      * cache is left untouched so the next request tries a fresh read. */
