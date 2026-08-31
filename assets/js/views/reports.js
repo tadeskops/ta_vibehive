@@ -35,6 +35,18 @@ const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.
 const AUTOTABLE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
 const STATUSES = ['pending', 'verified', 'void'];
 const EXPENSE_STATUSES = ['pending', 'verified'];
+const PDF_COLUMN_WIDTHS = {
+  event: 18,
+  contributor: 74,
+  flat: 17,
+  amount: 20,
+  method: 16,
+  status: 18,
+  ref: 30,
+  created_at: 19,
+  verified_at: 19,
+  remarks: 50,
+};
 const DEFAULT_COLS = [
   { id: 'event',       label: 'Event',        default: true },
   { id: 'contributor', label: 'Contributor',  default: true },
@@ -675,6 +687,9 @@ export async function render(root, { match } = {}) {
 
     const head = [cols.map(c => c.label)];
     const body = rows.map(r => cols.map(c => String(fmtCell(c.id, r) || '')));
+    const columnStyles = Object.fromEntries(cols.map((c, index) => [index, {
+      cellWidth: PDF_COLUMN_WIDTHS[c.id] || 20,
+    }]));
     doc.autoTable({
       head,
       body,
@@ -683,6 +698,7 @@ export async function render(root, { match } = {}) {
       styles: { fontSize: 8, cellPadding: 1.4, overflow: 'linebreak', valign: 'top' },
       headStyles: { fillColor: [30, 41, 59], textColor: [252, 211, 77], fontStyle: 'bold', fontSize: 8 },
       alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles,
     });
 
     const pages = doc.internal.getNumberOfPages();
