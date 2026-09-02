@@ -33,6 +33,8 @@
     "receipts.archive":          ["admin", "secretary", "mgmt"],
     "receipts.theme.override":   ["admin", "secretary", "mgmt"],
     "expenses.record":           ["admin", "secretary", "mgmt", "committee", "manager", "resident"],
+    "expenses.approve":          ["admin", "secretary", "mgmt", "committee"],
+    "expenses.process":          ["admin", "secretary", "mgmt"],
     "expenses.verify":           ["admin", "secretary", "mgmt", "committee"],
     "expenses.view":             ["admin", "secretary", "mgmt", "committee", "manager"],
     "reports.view":              ["admin", "secretary", "mgmt", "committee", "manager"],

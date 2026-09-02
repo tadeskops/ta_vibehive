@@ -911,11 +911,16 @@ async function renderExpensesPanel(evt, user, { canRecord, caps }) {
   const soc = await getSociety().catch(() => null);
   const expenseCfg = (soc && soc.expenses) || {};
   const defaultVisible = !!expenseCfg.default_visible_to_residents;
-  const canVerify = await can(user, 'expenses.verify');
+  const canApprove = await can(user, 'expenses.approve');
+  const canProcess = await can(user, 'expenses.process');
+  // `expenses.verify` is retained as the umbrella capability powering
+  // edit/delete/visibility affordances. Anyone who can approve OR
+  // process can also perform those moderator actions.
+  const canVerify = canApprove || canProcess || await can(user, 'expenses.verify');
   const rows = state.expenses().filter(x => x && x.event_id === evt.id)
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
   const verified = rows.filter(r => r.status === 'verified');
-  const pendingRows = rows.filter(r => r.status === 'pending' || !r.status);
+  const pendingRows = rows.filter(r => r.status === 'pending' || r.status === 'approved' || !r.status);
   const verifiedTotal = verified.reduce((s, r) => s + Number(r.amount || 0), 0);
   const pendingTotal  = pendingRows.reduce((s, r) => s + Number(r.amount || 0), 0);
   const collected = totalFor(evt.id);
@@ -940,7 +945,7 @@ async function renderExpensesPanel(evt, user, { canRecord, caps }) {
       el('th', { text: 'Visible to residents' }),
       (canRecord || canVerify) ? el('th', { text: 'Actions' }) : null
     )),
-    el('tbody', {}, ...(rows.length ? rows.map(r => expenseRow(r, evt, user, { canRecord, canVerify, caps })) : [
+    el('tbody', {}, ...(rows.length ? rows.map(r => expenseRow(r, evt, user, { canRecord, canVerify, canApprove, canProcess, caps })) : [
       el('tr', {}, el('td', { colspan: (canRecord || canVerify) ? 8 : 7, text: canRecord ? 'No expenses recorded yet. Tap "Add expense" to record the first one.' : 'No expenses recorded yet.', style: 'text-align:center;color:var(--muted);padding:14px' }))
     ]))
   );
@@ -948,7 +953,7 @@ async function renderExpensesPanel(evt, user, { canRecord, caps }) {
   return el('section', { class: 'card', style: 'margin-top:16px;padding:0;overflow:hidden' }, head, tbl);
 }
 
-function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
+function expenseRow(r, evt, user, { canRecord, canVerify, canApprove, canProcess, caps }) {
   const isOwn = r.created_by && user && String(r.created_by).toLowerCase() === String(user.email || user.id || '').toLowerCase();
   const status = r.status || 'pending';
   const canEditThis = canRecord && (canVerify || isOwn);
@@ -973,8 +978,15 @@ function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
       toast(rec.visible_to_residents ? 'Now visible to residents' : 'Hidden from residents', 'ok');
     } }
   });
-  const pillCls = status === 'verified' ? 'pill pill-sage' : status === 'void' ? 'pill pill-muted' : 'pill';
-  const pillText = status === 'void' ? 'invalid' : status;
+  const pillCls =
+    status === 'verified' ? 'pill pill-sage'
+    : status === 'approved' ? 'pill pill-warn'
+    : status === 'void' ? 'pill pill-muted'
+    : 'pill';
+  const pillText =
+    status === 'void' ? 'invalid'
+    : status === 'approved' ? 'approved · awaiting payment'
+    : status;
   const proofCount = Array.isArray(r.proofs)
     ? r.proofs.filter(p => p && p.data_url).length
     : (r.proof_data_url ? 1 : 0);
@@ -993,7 +1005,8 @@ function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
     el('td', {}, el('span', { class: pillCls, text: pillText })),
     el('td', {}, visToggle),
     (canRecord || canVerify) ? el('td', {}, el('div', { class: 'row' },
-      (canVerify && status === 'pending') ? el('button', { class: 'btn btn-sm', on: { click: () => verifyExpense(r, evt, user, caps) } }, 'Verify') : null,
+      (canApprove && status === 'pending') ? el('button', { class: 'btn btn-sm', on: { click: () => approveExpense(r, evt, user, caps) } }, 'Approve') : null,
+      (canProcess && status === 'approved') ? el('button', { class: 'btn btn-sm', on: { click: () => processExpense(r, evt, user, caps) } }, 'Mark processed') : null,
       canSeeVoucher ? el('a', {
         class: 'tvh-mini-icon-btn',
         href: `#/expense/${encodeURIComponent(r.id)}`,
@@ -1008,40 +1021,170 @@ function expenseRow(r, evt, user, { canRecord, canVerify, caps }) {
   );
 }
 
-async function verifyExpense(r, evt, user, caps) {
+async function approveExpense(r, evt, user, caps) {
   const list = state.expenses();
   const rec = list.find(x => x && x.id === r.id);
   if (!rec) return;
   const subject = `${rec.category || 'Expense'} · ${fmtINR(Number(rec.amount || 0))} · ${(evt && evt.title) || ''}`;
   const comment = await promptVerifyComment({
-    title: 'Verify this expense?',
+    title: 'Approve this expense?',
     subject,
-    helpText: 'Optional — note anything you cross-checked (invoice attached, cash counted, cheque number…). Saved to the event history.',
-    confirmLabel: 'Verify expense',
+    helpText: 'Cultural Secretary approval — sanctions the spend, no receipt yet. Payment must still be made and recorded by Finance for a receipt to be generated.',
+    confirmLabel: 'Approve expense',
   });
   if (comment === null) return;
   const nowIso = new Date().toISOString();
-  rec.status = 'verified';
-  rec.verified_at = nowIso;
-  rec.verified_by = user && (user.email || user.id) || 'unknown';
-  if (comment) rec.verified_comment = comment;
+  rec.status = 'approved';
+  rec.approved_at = nowIso;
+  rec.approved_by = user && (user.email || user.id) || 'unknown';
+  if (comment) rec.approved_comment = comment;
   rec.updated_at = nowIso;
   state.saveExpenses(list);
-  state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: rec.id, event: evt.id, amount: rec.amount, comment: comment || undefined });
-  // Server-side verify — needed for other moderators' devices to see
-  // the row flip. Falls back silently if there's no `_path` yet
-  // (row was created before the server sync landed).
+  state.audit({ actor: user && user.email || null, action: 'expense.approve', expense: rec.id, event: evt.id, amount: rec.amount, comment: comment || undefined });
   if (rec._path) {
-    verifyExpenseRemote(rec._path, comment).catch((e) => {
-      console.warn('[expense] server verify failed; local flip stands until next sync', e);
+    updateExpense(rec._path, {
+      status: 'approved',
+      approved_at: rec.approved_at,
+      approved_by: rec.approved_by,
+      approved_comment: rec.approved_comment || '',
+    }).catch((e) => { console.warn('[expense] server approve failed; local flip stands until next sync', e); });
+  }
+  toast('Expense approved. Awaiting Finance to record payment.', 'ok');
+  renderManage(document.getElementById('main'), evt, user, caps);
+}
+
+/* Finance mints the voucher. Optional inputs:
+ *   - txn_ref (payment reference / UTR / cheque no.)
+ *   - extra proof images added on top of the submitter's proofs
+ *   - optional note.
+ * On submit the row flips to `verified`, which is the single gate the
+ * voucher view honours. */
+async function processExpense(r, evt, user, caps) {
+  const list = state.expenses();
+  const rec = list.find(x => x && x.id === r.id);
+  if (!rec) return;
+
+  const inpTxn = el('input', { type: 'text', placeholder: 'UTR / cheque no. / UPI ref (optional)', maxlength: '64', value: rec.txn_ref || '' });
+  const inpNote = el('textarea', { rows: '3', placeholder: 'Optional — payment date, mode, cross-check note…' });
+  const inpProofs = el('input', { type: 'file', accept: 'image/*,application/pdf', multiple: true });
+  const proofStatus = el('div', { class: 'sub', style: 'margin-top:4px', text: 'No new payment proof attached.' });
+  const proofGallery = el('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;margin-top:6px' });
+  const extraProofs = [];
+
+  async function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result || ''));
+      fr.onerror = () => reject(new Error('read failed'));
+      fr.readAsDataURL(file);
     });
   }
-  try {
-    const mod = await import('../events.js');
-    if (mod && typeof mod.recordExpenseVerify === 'function') mod.recordExpenseVerify(rec, user, comment);
-  } catch (_e) { /* silent */ }
-  toast('Expense verified. Now counts in the ledger.', 'ok');
-  renderManage(document.getElementById('main'), evt, user, caps);
+  function refreshGallery() {
+    proofGallery.replaceChildren(...extraProofs.map((p, idx) => {
+      const box = el('div', { style: 'position:relative;width:72px;height:72px;border-radius:8px;overflow:hidden;background:#faf3ea;border:1px solid var(--muted-line,#dfd6c4)' });
+      if (/^image\//i.test(p.type || '')) {
+        box.appendChild(el('img', { src: p.data_url, alt: p.name || '', style: 'width:100%;height:100%;object-fit:cover;display:block' }));
+      } else {
+        box.appendChild(el('div', { style: 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:22px', text: '📄' }));
+      }
+      const rm = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', style: 'position:absolute;top:2px;right:2px;padding:0 6px;line-height:1', title: 'Remove' }, '×');
+      rm.addEventListener('click', () => { extraProofs.splice(idx, 1); refreshGallery(); });
+      box.appendChild(rm);
+      return box;
+    }));
+    proofStatus.textContent = extraProofs.length
+      ? `${extraProofs.length} payment proof${extraProofs.length === 1 ? '' : 's'} attached (added to any submitter proofs).`
+      : 'No new payment proof attached.';
+  }
+  inpProofs.addEventListener('change', async () => {
+    const files = Array.from(inpProofs.files || []);
+    inpProofs.value = '';
+    for (const f of files) {
+      if (extraProofs.length >= 5) { toast('Max 5 additional proofs.', 'warn'); break; }
+      if (f.size > 900 * 1024) { toast(`${f.name} is too big (>900 KB). Compress first.`, 'err'); continue; }
+      try {
+        const data_url = await fileToDataUrl(f);
+        extraProofs.push({ data_url, name: f.name, size: f.size, type: f.type || '' });
+      } catch (_e) { toast(`Could not read ${f.name}.`, 'err'); }
+    }
+    refreshGallery();
+  });
+
+  await new Promise((resolve) => {
+    modal({
+      title: 'Mark expense as processed?',
+      body: el('div', {},
+        el('div', { class: 'row', style: 'gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap' },
+          el('small', { class: 'pill pill-muted', text: 'Expense' }),
+          el('strong', { text: `${rec.category || 'Expense'} · ${fmtINR(Number(rec.amount || 0))}` })
+        ),
+        rec.approved_by ? el('p', { class: 'sub', style: 'margin:0 0 8px', text: `Approved by ${rec.approved_by}${rec.approved_at ? ' · ' + fmtDate(rec.approved_at) : ''}` }) : null,
+        el('p', { class: 'sub', style: 'margin:0 0 10px', text: 'Recording payment mints the receipt. Voucher will be visible to the submitter and admins with access.' }),
+        el('label', { class: 'lbl', text: 'Transaction reference' }),
+        el('small', { class: 'sub', style: 'display:block;margin-bottom:4px', text: 'Optional. UTR, cheque number, UPI ref — whatever ties the outflow to the bank / cash book.' }),
+        inpTxn,
+        el('label', { class: 'lbl', style: 'margin-top:12px', text: 'Payment proof(s)' }),
+        el('small', { class: 'sub', style: 'display:block;margin-bottom:4px', text: 'Optional. Screenshot of the transfer, scanned cheque, cash receipt, etc. Up to 5 files, ≤900 KB each.' }),
+        inpProofs,
+        proofStatus,
+        proofGallery,
+        el('label', { class: 'lbl', style: 'margin-top:12px', text: 'Note' }),
+        el('small', { class: 'sub', style: 'display:block;margin-bottom:4px', text: 'Optional. Saved to the event history.' }),
+        inpNote
+      ),
+      actions: [
+        { label: 'Cancel', close: true, onClick: () => resolve(null) },
+        { label: 'Mark processed · mint receipt', kind: '', onClick: (close) => {
+          const txn = String(inpTxn.value || '').trim().slice(0, 64);
+          const note = String(inpNote.value || '').trim();
+          const nowIso = new Date().toISOString();
+          const combinedProofs = Array.isArray(rec.proofs) ? rec.proofs.slice() : [];
+          for (const p of extraProofs) combinedProofs.push({ data_url: p.data_url, name: p.name, size: p.size });
+          rec.status = 'verified';
+          rec.processed_at = nowIso;
+          rec.processed_by = user && (user.email || user.id) || 'unknown';
+          if (txn) rec.txn_ref = txn;
+          if (note) rec.processed_comment = note;
+          if (combinedProofs.length) {
+            rec.proofs = combinedProofs.slice(0, 10);
+            const legacy = combinedProofs[0] || {};
+            rec.proof_data_url = legacy.data_url || rec.proof_data_url || '';
+            rec.proof_name = legacy.name || rec.proof_name || '';
+            rec.proof_size = legacy.size || rec.proof_size || 0;
+          }
+          // Backward-compat: existing consumers read verified_by / verified_at.
+          rec.verified_at = nowIso;
+          rec.verified_by = rec.processed_by;
+          if (note) rec.verified_comment = note;
+          rec.updated_at = nowIso;
+          state.saveExpenses(list);
+          state.audit({ actor: user && user.email || null, action: 'expense.process', expense: rec.id, event: evt.id, amount: rec.amount, comment: note || undefined, detail: txn || undefined });
+          if (rec._path) {
+            updateExpense(rec._path, {
+              status: 'verified',
+              processed_at: rec.processed_at,
+              processed_by: rec.processed_by,
+              processed_comment: rec.processed_comment || '',
+              verified_at: rec.verified_at,
+              verified_by: rec.verified_by,
+              txn_ref: rec.txn_ref || '',
+              proofs: rec.proofs || [],
+            }).catch((e) => { console.warn('[expense] server process failed; local flip stands until next sync', e); });
+          }
+          toast('Payment recorded. Receipt is now available to the submitter.', 'ok');
+          close();
+          resolve(true);
+          renderManage(document.getElementById('main'), evt, user, caps);
+        } }
+      ],
+      onClose: () => resolve(null)
+    });
+  });
+}
+
+// Legacy one-click verify — kept for callers/tests still importing it.
+async function verifyExpense(r, evt, user, caps) {
+  return processExpense(r, evt, user, caps);
 }
 
 export function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDone) {

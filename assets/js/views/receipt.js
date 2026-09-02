@@ -678,6 +678,10 @@ async function buildExpenseArticle(x, evt, soc) {
       metaRow('Description', x.description || '—'),
       metaRow('Logged by', x.submitter_name || x.created_by || '—'),
       flatMetaRow(x.submitter_flat || x.flat || '—', useSocietySeal),
+      x.approved_by ? metaRow('Approved by', `${x.approved_by}${x.approved_at ? ' · ' + fmtDate(x.approved_at) : ''}`) : null,
+      metaRow('Processed by', (x.processed_by || x.verified_by)
+        ? `${x.processed_by || x.verified_by}${(x.processed_at || x.verified_at) ? ' · ' + fmtDate(x.processed_at || x.verified_at) : ''}`
+        : '—'),
       metaRow('Payment reference', x.txn_ref || x.ref || '—')
     ),
     el('div', { class: 'receipt-amount-wrap' },
@@ -710,7 +714,7 @@ async function buildExpenseArticle(x, evt, soc) {
 
 function expenseReceiptId(x) {
   const short = (x.category || 'EXP').replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 4) || 'EXP';
-  const iso = String(x.verified_at || x.created_at || new Date().toISOString());
+  const iso = String(x.processed_at || x.verified_at || x.created_at || new Date().toISOString());
   const stamp = iso.slice(0, 10).replace(/-/g, '') + '-' + iso.slice(11, 16).replace(':', '');
   const tail = String(x.id || '').slice(-6).toUpperCase();
   return `${short}-${stamp}-${tail || 'XXXXXX'}`;
@@ -827,9 +831,12 @@ export async function renderExpense(root, { match }) {
   const canView = user && (isOwn || await can(user, 'expenses.view'));
   if (!canView) return mount(root, el('div', { class: 'card card-pad' }, el('h2', { text: 'Not authorised.' })));
   if (x.status !== 'verified') {
+    const stateNote = x.status === 'approved'
+      ? 'Approved by the Cultural Secretary. Finance has not yet recorded the payment, so no voucher has been minted.'
+      : 'This expense has not been approved yet. A voucher is generated only after Finance records the payment.';
     return mount(root, el('div', { class: 'card card-pad' },
-      el('h2', { text: 'Pending verification' }),
-      el('p', { text: 'This expense has not been verified yet. A voucher is generated only after verification.' }),
+      el('h2', { text: x.status === 'approved' ? 'Awaiting Finance' : 'Awaiting approval' }),
+      el('p', { text: stateNote }),
       el('a', { class: 'btn', href: `#/e/${x.event_id}` }, 'Back to event')
     ));
   }
