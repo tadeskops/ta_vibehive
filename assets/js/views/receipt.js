@@ -66,23 +66,32 @@ function receiptCopyForEvent(evt) {
   return COPY[key] || COPY.festival;
 }
 
-/* Committee identity resolution — receipts are issued in the name of
- * the organising committee, not the society itself. Per-event override
- * `evt.receipt_committee_name` wins, else society-wide default from
- * `config/society.json#receipts.committee_name`, else falls back to
- * society short_name so older installs never regress to blank.
+/* Group identity resolution — receipts are issued in the name of
+ * the organising group, not the society itself. Per-event override
+ * `evt.receipt_group_name` wins, else society-wide default from
+ * `config/society.json#receipts.group_name`, else the legacy
+ * `receipts.committee_name` for backward-compat with older configs,
+ * else falls back to society short_name so older installs never
+ * regress to blank.
  *
  * Also returns a purpose line used in the "Event" meta row so a
  * Ganesh Utsav receipt reads e.g. "Contribution for Ganesh Utsav from
- * the residents of The Address society". */
+ * the residents of The Address society".
+ *
+ * `showStamp` — the printed rubber-stamp seal image on the receipt is
+ * hidden by default. Set `receipts.show_stamp: true` in society.json
+ * (or via Settings → Attributes) once a real seal PNG for the group
+ * is available. */
 function committeeIdentity(evt, soc) {
   const rc = (soc && soc.receipts) || {};
-  const committee_name =
-    (evt && evt.receipt_committee_name) ||
+  const group_name =
+    (evt && (evt.receipt_group_name || evt.receipt_committee_name)) ||
+    rc.group_name ||
     rc.committee_name ||
     soc.short_name || '';
-  const committee_subtitle =
-    (evt && evt.receipt_committee_subtitle) ||
+  const group_subtitle =
+    (evt && (evt.receipt_group_subtitle || evt.receipt_committee_subtitle)) ||
+    rc.group_subtitle ||
     rc.committee_subtitle || '';
   const eventTitle = (evt && evt.title) || '';
   const societyShort = soc.short_name || '';
@@ -91,27 +100,28 @@ function committeeIdentity(evt, soc) {
     : (eventTitle || '—');
   const useSocietySeal = rc.use_society_seal === true;
   const showSocietyHeader = rc.show_society_header === true;
-  return { committee_name, committee_subtitle, purposeLine, useSocietySeal, showSocietyHeader };
+  const showStamp = rc.show_stamp === true;
+  return {
+    // Legacy alias — many callers still read `committee_name` / `committee_subtitle`.
+    committee_name: group_name,
+    committee_subtitle: group_subtitle,
+    group_name,
+    group_subtitle,
+    purposeLine,
+    useSocietySeal,
+    showSocietyHeader,
+    showStamp,
+  };
 }
 
-/* Build a receipt PDF. Delegates to a per-theme renderer based on
- * `opts.theme` (or `soc.receipts.default_theme`). All renderers share
- * a small set of primitives: helvetica type (small file size, no
- * hindi/marathi glyphs), Rs. instead of ₹, and the drawFlatStamp()
- * anti-tamper ring over the Flat/Unit row. */
+/* Build a receipt PDF. Single canonical template ("default") is used
+ * across the project — the earlier cheque-classic / certificate-brand
+ * dispatchers are retained in-file for archival reference but are no
+ * longer selectable. If a stored template still points at another
+ * theme id we transparently render the default so historical receipts
+ * do not diverge from the current canonical layout. */
 async function buildReceiptPdf(r, rec, evt, soc, opts) {
   await ensureJsPdf();
-  const themeId = String(
-    (opts && opts.theme) ||
-    (soc && soc.receipts && soc.receipts.default_theme) ||
-    'default'
-  ).toLowerCase();
-  if (themeId === 'cheque-classic' || themeId === 'cheque_classic') {
-    return buildReceiptPdfChequeClassic(r, rec, evt, soc, opts || {});
-  }
-  if (themeId === 'certificate-brand' || themeId === 'certificate_brand') {
-    return buildReceiptPdfCertificateBrand(r, rec, evt, soc, opts || {});
-  }
   return buildReceiptPdfDefault(r, rec, evt, soc, opts || {});
 }
 export { buildReceiptPdf };
@@ -240,9 +250,14 @@ function buildReceiptArticle(r, rec, evt, soc, tpl) {
         el('div', { style: 'font-weight:800;margin-top:20px', text: rec.verified_by || 'Authorised signatory' })
       ),
       showGrid ? hashGrid(r.verify_hash) : el('div', {}),
-      useSocietySeal
-        ? el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
-        : el('img', { src: 'assets/images/culturalCommitteeSeal.svg', alt: 'committee seal', class: 'receipt-committee-seal' })
+      // Rubber-stamp seal image — hidden unless `receipts.show_stamp` is
+      // true. The shipped PNGs read "Cultural Committee"; do NOT enable
+      // this flag until a "Group"-labelled seal asset is supplied.
+      ident.showStamp
+        ? (useSocietySeal
+            ? el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
+            : el('img', { src: 'assets/images/culturalCommitteeSeal.svg', alt: 'group seal', class: 'receipt-committee-seal' }))
+        : null
     ),
     showQr ? el('div', { class: 'receipt-verify' },
       el('div', {}, el('b', { text: 'Verify hash: ' }), el('span', { text: r.verify_hash })),
@@ -677,9 +692,12 @@ async function buildExpenseArticle(x, evt, soc) {
         el('div', { style: 'font-weight:800;margin-top:20px', text: x.verified_by || 'Authorised signatory' })
       ),
       hashGrid(verifyHash),
-      useSocietySeal
-        ? el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
-        : el('img', { src: 'assets/images/culturalCommitteeSeal.svg', alt: 'committee seal', class: 'receipt-committee-seal' })
+      // Same visibility gate as the contribution receipt — hidden by default.
+      ident.showStamp
+        ? (useSocietySeal
+            ? el('img', { src: 'assets/images/TaStampBlue.png', alt: 'society stamp' })
+            : el('img', { src: 'assets/images/culturalCommitteeSeal.svg', alt: 'group seal', class: 'receipt-committee-seal' }))
+        : null
     ),
     el('div', { class: 'receipt-verify' },
       el('div', {}, el('b', { text: 'Verify hash: ' }), el('span', { text: verifyHash })),

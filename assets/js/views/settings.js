@@ -305,7 +305,6 @@ async function renderAttributes(user, canUsersManage) {
   const vm = mergeDeep(structuredClone(soc || {}), structuredClone(draft || {}));
   const templates = state.receiptTemplates() || [];
   const users = state.users() || [];
-  const canThemeOverride = await can(user, 'receipts.theme.override');
   const roleCfg = await cfg.roles();
   const roleDefs = ((roleCfg && roleCfg.hierarchy) || [])
     .map(r => ({ id: String(r.id || '').trim().toLowerCase(), label: String(r.label || r.id || '').trim() }))
@@ -503,6 +502,14 @@ async function renderAttributes(user, canUsersManage) {
     placeholder: 'TA'
   });
 
+  const showStampCur = !!(vm.receipts && vm.receipts.show_stamp === true);
+  const selShowStamp = el('select', {
+    on: { change: (e) => stageAttr('receipts.show_stamp', e.target.value === '1') }
+  },
+    el('option', { value: '0', text: 'Hidden — no seal on generated receipts (default)', selected: !showStampCur }),
+    el('option', { value: '1', text: 'Visible — print the group seal on every receipt',   selected:  showStampCur })
+  );
+
   /* --- Receipts archive template controls (TSH-style) ---
    * Wires perReceiptPath + rollup + language + theme so operators can
    * tune the archive layout without a code change. All values persist
@@ -570,13 +577,9 @@ async function renderAttributes(user, canUsersManage) {
     el('option', { value: 'hindi',    text: 'Hindi — पो. 411045',      selected: rcfg.seal_language === 'hindi' })
   );
 
-  const selTheme = el('select', {
-    on: { change: (e) => stageAttr('receipts.default_theme', e.target.value, { silent: true }) }
-  },
-    el('option', { value: 'default',           text: 'Default — Community Warmth · A4 portrait',      selected: (rcfg.default_theme || 'default') === 'default' }),
-    el('option', { value: 'cheque-classic',    text: 'Cheque Classic — blue grid · A5 landscape',      selected: rcfg.default_theme === 'cheque-classic' }),
-    el('option', { value: 'certificate-brand', text: 'Certificate Brand — indigo + gold · A4 landscape', selected: rcfg.default_theme === 'certificate-brand' })
-  );
+  // Single canonical receipt template — the theme picker was retired so
+  // downloads always match the on-screen view. `receipts.default_theme`
+  // is left in society.json as "default" for forward compatibility.
 
   /* --- Dashboard sub-panel --- */
   const recentN = Number((vm.dashboard && vm.dashboard.recent_n != null) ? vm.dashboard.recent_n : 0);
@@ -987,14 +990,14 @@ async function renderAttributes(user, canUsersManage) {
         el('div', { style: 'margin-top:6px' }, el('small', { class: 'sub', text: 'Example preview: ' }), previewRollupPath)
       )),
       row('Seal language (default for downloads)', 'Language used for the verified-contribution rubber stamp. Managers see only this default; residents can NOT override per download.', selSealLang),
-      canThemeOverride
-        ? row('Receipt theme (default for downloads)', 'Visual layout used when a resident downloads a receipt. Only Admin, Secretary and Management Committee can pick the theme; below-secretary roles inherit whatever is selected here.', selTheme)
-        : null,
+      // Theme picker retired — the single canonical template is always used.
+      null,
     ),
     panel('Receipts',
       'Active template drives what the printable receipt looks like. Manage templates in the Receipt templates tab.',
       row('Active template', 'Only one template is active at a time. Falls back to the shipped default when nothing is selected.', tplSelect),
       row('Receipt ID prefix', 'Leading token in every receipt ID (e.g. "TA-DONATION-2026-…").', inpPrefix),
+      row('Show stamp on receipts', 'Print the round rubber-stamp seal on generated receipts. Hidden by default — turn on only after a Group-labelled seal image is in place. The shipped seal PNG still reads "Cultural Committee" so this must stay off until the asset is refreshed.', selShowStamp),
     ),
     panel('Dashboard',
       'How the home screen surfaces information.',
