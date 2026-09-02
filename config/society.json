@@ -21,7 +21,11 @@
     "watermark_asset": "assets/images/TaStampBlueOverlay.png",
     "stamp_asset": "assets/images/TaStampBlue.png",
     "use_society_seal": false,
-    "committee_name": "Ganesh Utsav Cultural Committee",
+    "show_stamp": false,
+    "default_theme": "default",
+    "group_name": "Ganesh Utsav Cultural Group",
+    "group_subtitle": "The Address Society Residents",
+    "committee_name": "Ganesh Utsav Cultural Group",
     "committee_subtitle": "The Address Society Residents",
     "show_society_header": false,
     "archive": {
