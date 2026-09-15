@@ -70,7 +70,7 @@ export function modal({ title, body, actions }) {
     ),
     el('div', { class: 'modal-body' }, body),
     actions ? el('div', { class: 'modal-foot' }, ...actions.map(a => a.close ? el('button', { class: 'btn btn-ghost', on: { click: close } }, a.label) :
-      el('button', { class: `btn ${a.kind || ''}`, on: { click: () => { if (a.onClick) a.onClick(close); } } }, a.label))) : null
+      el('button', { class: `btn ${a.kind || ''}`, on: { click: (ev) => { if (a.onClick) a.onClick(close, ev.currentTarget); } } }, a.label))) : null
   );
   back.append(box);
   back.addEventListener('click', (e) => { if (e.target === back) close(); });

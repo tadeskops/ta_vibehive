@@ -1435,7 +1435,7 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
     body,
     actions: [
       { label: 'Cancel', close: true },
-      { label: isEdit ? 'Save' : (willBePending ? 'Submit for verification' : 'Add expense'), kind: '', onClick: (close) => {
+      { label: isEdit ? 'Save' : (willBePending ? 'Submit for verification' : 'Add expense'), kind: '', onClick: async (close, btn) => {
         const amount = Number(inpAmount.value);
         if (!(amount > 0)) { toast('Amount must be a positive number.', 'err'); return; }
         const catPick = String(selCategory.value || '').trim();
@@ -1471,126 +1471,119 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
         // fields for older readers that still look for proof_data_url.
         const proofsCopy = proofs.map(p => ({ data_url: p.data_url, name: p.name, size: p.size }));
         const legacyProof = proofsCopy[0] || { data_url: '', name: '', size: 0 };
-        const list = state.expenses();
         const nowIso = new Date().toISOString();
-        if (isEdit) {
-          const rec = list.find(x => x && x.id === existing.id);
-          if (rec) {
-            rec.amount = amount;
-            rec.category = category;
-            rec.description = description;
-            rec.receipt_url = receipt_url || '';
-            rec.submitter_name = submitter_name;
-            rec.submitter_flat = submitter_flat;
-            rec.submitter_phone = submitter_phone;
-            rec.flat = submitter_flat; // pivot key mirrored for query
-            rec.on_behalf = on_behalf;
-            rec.filled_by_email = on_behalf ? (user && user.email || null) : null;
-            rec.filled_by_name  = on_behalf ? (user && user.name  || null) : null;
-            rec.proofs = proofsCopy;
-            rec.proof_data_url = legacyProof.data_url;
-            rec.proof_name = legacyProof.name;
-            rec.proof_size = legacyProof.size;
-            rec.visible_to_residents = !!cbVisible.checked;
-            rec.updated_at = nowIso;
+
+        /* Persist and RETURN whether the server confirmed. The whole
+         * action runs inside withSavingRing so the submit button shows
+         * an inline spinner and the floating progress ring surfaces the
+         * "Submitting expense…" label — both clear exactly when the
+         * server responds. We only push the row into local state AFTER
+         * the server confirms, so a failed POST can no longer masquerade
+         * as success (the old fire-and-forget path stranded the expense
+         * on one device because sync.js is pull-only and never re-POSTs
+         * a local-only row). */
+        const persist = async () => {
+          if (isEdit) {
+            const list = state.expenses();
+            const rec = list.find(x => x && x.id === existing.id);
+            if (!rec) { toast('This expense no longer exists — reopen and try again.', 'err'); return false; }
+            const patch = {
+              amount,
+              category,
+              description,
+              receipt_url: receipt_url || '',
+              submitter_name,
+              submitter_flat,
+              submitter_phone,
+              flat: submitter_flat,
+              on_behalf,
+              filled_by_email: on_behalf ? (user && user.email || null) : null,
+              filled_by_name: on_behalf ? (user && user.name || null) : null,
+              proofs: proofsCopy,
+              visible_to_residents: !!cbVisible.checked,
+            };
+            // Server is the source of truth: confirm the PUT before we
+            // mutate local state. A row with no _path is a legacy/local-
+            // only record, so there is nothing to reconcile server-side.
+            if (rec._path) {
+              try {
+                await updateExpense(rec._path, patch);
+              } catch (e) {
+                console.warn('[expense edit] server PUT failed', e);
+                toast('Couldn\u2019t save changes to the server. Check your connection and try again.', 'err');
+                return false;
+              }
+            }
+            Object.assign(rec, patch, {
+              proof_data_url: legacyProof.data_url,
+              proof_name: legacyProof.name,
+              proof_size: legacyProof.size,
+              updated_at: nowIso,
+            });
             state.saveExpenses(list);
             state.audit({ actor: user && user.email || null, action: 'expense.update', expense: rec.id, event: rec.event_id, amount });
-            toast('Expense updated.', 'ok');
-            if (rec._path) {
-              updateExpense(rec._path, {
-                amount,
-                category,
-                description,
-                receipt_url: receipt_url || '',
-                submitter_name,
-                submitter_flat,
-                submitter_phone,
-                flat: submitter_flat,
-                on_behalf,
-                filled_by_email: rec.filled_by_email,
-                filled_by_name: rec.filled_by_name,
-                proofs: proofsCopy,
-                visible_to_residents: !!cbVisible.checked,
-              }).catch((e) => {
-                console.warn('[expense edit] server PUT failed; row will re-sync', e);
-              });
-            }
+            toast('Expense updated \u2713', 'ok');
+            return true;
           }
-        } else {
+
           const initialStatus = willBePending ? 'pending' : 'verified';
-          const optimistic = {
-            id: 'exp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
-            event_id: eventId,
-            amount,
-            category,
-            description,
-            receipt_url: receipt_url || '',
-            submitter_name,
-            submitter_flat,
-            submitter_phone,
-            flat: submitter_flat,
-            on_behalf,
-            filled_by_email: on_behalf ? (user && user.email || null) : null,
-            filled_by_name:  on_behalf ? (user && user.name  || null) : null,
+          let res;
+          try {
+            res = await createExpense({
+              event_id: eventId,
+              amount,
+              category,
+              description,
+              receipt_url: receipt_url || '',
+              submitter_name,
+              submitter_flat,
+              submitter_phone,
+              flat: submitter_flat,
+              on_behalf,
+              filled_by_email: on_behalf ? (user && user.email || null) : null,
+              filled_by_name:  on_behalf ? (user && user.name  || null) : null,
+              proofs: proofsCopy,
+              visible_to_residents: !!cbVisible.checked,
+              status: initialStatus,
+            });
+          } catch (e) {
+            console.warn('[expense] server POST failed', e);
+            toast('Couldn\u2019t submit the expense — check your connection and try again.', 'err');
+            return false;
+          }
+          if (!res || !res.expense) {
+            toast('Submission failed — the server did not confirm. Please try again.', 'err');
+            return false;
+          }
+          // Adopt the server-authoritative record (id, created_at,
+          // created_by, _path) and keep the locally-decoded proof blobs
+          // as a safety net for older worker builds that strip them.
+          const rec = {
+            ...res.expense,
+            _path: res.path || res.expense._path,
             proofs: proofsCopy,
             proof_data_url: legacyProof.data_url,
             proof_name: legacyProof.name,
             proof_size: legacyProof.size,
-            visible_to_residents: !!cbVisible.checked,
-            status: initialStatus,
-            created_at: nowIso,
-            created_by: user && (user.email || user.id) || 'unknown',
-            updated_at: nowIso,
-            verified_at: initialStatus === 'verified' ? nowIso : null,
-            verified_by: initialStatus === 'verified' ? (user && (user.email || user.id) || 'unknown') : null,
           };
-          list.push(optimistic);
+          const list = state.expenses();
+          list.push(rec);
           state.saveExpenses(list);
-          state.audit({ actor: user && user.email || null, action: initialStatus === 'verified' ? 'expense.create' : 'expense.submit', expense: optimistic.id, event: eventId, amount });
-          toast(initialStatus === 'verified' ? 'Expense recorded.' : 'Expense submitted for verification.', 'ok');
-          // Fire-and-forget POST — server row is the source of truth
-          // so moderators on any device see the same expense with all
-          // attachments. Proofs travel too (max 5 × 700 KB) so verify
-          // works end-to-end from a different device.
-          createExpense({
-            event_id: eventId,
-            amount,
-            category,
-            description,
-            receipt_url: receipt_url || '',
-            submitter_name,
-            submitter_flat,
-            submitter_phone,
-            flat: submitter_flat,
-            on_behalf,
-            filled_by_email: optimistic.filled_by_email,
-            filled_by_name:  optimistic.filled_by_name,
-            proofs: proofsCopy,
-            visible_to_residents: !!cbVisible.checked,
-            status: initialStatus,
-          }).then((res) => {
-            if (!res || !res.expense) return;
-            const list2 = state.expenses();
-            const idx = list2.findIndex((x) => x && x.id === optimistic.id);
-            if (idx < 0) return;
-            list2[idx] = {
-              ...list2[idx],
-              ...res.expense,
-              _path: res.path,
-              // Keep locally-decoded proof array — server may not echo
-              // it back verbatim (older worker builds).
-              proofs: optimistic.proofs,
-              proof_data_url: optimistic.proof_data_url,
-              proof_name: optimistic.proof_name,
-              proof_size: optimistic.proof_size,
-            };
-            state.saveExpenses(list2);
-          }).catch((e) => {
-            console.warn('[expense] server POST failed; row stays local until next sync', e);
-          });
+          state.audit({ actor: user && user.email || null, action: initialStatus === 'verified' ? 'expense.create' : 'expense.submit', expense: rec.id, event: eventId, amount });
+          toast(initialStatus === 'verified' ? 'Expense recorded \u2713' : 'Expense submitted for verification \u2713', 'ok');
+          return true;
+        };
+
+        const ok = await withSavingRing(btn, persist, {
+          savingLabel: isEdit ? 'Saving…' : 'Submitting…',
+          busyLabel: isEdit ? 'Saving expense…' : 'Submitting expense…',
+        });
+        // Keep the dialog open on failure so the user can retry without
+        // re-entering everything; only close + refresh on confirmed success.
+        if (ok) {
+          close();
+          if (typeof onDone === 'function') onDone();
         }
-        close();
-        if (typeof onDone === 'function') onDone();
       } }
     ]
   });
