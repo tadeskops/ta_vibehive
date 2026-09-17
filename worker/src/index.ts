@@ -33,8 +33,8 @@ export default {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return preflight(env, req);
 
-    if (url.pathname === '/' || url.pathname === '/healthz') {
-      return ok(env, req, { ok: true, name: 'tvh-worker', version: '0.1.0' });
+    if (url.pathname === '/' || url.pathname === '/healthz' || url.pathname === '/version') {
+      return ok(env, req, { ok: true, name: 'tvh-worker', version: env.WORKER_VERSION || 'dev' });
     }
 
     try {

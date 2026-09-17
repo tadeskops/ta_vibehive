@@ -1034,21 +1034,29 @@ async function approveExpense(r, evt, user, caps) {
   });
   if (comment === null) return;
   const nowIso = new Date().toISOString();
-  rec.status = 'approved';
-  rec.approved_at = nowIso;
-  rec.approved_by = user && (user.email || user.id) || 'unknown';
-  if (comment) rec.approved_comment = comment;
-  rec.updated_at = nowIso;
+  const patch = {
+    status: 'approved',
+    approved_at: nowIso,
+    approved_by: user && (user.email || user.id) || 'unknown',
+    approved_comment: comment || '',
+  };
+  // Confirm the server write BEFORE flipping local state. The PUT is
+  // the source of truth; boot-sync overwrites local with the server
+  // copy, so an un-awaited/failed write would silently revert the
+  // approval on the next load (the "admin accepts but nothing updates"
+  // bug). A legacy row without _path is local-only — nothing to sync.
+  if (rec._path) {
+    try {
+      await updateExpense(rec._path, patch);
+    } catch (e) {
+      console.warn('[expense approve] server PUT failed', e);
+      toast('Couldn\u2019t save the approval to the server. Check your connection and try again.', 'err');
+      return;
+    }
+  }
+  Object.assign(rec, patch, { updated_at: nowIso });
   state.saveExpenses(list);
   state.audit({ actor: user && user.email || null, action: 'expense.approve', expense: rec.id, event: evt.id, amount: rec.amount, comment: comment || undefined });
-  if (rec._path) {
-    updateExpense(rec._path, {
-      status: 'approved',
-      approved_at: rec.approved_at,
-      approved_by: rec.approved_by,
-      approved_comment: rec.approved_comment || '',
-    }).catch((e) => { console.warn('[expense] server approve failed; local flip stands until next sync', e); });
-  }
   toast('Expense approved. Awaiting Finance to record payment.', 'ok');
   renderManage(document.getElementById('main'), evt, user, caps);
 }
@@ -1134,43 +1142,53 @@ async function processExpense(r, evt, user, caps) {
       ),
       actions: [
         { label: 'Cancel', close: true, onClick: () => resolve(null) },
-        { label: 'Mark processed · mint receipt', kind: '', onClick: (close) => {
+        { label: 'Mark processed · mint receipt', kind: '', onClick: async (close, btn) => {
           const txn = String(inpTxn.value || '').trim().slice(0, 64);
           const note = String(inpNote.value || '').trim();
           const nowIso = new Date().toISOString();
           const combinedProofs = Array.isArray(rec.proofs) ? rec.proofs.slice() : [];
           for (const p of extraProofs) combinedProofs.push({ data_url: p.data_url, name: p.name, size: p.size });
-          rec.status = 'verified';
-          rec.processed_at = nowIso;
-          rec.processed_by = user && (user.email || user.id) || 'unknown';
-          if (txn) rec.txn_ref = txn;
-          if (note) rec.processed_comment = note;
-          if (combinedProofs.length) {
-            rec.proofs = combinedProofs.slice(0, 10);
-            const legacy = combinedProofs[0] || {};
+          const processedBy = user && (user.email || user.id) || 'unknown';
+          const trimmedProofs = combinedProofs.slice(0, 10);
+          const patch = {
+            status: 'verified',
+            processed_at: nowIso,
+            processed_by: processedBy,
+            processed_comment: note || '',
+            // Backward-compat: existing consumers read verified_by / verified_at.
+            verified_at: nowIso,
+            verified_by: processedBy,
+            verified_comment: note || '',
+            txn_ref: txn || '',
+            proofs: trimmedProofs,
+          };
+          // Confirm the server write BEFORE flipping local state / closing.
+          // The PUT is the source of truth — boot-sync overwrites local
+          // with the server copy, so an un-awaited/failed write would
+          // silently revert the "verified" flip on the next load. A
+          // legacy row without _path is local-only, nothing to sync.
+          if (rec._path) {
+            const okServer = await withSavingRing(btn, async () => {
+              try {
+                await updateExpense(rec._path, patch);
+                return true;
+              } catch (e) {
+                console.warn('[expense process] server PUT failed', e);
+                toast('Couldn\u2019t record the payment on the server. Check your connection and try again.', 'err');
+                return false;
+              }
+            }, { savingLabel: 'Recording…', busyLabel: 'Recording payment…' });
+            if (!okServer) return; // keep the modal open so the user can retry
+          }
+          Object.assign(rec, patch, { updated_at: nowIso });
+          if (trimmedProofs.length) {
+            const legacy = trimmedProofs[0] || {};
             rec.proof_data_url = legacy.data_url || rec.proof_data_url || '';
             rec.proof_name = legacy.name || rec.proof_name || '';
             rec.proof_size = legacy.size || rec.proof_size || 0;
           }
-          // Backward-compat: existing consumers read verified_by / verified_at.
-          rec.verified_at = nowIso;
-          rec.verified_by = rec.processed_by;
-          if (note) rec.verified_comment = note;
-          rec.updated_at = nowIso;
           state.saveExpenses(list);
           state.audit({ actor: user && user.email || null, action: 'expense.process', expense: rec.id, event: evt.id, amount: rec.amount, comment: note || undefined, detail: txn || undefined });
-          if (rec._path) {
-            updateExpense(rec._path, {
-              status: 'verified',
-              processed_at: rec.processed_at,
-              processed_by: rec.processed_by,
-              processed_comment: rec.processed_comment || '',
-              verified_at: rec.verified_at,
-              verified_by: rec.verified_by,
-              txn_ref: rec.txn_ref || '',
-              proofs: rec.proofs || [],
-            }).catch((e) => { console.warn('[expense] server process failed; local flip stands until next sync', e); });
-          }
           toast('Payment recorded. Receipt is now available to the submitter.', 'ok');
           close();
           resolve(true);
@@ -1189,6 +1207,13 @@ async function verifyExpense(r, evt, user, caps) {
 
 export function openExpenseDialog(evt, user, existing, defaultVisible, statusHint, onDone) {
   const isEdit = !!existing;
+  // Stable idempotency key for this submission attempt. api.js retries
+  // POSTs transparently on cold-start / 5xx; the worker dedups on this
+  // token so a retry (or a manual re-submit after a lost response)
+  // returns the existing row instead of creating a duplicate.
+  const clientToken = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : 'exp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
   const inpAmount = el('input', { type: 'number', min: '0', step: '1', value: existing ? String(existing.amount || '') : '', placeholder: '2500', required: true });
   const inpCategoryOther = el('input', { type: 'text', maxlength: '48', value: '', placeholder: 'Type category (e.g. hall booking)', style: 'margin-top:6px;display:none' });
   const selCategory = el('select', { required: true, 'aria-label': 'Category' });
@@ -1545,6 +1570,7 @@ export function openExpenseDialog(evt, user, existing, defaultVisible, statusHin
               proofs: proofsCopy,
               visible_to_residents: !!cbVisible.checked,
               status: initialStatus,
+              client_token: clientToken,
             });
           } catch (e) {
             console.warn('[expense] server POST failed', e);

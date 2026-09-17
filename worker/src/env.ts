@@ -20,4 +20,11 @@ export interface Env {
 
   /** debug | info | warn | error */
   LOG_LEVEL: string;
+
+  /** Short git SHA injected at deploy time (`wrangler deploy --var
+   *  WORKER_VERSION:<sha>`). Surfaced on the health/version route so CI
+   *  can assert the LIVE worker matches the just-pushed commit — i.e.
+   *  the deploy actually replaced the running isolate and isn't stale.
+   *  Defaults to "dev" locally / in preview. */
+  WORKER_VERSION: string;
 }
