@@ -30,7 +30,7 @@ interface Expense extends Record<string, unknown> {
   id: string;
   event_id: string;
   amount: number;
-  status: 'pending' | 'verified' | 'void';
+  status: 'pending' | 'approved' | 'verified' | 'void';
   category?: string;
   description?: string;
   created_at?: string;
@@ -56,6 +56,44 @@ function newId(): string {
   return `exp-${Date.now().toString(36)}-${rand}`;
 }
 
+// Idempotency lookup: the client attaches a stable `client_token` to
+// each submission and api.js transparently retries POSTs on cold-start
+// / 5xx. Without this, a retry after a write that already succeeded
+// creates a duplicate expense. We scan the current + previous month
+// (a retry lands within seconds, so it shares the created_at month in
+// all but the rarest boundary case) for a record carrying the same
+// token + event, and return it so the retry is a no-op.
+async function findByClientToken(
+  env: Ctx['env'],
+  eventId: string,
+  token: string,
+): Promise<{ data: Expense; path: string; sha: string } | null> {
+  const now = new Date();
+  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const months = [
+    { y: now.getUTCFullYear(), m: String(now.getUTCMonth() + 1).padStart(2, '0') },
+    { y: prev.getUTCFullYear(), m: String(prev.getUTCMonth() + 1).padStart(2, '0') },
+  ];
+  const paths: string[] = [];
+  for (const { y, m } of months) {
+    const entries = await listDir(env, `expenses/${y}/${m}`);
+    for (const e of entries) {
+      if (e.type === 'file' && e.name.endsWith('.json')) paths.push(e.path);
+    }
+  }
+  if (!paths.length) return null;
+  const blobs = await readManyJson<Expense>(env, paths);
+  for (const p of paths) {
+    const doc = blobs.get(p);
+    if (!doc || !doc.data) continue;
+    const d = doc.data as Record<string, unknown>;
+    if (String(d['client_token'] || '') === token && String(d['event_id'] || '') === eventId) {
+      return { data: doc.data, path: p, sha: doc.sha };
+    }
+  }
+  return null;
+}
+
 export async function createExpense(ctx: Ctx): Promise<Response> {
   if (ctx.role === 'anonymous') return err(ctx.env, ctx.req, 'Sign in required', 401);
   let body: { expense?: Partial<Expense> };
@@ -66,6 +104,15 @@ export async function createExpense(ctx: Ctx): Promise<Response> {
   }
   if (!draft.event_id || typeof draft.event_id !== 'string') return err(ctx.env, ctx.req, 'event_id is required', 400);
   if (typeof draft.amount !== 'number' || !(draft.amount > 0)) return err(ctx.env, ctx.req, 'amount must be positive', 400);
+  // Idempotency: a retried POST carries the same client_token. Return
+  // the already-written record as success instead of duplicating it.
+  const clientToken = typeof draft['client_token'] === 'string' ? String(draft['client_token']).trim().slice(0, 80) : '';
+  if (clientToken) {
+    const existing = await findByClientToken(ctx.env, draft.event_id, clientToken);
+    if (existing) {
+      return ok(ctx.env, ctx.req, { expense: existing.data, path: existing.path, sha: existing.sha, idempotent: true });
+    }
+  }
   const nowIso = new Date().toISOString();
   // Committee+ may create rows already in verified status (recording
   // an already-paid expense). Everyone else is forced to pending.
@@ -142,16 +189,25 @@ export async function putExpense(ctx: Ctx, params: Record<string, string>): Prom
     return err(ctx.env, ctx.req, '`expense` must be an object', 400);
   }
   const nowIso = new Date().toISOString();
+  // Committee+ drive the lifecycle here (pending → approved → verified,
+  // or void). The status + its stamps (approved_*, processed_*,
+  // verified_*) ARE mutable via this route — only true provenance
+  // (id, event_id, created_at, created_by) is immutable. Previously
+  // status/verified_* were hard-locked, which silently discarded every
+  // approve/process action and made verification appear to "not save".
+  const ALLOWED_STATUS = new Set(['pending', 'approved', 'verified', 'void']);
+  const nextStatus: Expense['status'] =
+    typeof patch.status === 'string' && ALLOWED_STATUS.has(patch.status)
+      ? (patch.status as Expense['status'])
+      : doc.data.status;
   const updated: Expense = {
     ...doc.data,
     ...patch,
     id: doc.data.id,
     event_id: doc.data.event_id,
-    status: doc.data.status,
     created_at: doc.data.created_at,
     created_by: doc.data.created_by,
-    verified_at: doc.data.verified_at,
-    verified_by: doc.data.verified_by,
+    status: nextStatus,
     updated_at: nowIso,
     updated_by: ctx.identity?.email ?? 'unknown',
   } as Expense;

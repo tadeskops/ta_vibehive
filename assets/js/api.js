@@ -285,8 +285,10 @@ export async function verifyExpenseRemote(expensePath, comment) {
 }
 
 /** Update an existing expense (committee+). Patch payload is merged
- *  on the server; server-controlled fields (id, status, created_by,
- *  verified_*) are preserved. */
+ *  on the server. Committee+ may transition `status` through the
+ *  lifecycle (pending → approved → verified, or void) along with the
+ *  associated stamps; only id / event_id / created_at / created_by are
+ *  immutable. */
 export async function updateExpense(expensePath, patch) {
   const m = String(expensePath || '').match(/expenses\/(\d{4})\/(\d{2})\/([^/]+)\.json$/);
   if (!m) throw new ApiError(400, 'Invalid expense path');

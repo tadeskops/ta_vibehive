@@ -14,17 +14,44 @@ on:
     paths:
       - 'worker/**'
       - '.github/workflows/deploy-worker.yml'
+  pull_request:
+    paths:
+      - 'worker/**'
+      - '.github/workflows/deploy-worker.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: deploy-worker
+  group: deploy-worker-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # PR gate: prove the worker still typechecks and BUNDLES cleanly before
+  # it can ever reach main. Needs no Cloudflare secrets (dry-run never
+  # publishes), so it also runs for fork PRs. Catches the class of
+  # "worker won't deploy" breakage at review time instead of after merge.
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --loglevel=error
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Dry-run worker build (no publish)
+        run: npx wrangler deploy --dry-run --outdir dist
+
   deploy:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -53,10 +80,37 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Publish to Cloudflare Workers
-        run: npx wrangler deploy
+        # Stamp the running isolate with the git SHA so the assertion
+        # below can prove THIS commit is what's actually live (not a
+        # stale isolate from a failed/skipped deploy).
+        run: npx wrangler deploy --var WORKER_VERSION:"${GITHUB_SHA:0:8}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Assert the live worker is this commit
+        # The single sanity check that answers "did the worker actually
+        # update?" A 200 from /healthz only proves SOME worker is up;
+        # this proves the LIVE isolate is the commit we just pushed.
+        # Retries because CF can take a few seconds to swap isolates.
+        env:
+          BASE: https://tvh-worker.tadeskops.workers.dev
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA:0:8}"
+          got=''
+          for i in 1 2 3 4 5 6; do
+            body=$(curl -sS -m 15 "$BASE/version" || true)
+            got=$(printf '%s' "$body" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+            echo "attempt $i: live version=$got want=$SHA"
+            if [ "$got" = "$SHA" ]; then
+              echo "OK worker is live at $SHA"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Worker did NOT update — live version='$got' expected='$SHA'. The deploy is stale; investigate wrangler output above."
+          exit 1
 
       - name: Smoke test deployed worker
         # Fails the run if the just-deployed worker returns anything
