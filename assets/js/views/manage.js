@@ -50,6 +50,21 @@ async function verifyExpenseAction(rec, evt, user) {
   const target = list.find((x) => x && x.id === rec.id);
   if (!target) return false;
   const nowIso = new Date().toISOString();
+  // Confirm the server write BEFORE mutating local state. The remote
+  // record is the source of truth — boot-sync overwrites local with the
+  // server copy, so a failed/un-awaited push would silently revert the
+  // verification on the next load. Legacy rows without _path are
+  // local-only, nothing to reconcile.
+  if (target._path) {
+    try {
+      const { verifyExpenseRemote } = await import('../api.js');
+      await verifyExpenseRemote(target._path, comment);
+    } catch (e) {
+      console.warn('[expense verify] server call failed', e);
+      toast('Couldn\u2019t save the verification to the server. Check your connection and try again.', 'err');
+      return false;
+    }
+  }
   target.status = 'verified';
   target.verified_at = nowIso;
   target.verified_by = user && (user.email || user.id) || 'unknown';
@@ -57,12 +72,6 @@ async function verifyExpenseAction(rec, evt, user) {
   target.updated_at = nowIso;
   state.saveExpenses(list);
   state.audit({ actor: user && user.email || null, action: 'expense.verify', expense: target.id, event: target.event_id, amount: target.amount, comment: comment || undefined });
-  if (target._path) {
-    try {
-      const { verifyExpenseRemote } = await import('../api.js');
-      verifyExpenseRemote(target._path, comment).catch(() => { /* silent */ });
-    } catch (_e) { /* silent */ }
-  }
   try {
     const eventsMod = await import('../events.js');
     if (eventsMod && typeof eventsMod.recordExpenseVerify === 'function') eventsMod.recordExpenseVerify(target, user, comment);
@@ -83,18 +92,23 @@ async function voidContribAction(rec, evt, user) {
   const list = state.contribs();
   const target = list.find((c) => c && c.id === rec.id);
   if (!target) return false;
+  // Confirm the server write BEFORE mutating local state so a failed
+  // push can't masquerade as a voided row that reappears on the next
+  // boot-sync. Legacy rows without _path are local-only.
+  if (target._path) {
+    try {
+      const { voidContributionRemote } = await import('../api.js');
+      await voidContributionRemote(target._path, comment);
+    } catch (e) {
+      console.warn('[contribution void] server call failed', e);
+      toast('Couldn\u2019t save the change to the server. Check your connection and try again.', 'err');
+      return false;
+    }
+  }
   target.status = 'void';
   target.updated_at = new Date().toISOString();
   state.saveContribs(list);
   state.audit({ actor: user && user.email || null, action: 'contribution.void', contrib: target.id, event: target.event, comment: comment || undefined });
-  if (target._path) {
-    try {
-      const { voidContributionRemote } = await import('../api.js');
-      voidContributionRemote(target._path, comment).catch((e) => {
-        console.warn('[contribution void] server call failed; will retry on next sync', e);
-      });
-    } catch (_e) { /* silent */ }
-  }
   toast('Contribution marked invalid.', 'ok');
   return true;
 }
@@ -247,7 +261,7 @@ function openEditContribDialog(c, evt, user, onDone) {
     body,
     actions: [
       { label: 'Cancel', close: true },
-      { label: 'Save changes', kind: '', onClick: async (close) => {
+      { label: 'Save changes', kind: '', onClick: async (close, btn) => {
         const amount = Number(amtInp.value || 0);
         if (!(amount > 0)) { toast('Amount must be positive.', 'err'); return; }
         const nowIso = new Date().toISOString();
@@ -268,7 +282,20 @@ function openEditContribDialog(c, evt, user, onDone) {
             proof_size: Number(draft.proof_size || 0),
           } : {}),
         };
-        try {
+        // Confirm the server write BEFORE mutating local state. On
+        // failure the modal stays open so the admin can retry, and no
+        // false "updated" toast fires.
+        const persist = async () => {
+          if (c._path) {
+            try {
+              const { updateContribution } = await import('../api.js');
+              await updateContribution(c._path, patch);
+            } catch (e) {
+              console.warn('[contribution edit] server PUT failed', e);
+              toast('Couldn\u2019t save changes to the server. Check your connection and try again.', 'err');
+              return false;
+            }
+          }
           const arr = state.contribs();
           const rec = arr.find((x) => x && x.id === c.id);
           if (rec) {
@@ -282,18 +309,14 @@ function openEditContribDialog(c, evt, user, onDone) {
             state.saveContribs(arr);
             state.audit({ actor: user && user.email || null, action: 'contribution.edit', contrib: rec.id, event: rec.event, detail: `by ${user && user.email || 'admin'}` });
           }
-        } catch (_e) { /* silent */ }
-        if (c._path) {
-          try {
-            const { updateContribution } = await import('../api.js');
-            updateContribution(c._path, patch).catch((e) => {
-              console.warn('[contribution edit] server PUT failed; row will re-sync', e);
-            });
-          } catch (_e) { /* silent */ }
+          toast('Contribution updated.', 'ok');
+          return true;
+        };
+        const ok = await withSavingRing(btn, persist, { savingLabel: 'Saving…', busyLabel: 'Saving contribution…' });
+        if (ok) {
+          close();
+          if (typeof onDone === 'function') onDone();
         }
-        close();
-        toast('Contribution updated.', 'ok');
-        if (typeof onDone === 'function') onDone();
       } },
     ],
   });

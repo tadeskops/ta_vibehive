@@ -1621,17 +1621,32 @@ function confirmDeleteExpense(r, evt, user, caps) {
     body: el('p', { text: `This removes ${fmtINR(r.amount)} · ${r.category || 'expense'} from the event ledger. The audit trail keeps a record. This action cannot be undone.` }),
     actions: [
       { label: 'Cancel', close: true },
-      { label: 'Delete', kind: 'btn-emerg', onClick: (close) => {
-        const list = state.expenses().filter(x => x && x.id !== r.id);
-        state.saveExpenses(list);
-        state.audit({ actor: user && user.email || null, action: 'expense.delete', expense: r.id, event: evt.id, amount: r.amount });
-        if (r._path) {
-          deleteExpenseRemote(r._path).catch((e) => {
-            console.warn('[expense delete] server DELETE failed; row will re-sync', e);
-          });
+      { label: 'Delete', kind: 'btn-emerg', onClick: async (close, btn) => {
+        // Confirm the server DELETE before removing the row locally. A
+        // failed/un-awaited delete used to strand the row: sync.js would
+        // re-hydrate it on the next load while the user was told it was
+        // "removed". On failure the modal stays open for retry.
+        const persist = async () => {
+          if (r._path) {
+            try {
+              await deleteExpenseRemote(r._path);
+            } catch (e) {
+              console.warn('[expense delete] server DELETE failed', e);
+              toast('Couldn\u2019t remove the expense on the server. Check your connection and try again.', 'err');
+              return false;
+            }
+          }
+          const list = state.expenses().filter(x => x && x.id !== r.id);
+          state.saveExpenses(list);
+          state.audit({ actor: user && user.email || null, action: 'expense.delete', expense: r.id, event: evt.id, amount: r.amount });
+          toast('Expense removed.', 'ok');
+          return true;
+        };
+        const ok = await withSavingRing(btn, persist, { savingLabel: 'Removing\u2026', busyLabel: 'Removing expense\u2026' });
+        if (ok) {
+          close();
+          renderManage(document.getElementById('main'), evt, user, caps);
         }
-        close(); toast('Expense removed.', 'ok');
-        renderManage(document.getElementById('main'), evt, user, caps);
       } }
     ]
   });
