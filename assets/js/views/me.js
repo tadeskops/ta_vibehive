@@ -15,6 +15,7 @@
 import { el, mount, fmtDate, fmtINR } from '../dom.js';
 import { session } from '../auth.js';
 import { state } from '../store.js';
+import { syncFromWorker } from '../sync.js';
 
 function normEmail(v) { return String(v || '').trim().toLowerCase(); }
 
@@ -76,6 +77,14 @@ export async function render(root) {
     ));
   }
 
+  // Draw the cached view immediately, then pull the latest verify/void
+  // status from the worker — otherwise a committee action taken on
+  // another device (or in the Manage view) doesn't show here until the
+  // next 60s auto-sync tick.
+  draw();
+  syncFromWorker().then(draw).catch(() => { /* cache render is the fallback */ });
+
+  function draw() {
   const eventsById = new Map(state.events().map(e => [e.id, e]));
   const contribs = state.contribs()
     .filter(c => ownsContribution(c, user))
@@ -166,6 +175,7 @@ export async function render(root) {
   );
 
   mount(root, hero, contribSection, expenseSection);
+  }
 }
 
 /* Local proof-viewer used by the "Your submitted expenses" table.
